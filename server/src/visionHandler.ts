@@ -28,13 +28,13 @@ const CATEGORY_LIST = [
   'Other',
 ];
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
 export async function extractReceiptLineItems(
   imageBuffer: Buffer,
   originalName?: string
 ): Promise<ScannedReceiptData> {
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
   if (!OPENAI_API_KEY) {
+    console.error('OPENAI_API_KEY not set');
     return fallback();
   }
 
@@ -113,7 +113,8 @@ Rules:
     });
 
     if (!response.ok) {
-      console.error('OpenAI error:', response.status, await response.text());
+      const errText = await response.text();
+      console.error('OpenAI error:', response.status, errText);
       return fallback();
     }
 
@@ -121,7 +122,10 @@ Rules:
       choices?: { message?: { content?: string } }[];
     };
     const content = data.choices?.[0]?.message?.content;
-    if (!content) return fallback();
+    if (!content) {
+      console.error('OpenAI returned no content:', JSON.stringify(data));
+      return fallback();
+    }
 
     let clean = content.trim();
     if (clean.startsWith('```')) {
