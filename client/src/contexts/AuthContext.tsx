@@ -25,9 +25,11 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
+
 export function useAuthFetch() {
   return useCallback(
-    (url: string, options: RequestInit = {}) => fetch(url, options),
+    (url: string, options: RequestInit = {}) => fetch(`${API_BASE}${url}`, options),
     []
   );
 }
