@@ -62,7 +62,7 @@ export async function sendReceiptEmail(payload: ShareReceiptPayload): Promise<vo
   await resend.emails.send({
     from: FROM,
     to,
-    replyTo,
+    reply_to: replyTo,
     subject: `Receipt from ${storeName} — $${total.toFixed(2)}`,
     html,
   });
@@ -120,7 +120,7 @@ export async function sendExportEmail(payload: ExportEmailPayload): Promise<void
   await resend.emails.send({
     from: FROM,
     to,
-    replyTo,
+    reply_to: replyTo,
     subject: `Expense Report — ${year}`,
     html,
     attachments: [

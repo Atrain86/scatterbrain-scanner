@@ -140,7 +140,7 @@ Rules:
           description: String(item.description).trim(),
           amount: parseFloat(String(item.amount)) || 0,
         }));
-      if (lineItems.length === 0) lineItems = null;
+      if (lineItems!.length === 0) lineItems = null;
     }
 
     const suggestedCategory = CATEGORY_LIST.includes(parsed.suggestedCategory)
