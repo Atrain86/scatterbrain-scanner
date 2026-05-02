@@ -56,11 +56,17 @@ export async function extractReceiptLineItems(
           .jpeg({ quality: 50 })
           .toBuffer()
       : compressed;
-  } catch {
+
+    console.log(`Image compressed: ${finalBuffer.length} bytes`);
+  } catch (sharpErr) {
+    console.warn('sharp compression failed, using original buffer:', (sharpErr as Error).message);
+    finalBuffer = imageBuffer;
     const ext = (originalName || '').toLowerCase();
     if (ext.endsWith('.png')) mimeType = 'image/png';
     else if (ext.endsWith('.webp')) mimeType = 'image/webp';
   }
+
+  console.log(`Sending ${finalBuffer.length} bytes to OpenAI as ${mimeType}`);
 
   const imageBase64 = finalBuffer.toString('base64');
 
