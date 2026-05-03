@@ -113,11 +113,11 @@ export default function ReceiptLibrary() {
     <div className="min-h-screen bg-sb-bg flex flex-col">
 
       {/* ── Logo header ── */}
-      <header className="flex flex-col items-center pt-6 pb-2 safe-top">
+      <header className="flex flex-col items-center pt-12 pb-4 safe-top">
         <img
           src="/logo.png"
           alt="Scatterbrain"
-          className="h-24 w-auto"
+          className="h-48 w-auto"
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
         />
       </header>

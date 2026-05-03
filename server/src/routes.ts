@@ -39,11 +39,18 @@ router.post('/receipts', upload.single('receipt'), async (req: Request, res: Res
 
   if (req.file) {
     try {
-      const uploaded = await uploadReceiptImage(req.file.buffer, req.file.originalname, 1);
-      imagePath = uploaded.key;
-      imageUrl = uploaded.url;
+      if (process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID) {
+        const uploaded = await uploadReceiptImage(req.file.buffer, req.file.originalname, 1);
+        imagePath = uploaded.key;
+        imageUrl = uploaded.url;
+      } else {
+        // No R2 configured — store as base64 data URL directly in DB
+        const mime = req.file.mimetype || 'image/jpeg';
+        imageUrl = `data:${mime};base64,${req.file.buffer.toString('base64')}`;
+        imagePath = 'base64';
+      }
     } catch (err) {
-      console.error('Image upload failed:', err);
+      console.error('Image storage failed:', err);
     }
   }
 

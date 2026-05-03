@@ -60,6 +60,12 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
     : computeReceiptTotals(lineItems, selected);
 
   function handleSave() {
+    // Only save the items the user selected (plus tax lines)
+    const selectedItems = lineItems.filter((item, i) =>
+      isTaxLine(item.description) ? false : selected.has(i)
+    );
+    const taxLines = lineItems.filter(i => isTaxLine(i.description));
+
     onSave({
       storeName,
       receiptDate,
@@ -67,7 +73,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
       taxAmount: totals.totalTax,
       total: totals.total,
       category,
-      lineItems: JSON.stringify(lineItems),
+      lineItems: JSON.stringify([...selectedItems, ...taxLines]),
       taxLines: JSON.stringify(totals.proportionalTaxes),
     });
   }
