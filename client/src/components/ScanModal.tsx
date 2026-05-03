@@ -77,7 +77,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-sb-border safe-top">
         <h2 className="text-lg font-semibold text-white">
-          {step === 'pick'     ? 'Scan Receipt' :
+          {step === 'pick'     ? 'Scan' :
            step === 'scanning' ? 'Scanning…'    :
            step === 'select'   ? 'Select Items'  :
            'Saving…'}
