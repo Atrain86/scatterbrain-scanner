@@ -109,6 +109,15 @@ export default function ReceiptLibrary() {
     queryClient.invalidateQueries({ queryKey: ['receipts'] });
   }
 
+  async function onReEdit(id: number, updates: { lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number }) {
+    await authFetch(`/api/receipts/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    queryClient.invalidateQueries({ queryKey: ['receipts'] });
+  }
+
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
 
@@ -123,7 +132,7 @@ export default function ReceiptLibrary() {
       </header>
 
       {/* ── Main content ── */}
-      <main className="flex-1 px-3 pt-2 pb-36 space-y-2 overflow-y-auto">
+      <main className="flex-1 px-3 pt-2 pb-48 space-y-2 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
@@ -154,7 +163,7 @@ export default function ReceiptLibrary() {
               </div>
             ) : (
               filtered.map(receipt => (
-                <ReceiptCard key={receipt.id} receipt={receipt} onDelete={onDelete} onUpdateCategory={onUpdateCategory} />
+                <ReceiptCard key={receipt.id} receipt={receipt} onDelete={onDelete} onUpdateCategory={onUpdateCategory} onReEdit={onReEdit} />
               ))
             )}
           </div>
@@ -170,14 +179,14 @@ export default function ReceiptLibrary() {
               </span>
             </div>
             {receipts.map(receipt => (
-              <ReceiptCard key={receipt.id} receipt={receipt} onDelete={onDelete} onUpdateCategory={onUpdateCategory} />
+              <ReceiptCard key={receipt.id} receipt={receipt} onDelete={onDelete} onUpdateCategory={onUpdateCategory} onReEdit={onReEdit} />
             ))}
           </>
         )}
       </main>
 
       {/* ── Bottom search bar — sits above nav ── */}
-      <div className="fixed bottom-[52px] left-0 right-0 z-20 bg-sb-bg/95 backdrop-blur-sm border-t border-sb-border px-3 py-2">
+      <div className="fixed bottom-[60px] left-0 right-0 z-20 bg-sb-bg/95 backdrop-blur-sm border-t border-sb-border px-3 py-2">
         {/* Filter pills — shown when filters active or panel open */}
         {showFilters && (
           <div className="space-y-2 mb-2 animate-fade-in">

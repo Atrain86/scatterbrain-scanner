@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { computeReceiptTotals, isTaxLine, fmt } from '../utils/taxCalc';
 import type { ScannedReceiptData, ReceiptLineItem } from '../utils/types';
-import { CATEGORIES } from '../utils/types';
+import { getAllCategories } from '../utils/types';
 
 interface Props {
   scanned: ScannedReceiptData;
@@ -78,7 +78,8 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
     });
   }
 
-  const selectedCategory = CATEGORIES.find(c => c.name === category) ?? CATEGORIES[CATEGORIES.length - 1];
+  const allCategories = getAllCategories();
+  const selectedCategory = allCategories.find(c => c.name === category) ?? allCategories[allCategories.length - 1];
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -124,7 +125,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
 
           {showCategoryPicker && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-sb-card border border-sb-border rounded-xl overflow-hidden z-10 shadow-xl">
-              {CATEGORIES.map(cat => (
+              {allCategories.map(cat => (
                 <button
                   key={cat.name}
                   onClick={() => { setCategory(cat.name); setShowCategoryPicker(false); }}

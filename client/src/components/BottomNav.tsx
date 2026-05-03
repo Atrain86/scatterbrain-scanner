@@ -6,8 +6,8 @@ import { useQueryClient } from '@tanstack/react-query';
 
 const TABS = [
   { to: '/receipts',  icon: Receipt,        label: 'Receipts',  activeColor: '#4ade80' },
-  { to: '/dashboard', icon: BarChart2,       label: 'Dashboard', activeColor: '#60a5fa' },
   { to: '/export',    icon: FileSpreadsheet, label: 'Export',    activeColor: '#f97316' },
+  { to: '/dashboard', icon: BarChart2,       label: 'Dashboard', activeColor: '#60a5fa' },
   { to: '/settings',  icon: Settings,        label: 'Settings',  activeColor: '#94a3b8' },
 ] as const;
 
@@ -24,6 +24,15 @@ export default function BottomNav() {
     <>
       <nav className="fixed bottom-0 left-0 right-0 z-20 bg-sb-bg/95 backdrop-blur-sm border-t border-sb-border safe-bottom">
         <div className="flex items-center justify-around px-1 py-1.5">
+          {/* Scan button — first */}
+          <button
+            onClick={() => setScanOpen(true)}
+            className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-all"
+          >
+            <ScanLine size={20} strokeWidth={1.8} style={{ color: '#ec4899' }} />
+            <span className="text-[9px] font-medium tracking-wide text-white">Scan</span>
+          </button>
+
           {TABS.map(({ to, icon: Icon, label, activeColor }) => (
             <NavLink
               key={to}
@@ -44,15 +53,6 @@ export default function BottomNav() {
               )}
             </NavLink>
           ))}
-
-          {/* Scan button */}
-          <button
-            onClick={() => setScanOpen(true)}
-            className="flex flex-col items-center gap-0.5 px-3 py-1 rounded-lg transition-all"
-          >
-            <ScanLine size={20} strokeWidth={1.8} style={{ color: '#ec4899' }} />
-            <span className="text-[9px] font-medium tracking-wide text-white">Scan</span>
-          </button>
         </div>
       </nav>
 

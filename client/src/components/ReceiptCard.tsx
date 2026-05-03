@@ -1,26 +1,36 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Trash2, Check, Pencil, Share2, Image as ImageIcon } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2, Check, Pencil, Share2, Image as ImageIcon, X } from 'lucide-react';
 import type { Receipt } from '../utils/types';
-import { CATEGORIES, getCategoryColor } from '../utils/types';
-import { isTaxLine } from '../utils/taxCalc';
+import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
+import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
 import { useAuth } from '../contexts/AuthContext';
 import ShareModal from './ShareModal';
+
+interface ReEditUpdates {
+  lineItems: string;
+  taxLines: string;
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+}
 
 interface Props {
   receipt: Receipt;
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, category: string) => void;
+  onReEdit: (id: number, updates: ReEditUpdates) => void;
 }
 
-export default function ReceiptCard({ receipt, onDelete, onUpdateCategory }: Props) {
+export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReEdit }: Props) {
   const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [editingCat, setEditingCat] = useState(false);
   const [imgFullscreen, setImgFullscreen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [reEditOpen, setReEditOpen] = useState(false);
   const catPickerRef = useRef<HTMLDivElement>(null);
 
-  const catColor = getCategoryColor(receipt.category);
+  const catColor = getCategoryColorDynamic(receipt.category);
   const lineItems: { description: string; amount: number }[] = receipt.lineItems
     ? JSON.parse(receipt.lineItems) : [];
   const productItems = lineItems.filter(i => !isTaxLine(i.description));
@@ -63,7 +73,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory }: Pro
 
           {/* Store + date */}
           <div className="flex-1 min-w-0">
-            <p className="text-sb-purple font-bold text-sm leading-tight truncate"
+            <p className="text-white font-bold text-sm leading-tight truncate"
                style={{ fontFamily: "'Poppins', sans-serif" }}>
               {receipt.storeName}
             </p>
@@ -103,7 +113,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory }: Pro
                 className="absolute top-full left-0 mt-1 w-52 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl"
                 style={{ animation: 'fadeIn 120ms ease-out' }}
               >
-                {CATEGORIES.map(cat => (
+                {getAllCategories().map(cat => (
                   <button
                     key={cat.name}
                     onClick={() => pickCategory(cat.name)}
@@ -209,6 +219,17 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory }: Pro
               {receipt.notes && (
                 <p className="text-sb-muted text-xs italic border-t border-sb-border pt-2">{receipt.notes}</p>
               )}
+
+              {/* Edit Items button */}
+              {productItems.length > 0 && (
+                <button
+                  onClick={() => setReEditOpen(true)}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-sb-border text-white/60 text-xs hover:text-white hover:border-sb-muted transition"
+                >
+                  <Pencil size={13} />
+                  Edit Items
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -234,6 +255,178 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory }: Pro
           />
         </div>
       )}
+
+      {/* ── Re-edit modal ── */}
+      {reEditOpen && (
+        <ReEditModal
+          receipt={receipt}
+          lineItems={lineItems}
+          onClose={() => setReEditOpen(false)}
+          onSave={(updates) => {
+            onReEdit(receipt.id, updates);
+            setReEditOpen(false);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+/* ── Inline re-edit modal ── */
+interface ReEditModalProps {
+  receipt: Receipt;
+  lineItems: { description: string; amount: number }[];
+  onClose: () => void;
+  onSave: (updates: ReEditUpdates) => void;
+}
+
+function ReEditModal({ lineItems, onClose, onSave }: ReEditModalProps) {
+  const productItems = lineItems.filter(i => !isTaxLine(i.description));
+  const taxLineItems = lineItems.filter(i =>  isTaxLine(i.description));
+
+  // All product items start selected (they were already saved)
+  const [selected, setSelected] = useState<Set<number>>(() => {
+    const s = new Set<number>();
+    lineItems.forEach((item, i) => { if (!isTaxLine(item.description)) s.add(i); });
+    return s;
+  });
+
+  function toggleItem(index: number) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(index) ? next.delete(index) : next.add(index);
+      return next;
+    });
+  }
+
+  const totals = computeReceiptTotals(lineItems, selected);
+
+  function handleSave() {
+    const selectedItems = lineItems.filter((item, i) =>
+      isTaxLine(item.description) ? false : selected.has(i)
+    );
+    onSave({
+      lineItems: JSON.stringify([...selectedItems, ...taxLineItems]),
+      taxLines: JSON.stringify(totals.proportionalTaxes),
+      subtotal: totals.selectedSubtotal,
+      taxAmount: totals.totalTax,
+      total: totals.total,
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-sb-bg flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-sb-border safe-top">
+        <h2 className="text-white font-semibold text-base">Edit Items</h2>
+        <button onClick={onClose} className="text-sb-muted hover:text-white transition p-1">
+          <X size={20} />
+        </button>
+      </div>
+
+      {/* Item list */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {productItems.length === 0 ? (
+          <p className="text-sb-muted text-sm text-center py-8">No line items to edit.</p>
+        ) : (
+          <div className="bg-sb-card border border-sb-border rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-sb-border">
+              <span className="text-xs text-sb-muted">
+                {selected.size} of {productItems.length} items selected
+              </span>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setSelected(new Set(lineItems.map((_, i) => i).filter(i => !isTaxLine(lineItems[i].description))))}
+                  className="text-xs text-sb-green hover:underline"
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setSelected(new Set())}
+                  className="text-xs text-sb-muted hover:underline"
+                >
+                  None
+                </button>
+              </div>
+            </div>
+
+            <div className="divide-y divide-sb-border">
+              {lineItems.map((item, index) => {
+                if (isTaxLine(item.description)) return null;
+                const checked = selected.has(index);
+                return (
+                  <button
+                    key={index}
+                    onClick={() => toggleItem(index)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-left transition ${
+                      checked ? 'bg-green-950/20' : 'hover:bg-white/5'
+                    }`}
+                  >
+                    <div
+                      className="w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition"
+                      style={{
+                        borderColor: checked ? '#4ade80' : '#555',
+                        backgroundColor: checked ? 'rgba(74,222,128,0.15)' : 'transparent',
+                      }}
+                    >
+                      {checked && <Check size={11} color="#4ade80" strokeWidth={3} />}
+                    </div>
+                    <span className={`flex-1 text-sm ${checked ? 'text-white' : 'text-sb-muted line-through'}`}>
+                      {item.description}
+                    </span>
+                    <span className={`text-sm font-medium ${checked ? 'text-sb-green' : 'text-sb-muted'}`}>
+                      {fmt(item.amount)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Proportional tax summary */}
+        {totals.proportionalTaxes.length > 0 && (
+          <div className="mt-3 bg-sb-card border border-sb-border rounded-xl px-4 py-3 space-y-1.5">
+            <p className="text-xs text-sb-muted mb-2">Proportional Tax</p>
+            {totals.proportionalTaxes.map((t, i) => (
+              <div key={i} className="flex justify-between text-sm">
+                <span className="text-sb-muted">{t.label}</span>
+                <span className="text-white">{fmt(t.amount)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="border-t border-sb-border px-4 py-4 safe-bottom">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-sb-muted">Total</p>
+            <p className="text-2xl font-bold text-sb-green">{fmt(totals.total)}</p>
+            {totals.totalTax > 0 && (
+              <p className="text-xs text-sb-muted">
+                {fmt(totals.selectedSubtotal)} + {fmt(totals.totalTax)} tax
+              </p>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl border border-sb-border text-sb-muted hover:text-white transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={selected.size === 0}
+              className="px-6 py-2.5 rounded-xl bg-sb-green text-black font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-110 transition"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

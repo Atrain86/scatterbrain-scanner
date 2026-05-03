@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Tag, Plus, Trash2, Check, FileSpreadsheet, Cloud, Info } from 'lucide-react';
+import { Tag, Plus, Trash2, Check, FileSpreadsheet, Cloud, Info, MapPin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { CATEGORIES } from '../utils/types';
 import React from 'react';
@@ -16,12 +16,46 @@ const PRESET_COLORS = [
 ];
 
 const STORAGE_KEY = 'sb_custom_categories';
+const TAX_STORAGE_KEY = 'sb_tax_region';
 
 function loadCustomCategories(): CustomCategory[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
+}
+
+interface TaxRegion {
+  province: string;
+  gst: number;
+  pst: number;
+  hst: number;
+  qst: number;
+  vat: number;
+}
+
+const PROVINCES: { name: string; gst: number; pst: number; hst: number; qst: number }[] = [
+  { name: 'Alberta',              gst: 5,    pst: 0,     hst: 0,  qst: 0      },
+  { name: 'British Columbia',     gst: 5,    pst: 7,     hst: 0,  qst: 0      },
+  { name: 'Manitoba',             gst: 5,    pst: 7,     hst: 0,  qst: 0      },
+  { name: 'New Brunswick',        gst: 0,    pst: 0,     hst: 15, qst: 0      },
+  { name: 'Newfoundland',         gst: 0,    pst: 0,     hst: 15, qst: 0      },
+  { name: 'Nova Scotia',          gst: 0,    pst: 0,     hst: 15, qst: 0      },
+  { name: 'Ontario',              gst: 0,    pst: 0,     hst: 13, qst: 0      },
+  { name: 'Prince Edward Island', gst: 0,    pst: 0,     hst: 15, qst: 0      },
+  { name: 'Quebec',               gst: 5,    pst: 0,     hst: 0,  qst: 9.975  },
+  { name: 'Saskatchewan',         gst: 5,    pst: 6,     hst: 0,  qst: 0      },
+  { name: 'Northwest Territories',gst: 5,    pst: 0,     hst: 0,  qst: 0      },
+  { name: 'Nunavut',              gst: 5,    pst: 0,     hst: 0,  qst: 0      },
+  { name: 'Yukon',                gst: 5,    pst: 0,     hst: 0,  qst: 0      },
+  { name: 'Other/International',  gst: 0,    pst: 0,     hst: 0,  qst: 0      },
+];
+
+function loadTaxRegion(): TaxRegion {
+  try {
+    const raw = localStorage.getItem(TAX_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { province: '', gst: 0, pst: 0, hst: 0, qst: 0, vat: 0 };
+  } catch { return { province: '', gst: 0, pst: 0, hst: 0, qst: 0, vat: 0 }; }
 }
 
 export default function SettingsPage() {
@@ -31,6 +65,9 @@ export default function SettingsPage() {
   const [newCatName, setNewCatName]   = useState('');
   const [newCatColor, setNewCatColor] = useState(PRESET_COLORS[0]);
   const [catError, setCatError]       = useState('');
+
+  const [taxRegion, setTaxRegion] = useState<TaxRegion>(loadTaxRegion);
+  const [manualVat, setManualVat] = useState(taxRegion.vat > 0 ? String(taxRegion.vat) : '');
 
   function saveCustomCategories(cats: CustomCategory[]) {
     setCustomCategories(cats);
@@ -52,6 +89,28 @@ export default function SettingsPage() {
 
   function removeCategory(name: string) {
     saveCustomCategories(customCategories.filter(c => c.name !== name));
+  }
+
+  function handleProvinceChange(provinceName: string) {
+    const p = PROVINCES.find(pr => pr.name === provinceName);
+    if (!p) return;
+    const updated: TaxRegion = {
+      province: provinceName,
+      gst: p.gst,
+      pst: p.pst,
+      hst: p.hst,
+      qst: p.qst,
+      vat: provinceName === 'Other/International' ? (parseFloat(manualVat) || 0) : 0,
+    };
+    setTaxRegion(updated);
+    localStorage.setItem(TAX_STORAGE_KEY, JSON.stringify(updated));
+  }
+
+  function handleVatChange(value: string) {
+    setManualVat(value);
+    const updated: TaxRegion = { ...taxRegion, vat: parseFloat(value) || 0 };
+    setTaxRegion(updated);
+    localStorage.setItem(TAX_STORAGE_KEY, JSON.stringify(updated));
   }
 
   return (
@@ -114,6 +173,75 @@ export default function SettingsPage() {
               className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted transition">
               <Plus size={15} /> Add Category
             </button>
+          </div>
+        </Section>
+
+        {/* Tax Settings */}
+        <Section icon={<MapPin size={16} />} title="Tax Settings">
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-sb-muted mb-1.5">Province / Region</label>
+              <select
+                value={taxRegion.province}
+                onChange={e => handleProvinceChange(e.target.value)}
+                className="w-full bg-sb-card2 border border-sb-border rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-sb-green transition"
+              >
+                <option value="" disabled>Select province…</option>
+                {PROVINCES.map(p => (
+                  <option key={p.name} value={p.name}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {taxRegion.province && taxRegion.province !== 'Other/International' && (
+              <div className="bg-sb-card2 border border-sb-border rounded-xl px-3 py-3 space-y-1.5">
+                <p className="text-xs text-sb-muted font-medium mb-2">Tax rates for {taxRegion.province}</p>
+                {taxRegion.hst > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-sb-muted">HST</span>
+                    <span className="text-white font-medium">{taxRegion.hst}%</span>
+                  </div>
+                )}
+                {taxRegion.gst > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-sb-muted">GST</span>
+                    <span className="text-white font-medium">{taxRegion.gst}%</span>
+                  </div>
+                )}
+                {taxRegion.pst > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-sb-muted">PST</span>
+                    <span className="text-white font-medium">{taxRegion.pst}%</span>
+                  </div>
+                )}
+                {taxRegion.qst > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-sb-muted">QST</span>
+                    <span className="text-white font-medium">{taxRegion.qst}%</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {taxRegion.province === 'Other/International' && (
+              <div>
+                <label className="block text-xs text-sb-muted mb-1.5">VAT / Tax Rate (%)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={manualVat}
+                  onChange={e => handleVatChange(e.target.value)}
+                  placeholder="e.g. 20"
+                  className="w-full bg-sb-card2 border border-sb-border rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-sb-green transition"
+                />
+              </div>
+            )}
+
+            <p className="text-xs text-sb-muted">
+              For reference only — proportional tax is calculated from scanned receipt line items.
+            </p>
           </div>
         </Section>
 

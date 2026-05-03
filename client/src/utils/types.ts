@@ -54,3 +54,15 @@ export type CategoryName = typeof CATEGORIES[number]['name'];
 export function getCategoryColor(name: string): string {
   return CATEGORIES.find(c => c.name === name)?.color ?? '#6B7280';
 }
+
+export function getAllCategories(): { name: string; color: string }[] {
+  const builtin = CATEGORIES.map(c => ({ name: c.name, color: c.color }));
+  try {
+    const custom = JSON.parse(localStorage.getItem('sb_custom_categories') || '[]');
+    return [...builtin, ...(Array.isArray(custom) ? custom : [])];
+  } catch { return builtin; }
+}
+
+export function getCategoryColorDynamic(name: string): string {
+  return getAllCategories().find(c => c.name === name)?.color ?? '#6B7280';
+}
