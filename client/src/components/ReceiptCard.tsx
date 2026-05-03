@@ -77,7 +77,14 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                style={{ fontFamily: "'Poppins', sans-serif" }}>
               {receipt.storeName}
             </p>
-            <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
+              {receipt.clientName && (
+                <span className="text-[10px] px-1.5 py-0 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-snug">
+                  {receipt.clientName}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Total */}

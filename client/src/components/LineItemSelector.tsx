@@ -13,6 +13,7 @@ interface Props {
     taxAmount: number;
     total: number;
     category: string;
+    clientName: string;
     lineItems: string;
     taxLines: string;
   }) => void;
@@ -26,6 +27,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
 
   const [storeName, setStoreName] = useState(scanned.vendor || '');
   const [receiptDate, setReceiptDate] = useState(scanned.date || new Date().toISOString().split('T')[0]);
+  const [clientName, setClientName] = useState('');
   const [category, setCategory] = useState(scanned.suggestedCategory || 'Other');
   const [selected, setSelected] = useState<Set<number>>(() => {
     // Default: all product items selected
@@ -73,6 +75,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
       taxAmount: totals.totalTax,
       total: totals.total,
       category,
+      clientName,
       lineItems: JSON.stringify([...selectedItems, ...taxLines]),
       taxLines: JSON.stringify(totals.proportionalTaxes),
     });
@@ -103,6 +106,15 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
               value={receiptDate}
               onChange={e => setReceiptDate(e.target.value)}
               className="w-full bg-transparent text-white border-b border-sb-border pb-1 focus:outline-none focus:border-sb-green transition"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-sb-muted mb-1">Client <span className="opacity-50">(optional)</span></label>
+            <input
+              value={clientName}
+              onChange={e => setClientName(e.target.value)}
+              placeholder="e.g. Smith Renovation"
+              className="w-full bg-transparent text-white border-b border-sb-border pb-1 focus:outline-none focus:border-sb-green transition placeholder-white/30"
             />
           </div>
         </div>

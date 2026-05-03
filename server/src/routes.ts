@@ -27,7 +27,7 @@ router.post('/receipts/scan', upload.single('receipt'), async (req: Request, res
 
 // Save receipt after user confirms line items
 router.post('/receipts', upload.single('receipt'), async (req: Request, res: Response) => {
-  const { storeName, receiptDate, subtotal, taxAmount, total, category, lineItems, taxLines, notes } = req.body;
+  const { storeName, receiptDate, subtotal, taxAmount, total, category, clientName, lineItems, taxLines, notes } = req.body;
 
   if (!storeName || !receiptDate) {
     res.status(400).json({ error: 'storeName and receiptDate are required' });
@@ -61,6 +61,7 @@ router.post('/receipts', upload.single('receipt'), async (req: Request, res: Res
     taxAmount: parseFloat(taxAmount) || 0,
     total: parseFloat(total) || 0,
     category: category || 'Other',
+    clientName: clientName || '',
     lineItems: lineItems || null,
     taxLines: taxLines || null,
     imagePath,
@@ -90,14 +91,16 @@ router.get('/receipts/:id', (req: Request, res: Response) => {
 
 // Update receipt
 router.put('/receipts/:id', (req: Request, res: Response) => {
-  const { storeName, receiptDate, subtotal, taxAmount, total, category, lineItems, taxLines, notes } = req.body;
+  const { storeName, receiptDate, subtotal, taxAmount, total, category, clientName, lineItems, taxLines, notes } = req.body;
   db.update(receipts)
     .set({
       storeName, receiptDate,
       subtotal: parseFloat(subtotal) || 0,
       taxAmount: parseFloat(taxAmount) || 0,
       total: parseFloat(total) || 0,
-      category, lineItems, taxLines, notes,
+      category,
+      clientName: clientName ?? undefined,
+      lineItems, taxLines, notes,
       updatedAt: new Date().toISOString(),
     })
     .where(eq(receipts.id, parseInt(req.params.id)))
@@ -125,10 +128,15 @@ router.delete('/receipts/:id', async (req: Request, res: Response) => {
 
 router.get('/export/download', async (req: Request, res: Response) => {
   const year = parseInt(req.query.year as string) || new Date().getFullYear();
+  const clientFilter = (req.query.client as string | undefined)?.trim() || '';
 
   const allReceipts = db.select().from(receipts)
     .all()
-    .filter(r => r.receiptDate.startsWith(String(year)));
+    .filter(r => {
+      if (!r.receiptDate.startsWith(String(year))) return false;
+      if (clientFilter && (r.clientName || '') !== clientFilter) return false;
+      return true;
+    });
 
   try {
     const { buffer, fileName } = buildExcel(allReceipts, year, '', '');

@@ -25,6 +25,7 @@ export function initDb() {
       tax_amount REAL NOT NULL DEFAULT 0,
       total REAL NOT NULL DEFAULT 0,
       category TEXT NOT NULL DEFAULT 'Other',
+      client_name TEXT DEFAULT '',
       line_items TEXT,
       tax_lines TEXT,
       image_path TEXT,
@@ -34,5 +35,7 @@ export function initDb() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `);
+  // Migrations for existing databases
+  try { sqlite.exec(`ALTER TABLE receipts ADD COLUMN client_name TEXT DEFAULT ''`); } catch {}
   console.log('Database initialized');
 }

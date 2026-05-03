@@ -101,6 +101,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     taxAmount: number;
     total: number;
     category: string;
+    clientName: string;
     lineItems: string;
     taxLines: string;
   }) {

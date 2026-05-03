@@ -10,13 +10,13 @@ export interface TaxLine {
 
 export interface Receipt {
   id: number;
-  userId: number;
   storeName: string;
   receiptDate: string;
   subtotal: number;
   taxAmount: number;
   total: number;
   category: string;
+  clientName: string | null;
   lineItems: string | null; // JSON string
   taxLines: string | null;  // JSON string
   imagePath: string | null;

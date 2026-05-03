@@ -62,13 +62,14 @@ export default function ReceiptLibrary() {
 
       if (search.trim()) {
         const q = search.toLowerCase();
-        const inStore = r.storeName.toLowerCase().includes(q);
-        const inItems = r.lineItems
+        const inStore  = r.storeName.toLowerCase().includes(q);
+        const inClient = (r.clientName || '').toLowerCase().includes(q);
+        const inItems  = r.lineItems
           ? (JSON.parse(r.lineItems) as { description: string }[]).some(i =>
               i.description.toLowerCase().includes(q)
             )
           : false;
-        if (!inStore && !inItems) return false;
+        if (!inStore && !inClient && !inItems) return false;
       }
 
       return true;
@@ -132,7 +133,7 @@ export default function ReceiptLibrary() {
       </header>
 
       {/* ── Main content ── */}
-      <main className="flex-1 px-3 pt-2 pb-48 space-y-2 overflow-y-auto">
+      <main className="flex-1 px-3 pt-2 pb-56 space-y-2 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
@@ -186,7 +187,8 @@ export default function ReceiptLibrary() {
       </main>
 
       {/* ── Bottom search bar — sits above nav ── */}
-      <div className="fixed bottom-[60px] left-0 right-0 z-20 bg-sb-bg/95 backdrop-blur-sm border-t border-sb-border px-3 py-2">
+      <div className="fixed left-0 right-0 z-20 bg-sb-bg/95 backdrop-blur-sm border-t border-sb-border px-3 py-2"
+           style={{ bottom: 'calc(56px + env(safe-area-inset-bottom))' }}>
         {/* Filter pills — shown when filters active or panel open */}
         {showFilters && (
           <div className="space-y-2 mb-2 animate-fade-in">

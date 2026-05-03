@@ -9,6 +9,7 @@ export const receipts = sqliteTable('receipts', {
   taxAmount: real('tax_amount').notNull().default(0),
   total: real('total').notNull().default(0),
   category: text('category').notNull().default('Other'),
+  clientName: text('client_name').default(''),
   lineItems: text('line_items'), // JSON: [{description, amount}]
   taxLines: text('tax_lines'),   // JSON: [{label, amount}]
   imagePath: text('image_path'),
