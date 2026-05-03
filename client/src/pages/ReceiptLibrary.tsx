@@ -112,8 +112,18 @@ export default function ReceiptLibrary() {
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
 
+      {/* ── Logo header ── */}
+      <header className="flex flex-col items-center pt-6 pb-2 safe-top">
+        <img
+          src="/logo.png"
+          alt="Scatterbrain"
+          className="h-24 w-auto"
+          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
+      </header>
+
       {/* ── Main content ── */}
-      <main className="flex-1 px-3 pt-4 pb-36 space-y-2 overflow-y-auto">
+      <main className="flex-1 px-3 pt-2 pb-36 space-y-2 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
@@ -249,19 +259,19 @@ export default function ReceiptLibrary() {
 
 function EmptyState({ onScan }: { onScan: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center px-6">
+    <div className="flex flex-col items-center justify-center min-h-[55vh] text-center px-6">
       <div className="w-16 h-16 rounded-2xl bg-sb-card border border-sb-border flex items-center justify-center mb-5">
         <Receipt size={28} style={{ color: '#ffffff', opacity: 0.3 }} />
       </div>
-      <h2 className="text-white font-bold text-lg mb-1" style={{ fontFamily: "'Poppins', sans-serif" }}>
+      <h2 className="text-white font-bold text-lg mb-2" style={{ fontFamily: "'Poppins', sans-serif" }}>
         No receipts yet
       </h2>
-      <p className="text-white text-sm mb-7 opacity-50">
+      <p className="text-white text-sm mb-8 opacity-50">
         Tap Scan to add your first receipt.
       </p>
       <button
         onClick={onScan}
-        className="px-8 py-3 rounded-xl bg-sb-green text-black font-semibold text-sm hover:brightness-110 transition active:scale-95"
+        className="px-10 py-3 rounded-xl bg-sb-green text-black font-semibold text-sm hover:brightness-110 transition active:scale-95"
       >
         Scan
       </button>
