@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { X, Camera, Image as ImageIcon } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { X, Camera, Image as ImageIcon, Clipboard } from 'lucide-react';
 import { useAuthFetch } from '../contexts/AuthContext';
 import { compressReceiptImage } from '../lib/imageCompression';
 import LineItemSelector from './LineItemSelector';
@@ -12,15 +12,44 @@ interface Props {
 
 type Step = 'pick' | 'scanning' | 'select' | 'saving';
 
+// Detect desktop (non-touch) for showing paste option
+const isDesktop = !('ontouchstart' in window) && window.innerWidth > 768;
+
 export default function ScanModal({ onClose, onSaved }: Props) {
   const authFetch = useAuthFetch();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const pasteZoneRef = useRef<HTMLDivElement>(null);
 
   const [step, setStep] = useState<Step>('pick');
   const [scanned, setScanned] = useState<ScannedReceiptData | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [error, setError] = useState('');
+  const [pasteHighlight, setPasteHighlight] = useState(false);
+
+  // Listen for paste events anywhere in the modal when on pick step
+  useEffect(() => {
+    if (step !== 'pick') return;
+
+    async function handlePaste(e: ClipboardEvent) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            setPasteHighlight(true);
+            setTimeout(() => setPasteHighlight(false), 300);
+            await handleFile(file);
+            return;
+          }
+        }
+      }
+    }
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [step]);
 
   async function handleFile(file: File) {
     setError('');
@@ -44,6 +73,24 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     } catch (err) {
       setError((err as Error).message || 'Could not scan receipt. Try again.');
       setStep('pick');
+    }
+  }
+
+  async function handleClickPaste() {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find(t => t.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const file = new File([blob], 'paste.png', { type: imageType });
+          await handleFile(file);
+          return;
+        }
+      }
+      setError('No image found in clipboard. Copy a screenshot first.');
+    } catch {
+      setError('Paste failed — try Cmd+V (Mac) or Ctrl+V (Windows) anywhere in this window.');
     }
   }
 
@@ -78,8 +125,8 @@ export default function ScanModal({ onClose, onSaved }: Props) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-sb-border safe-top">
         <h2 className="text-lg font-semibold text-white">
           {step === 'pick'     ? 'Scan' :
-           step === 'scanning' ? 'Scanning…'    :
-           step === 'select'   ? 'Select Items'  :
+           step === 'scanning' ? 'Scanning…' :
+           step === 'select'   ? 'Select Items' :
            'Saving…'}
         </h2>
         {step !== 'scanning' && step !== 'saving' && (
@@ -93,7 +140,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
       {step === 'pick' && (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
           {error && (
-            <p className="text-sb-red text-sm bg-red-950/30 border border-red-900/50 rounded-lg px-4 py-3 text-center w-full max-w-xs">
+            <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-lg px-4 py-3 text-center w-full max-w-xs">
               {error}
             </p>
           )}
@@ -104,7 +151,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
           >
             <Camera size={36} className="text-sb-green" />
             <span className="text-white font-semibold">Camera</span>
-            <span className="text-sb-muted text-sm">Take a photo now</span>
+            <span className="text-white text-sm opacity-50">Take a photo now</span>
           </button>
 
           <button
@@ -113,8 +160,25 @@ export default function ScanModal({ onClose, onSaved }: Props) {
           >
             <ImageIcon size={36} className="text-sb-purple" />
             <span className="text-white font-semibold">Photo Library</span>
-            <span className="text-sb-muted text-sm">Choose from camera roll</span>
+            <span className="text-white text-sm opacity-50">Choose from camera roll</span>
           </button>
+
+          {/* Paste from clipboard — desktop only */}
+          {isDesktop && (
+            <div
+              ref={pasteZoneRef}
+              onClick={handleClickPaste}
+              className={`w-full max-w-xs py-5 rounded-2xl border-2 border-dashed flex flex-col items-center gap-3 cursor-pointer transition active:scale-95 ${
+                pasteHighlight
+                  ? 'border-sb-green bg-green-950/30'
+                  : 'border-sb-border bg-sb-card hover:border-blue-400'
+              }`}
+            >
+              <Clipboard size={36} className="text-blue-400" />
+              <span className="text-white font-semibold">Paste Screenshot</span>
+              <span className="text-white text-sm opacity-50">Cmd+V / Ctrl+V anywhere here</span>
+            </div>
+          )}
 
           {/* Hidden inputs */}
           <input
@@ -138,7 +202,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
       {(step === 'scanning' || step === 'saving') && (
         <div className="flex-1 flex flex-col items-center justify-center gap-4">
           <div className="w-12 h-12 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
-          <p className="text-sb-muted text-sm">
+          <p className="text-white opacity-50 text-sm">
             {step === 'scanning' ? 'Reading your receipt…' : 'Saving receipt…'}
           </p>
         </div>
