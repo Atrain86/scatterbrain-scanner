@@ -163,13 +163,20 @@ router.get('/export/download', async (req: Request, res: Response) => {
 
 router.get('/stats', (_req: Request, res: Response) => {
   const logs = db.select().from(scanLogs).all();
-  const totalScans     = logs.length;
-  const successScans   = logs.filter(l => l.success === 1).length;
-  const totalTokens    = logs.reduce((s, l) => s + (l.totalTokens ?? 0), 0);
+
+  // Baseline: 2 real scans (2,354 tokens, $0.01) happened before scan logging
+  // was in place — add them so totals stay in sync with OpenAI dashboard
+  const BASELINE_SCANS   = 2;
+  const BASELINE_TOKENS  = 2354;
+  const BASELINE_COST    = 0.01;
+
+  const totalScans     = logs.length + BASELINE_SCANS;
+  const successScans   = logs.filter(l => l.success === 1).length + BASELINE_SCANS;
+  const totalTokens    = logs.reduce((s, l) => s + (l.totalTokens ?? 0), 0) + BASELINE_TOKENS;
   const promptTokens   = logs.reduce((s, l) => s + (l.promptTokens ?? 0), 0);
   const completionTokens = logs.reduce((s, l) => s + (l.completionTokens ?? 0), 0);
   // gpt-4o pricing: $2.50/1M input, $10/1M output (as of 2025)
-  const estimatedCost  = (promptTokens / 1_000_000) * 2.5 + (completionTokens / 1_000_000) * 10;
+  const estimatedCost  = (promptTokens / 1_000_000) * 2.5 + (completionTokens / 1_000_000) * 10 + BASELINE_COST;
   const receiptCount   = db.select().from(receipts).all().length;
   res.json({
     totalScans, successScans, totalTokens, promptTokens, completionTokens,

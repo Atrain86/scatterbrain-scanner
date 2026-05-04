@@ -11,68 +11,45 @@ interface CustomCategory {
   color: string;
 }
 
-// Full-spectrum color palette (LAB-distributed across all hues)
-const PALETTE_COLORS: { label: string; color: string }[] = [
+// Full-spectrum color palette — displayed as visual circles
+const PALETTE_COLORS: string[] = [
   // Reds
-  { label: 'Crimson',      color: '#DC143C' },
-  { label: 'Red',          color: '#F44747' },
-  { label: 'Coral Red',    color: '#FF4500' },
-  { label: 'Rose',         color: '#E8405A' },
+  '#DC143C', '#F44747', '#FF4500', '#E8405A',
   // Oranges
-  { label: 'Vermilion',    color: '#E34234' },
-  { label: 'Orange',       color: '#E67E22' },
-  { label: 'Amber',        color: '#FF8C00' },
-  { label: 'Tangerine',    color: '#F28500' },
+  '#E67E22', '#FF8C00', '#F28500', '#E34234',
   // Yellows
-  { label: 'Gold',         color: '#F5C518' },
-  { label: 'Yellow',       color: '#eab308' },
-  { label: 'Lemon',        color: '#FDE047' },
-  { label: 'Butter',       color: '#FBBF24' },
+  '#F5C518', '#eab308', '#FDE047', '#FBBF24',
   // Yellow-Greens
-  { label: 'Chartreuse',   color: '#7FBA00' },
-  { label: 'Lime',         color: '#84CC16' },
-  { label: 'Yellow-Green', color: '#6DBF4A' },
+  '#7FBA00', '#84CC16', '#6DBF4A', '#A3E635',
   // Greens
-  { label: 'Mint',         color: '#4ade80' },
-  { label: 'Emerald',      color: '#10B981' },
-  { label: 'Forest',       color: '#16A34A' },
-  { label: 'Sage',         color: '#6B8F71' },
-  { label: 'Olive',        color: '#7C8C3A' },
+  '#4ade80', '#10B981', '#16A34A', '#22C55E',
   // Teals / Cyans
-  { label: 'Teal',         color: '#14B8A6' },
-  { label: 'Cyan',         color: '#4ECDC4' },
-  { label: 'Aqua',         color: '#2DD4BF' },
-  { label: 'Dark Teal',    color: '#0D9488' },
-  { label: 'Sky',          color: '#06B6D4' },
+  '#14B8A6', '#4ECDC4', '#2DD4BF', '#06B6D4',
   // Blues
-  { label: 'Cerulean',     color: '#0C87C1' },
-  { label: 'Cobalt',       color: '#0047AB' },
-  { label: 'Royal Blue',   color: '#4169E1' },
-  { label: 'Blue',         color: '#3B82F6' },
-  { label: 'Steel Blue',   color: '#4682B4' },
-  { label: 'Slate Blue',   color: '#6A7FDB' },
+  '#0C87C1', '#3B82F6', '#4169E1', '#0047AB',
+  '#6A7FDB', '#4682B4',
   // Indigos / Violets
-  { label: 'Indigo',       color: '#6366F1' },
-  { label: 'Periwinkle',   color: '#8B9FE8' },
-  { label: 'Violet',       color: '#7C3AED' },
+  '#6366F1', '#7C3AED', '#8B9FE8',
   // Purples
-  { label: 'Purple',       color: '#a855f7' },
-  { label: 'Plum',         color: '#9B4DCA' },
-  { label: 'Lavender',     color: '#C084FC' },
-  { label: 'Mauve',        color: '#B57BEA' },
+  '#a855f7', '#9B4DCA', '#C084FC', '#B57BEA',
   // Pinks / Magentas
-  { label: 'Fuchsia',      color: '#D946EF' },
-  { label: 'Hot Pink',     color: '#EC4899' },
-  { label: 'Pink',         color: '#F472B6' },
-  { label: 'Raspberry',    color: '#C0296D' },
-  { label: 'Magenta',      color: '#FF00FF' },
+  '#D946EF', '#EC4899', '#F472B6', '#C0296D',
   // Neutrals
-  { label: 'Slate',        color: '#64748B' },
-  { label: 'Gray',         color: '#6B7280' },
-  { label: 'Cool Gray',    color: '#888888' },
-  { label: 'Warm Gray',    color: '#9CA3AF' },
-  { label: 'Charcoal',     color: '#4B5563' },
-  { label: 'Silver',       color: '#A0AEC0' },
+  '#64748B', '#6B7280', '#888888', '#9CA3AF', '#4B5563',
+];
+
+// The 10 default categories — seeded into localStorage on first load
+const DEFAULT_CATEGORIES: CustomCategory[] = [
+  { name: 'Supplies & Materials', color: '#E67E22' },
+  { name: 'Gas & Fuel',           color: '#F44747' },
+  { name: 'Vehicle & Auto',       color: '#0C87C1' },
+  { name: 'Equipment & Tools',    color: '#eab308' },
+  { name: 'Meals & Entertainment',color: '#4ade80' },
+  { name: 'Office Supplies',      color: '#a855f7' },
+  { name: 'Subcontractors',       color: '#4ECDC4' },
+  { name: 'Insurance',            color: '#888888' },
+  { name: 'Phone & Internet',     color: '#2DD4BF' },
+  { name: 'Other',                color: '#6B7280' },
 ];
 
 const STORAGE_KEY = 'sb_custom_categories';
@@ -81,8 +58,11 @@ const TAX_STORAGE_KEY = 'sb_tax_region';
 function loadCustomCategories(): CustomCategory[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+    if (raw) return JSON.parse(raw);
+    // First load — seed with defaults and save
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_CATEGORIES));
+    return DEFAULT_CATEGORIES;
+  } catch { return DEFAULT_CATEGORIES; }
 }
 
 interface TaxRegion {
@@ -140,7 +120,7 @@ export default function SettingsPage() {
 
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>(loadCustomCategories);
   const [newCatName, setNewCatName]   = useState('');
-  const [newCatColor, setNewCatColor] = useState(PALETTE_COLORS[0].color);
+  const [newCatColor, setNewCatColor] = useState(PALETTE_COLORS[0]);
   const [catError, setCatError]       = useState('');
 
   const [taxRegion, setTaxRegion] = useState<TaxRegion>(loadTaxRegion);
@@ -228,21 +208,27 @@ export default function SettingsPage() {
               placeholder="Category name"
               className="sb-input"
             />
-            {/* Color dropdown with swatch preview */}
-            <div className="flex items-center gap-2">
-              <span
-                className="w-7 h-7 rounded-full flex-shrink-0 border border-white/20"
-                style={{ backgroundColor: newCatColor }}
-              />
-              <select
-                value={newCatColor}
-                onChange={e => setNewCatColor(e.target.value)}
-                className="flex-1 bg-sb-card2 border border-sb-border rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-sb-green transition"
-              >
-                {PALETTE_COLORS.map(({ label, color }) => (
-                  <option key={color} value={color}>{label}</option>
+            {/* Visual color grid */}
+            <div>
+              <p className="text-xs text-sb-muted mb-2">
+                Color
+                <span className="ml-2 inline-block w-4 h-4 rounded-full align-middle border border-white/20" style={{ backgroundColor: newCatColor }} />
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {PALETTE_COLORS.map(color => (
+                  <button
+                    key={color}
+                    onClick={() => setNewCatColor(color)}
+                    title={color}
+                    className="w-8 h-8 rounded-full transition hover:scale-110 active:scale-95 flex-shrink-0"
+                    style={{
+                      backgroundColor: color,
+                      outline: newCatColor === color ? '2px solid white' : '2px solid transparent',
+                      outlineOffset: '2px',
+                    }}
+                  />
                 ))}
-              </select>
+              </div>
             </div>
             {catError && <p className="text-red-400 text-xs">{catError}</p>}
             <button
