@@ -3,7 +3,7 @@ import multer from 'multer';
 import { desc } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 import { db } from './db.js';
-import { receipts } from './schema.js';
+import { receipts, scanLogs } from './schema.js';
 import { extractReceiptLineItems } from './visionHandler.js';
 import { uploadReceiptImage, deleteReceiptImage } from './r2.js';
 import { buildExcel } from './excelExport.js';
@@ -18,16 +18,25 @@ router.post('/receipts/scan', upload.single('receipt'), async (req: Request, res
   if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
   try {
     const result = await extractReceiptLineItems(req.file.buffer, req.file.originalname);
+    // Log token usage
+    db.insert(scanLogs).values({
+      promptTokens: result.usage?.promptTokens ?? 0,
+      completionTokens: result.usage?.completionTokens ?? 0,
+      totalTokens: result.usage?.totalTokens ?? 0,
+      model: 'gpt-4o',
+      success: 1,
+    }).run();
     res.json(result);
   } catch (err) {
     console.error('Scan error:', err);
+    db.insert(scanLogs).values({ model: 'gpt-4o', success: 0 }).run();
     res.status(500).json({ error: 'Scan failed' });
   }
 });
 
 // Save receipt after user confirms line items
 router.post('/receipts', upload.single('receipt'), async (req: Request, res: Response) => {
-  const { storeName, receiptDate, subtotal, taxAmount, total, category, clientName, lineItems, taxLines, notes } = req.body;
+  const { storeName, receiptDate, subtotal, taxAmount, total, category, clientName, lineItems, rawLineItems, taxLines, notes } = req.body;
 
   if (!storeName || !receiptDate) {
     res.status(400).json({ error: 'storeName and receiptDate are required' });
@@ -63,6 +72,7 @@ router.post('/receipts', upload.single('receipt'), async (req: Request, res: Res
     category: category || 'Other',
     clientName: clientName || '',
     lineItems: lineItems || null,
+    rawLineItems: rawLineItems || null,
     taxLines: taxLines || null,
     imagePath,
     imageUrl,
@@ -149,13 +159,34 @@ router.get('/export/download', async (req: Request, res: Response) => {
   }
 });
 
+// ── Scan stats ────────────────────────────────────────────────────────────────
+
+router.get('/stats', (_req: Request, res: Response) => {
+  const logs = db.select().from(scanLogs).all();
+  const totalScans     = logs.length;
+  const successScans   = logs.filter(l => l.success === 1).length;
+  const totalTokens    = logs.reduce((s, l) => s + (l.totalTokens ?? 0), 0);
+  const promptTokens   = logs.reduce((s, l) => s + (l.promptTokens ?? 0), 0);
+  const completionTokens = logs.reduce((s, l) => s + (l.completionTokens ?? 0), 0);
+  // gpt-4o pricing: $5/1M input, $15/1M output
+  const estimatedCost  = (promptTokens / 1_000_000) * 5 + (completionTokens / 1_000_000) * 15;
+  const receiptCount   = db.select().from(receipts).all().length;
+  res.json({
+    totalScans, successScans, totalTokens, promptTokens, completionTokens,
+    estimatedCostUSD: Math.round(estimatedCost * 10000) / 10000,
+    receiptCount,
+  });
+});
+
 // ── Health ────────────────────────────────────────────────────────────────────
 
 router.get('/health', (_req: Request, res: Response) => {
+  const receiptCount = db.select().from(receipts).all().length;
   res.json({
     status: 'ok',
     openai: !!process.env.OPENAI_API_KEY,
     r2: !!(process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID),
+    receiptCount,
   });
 });
 

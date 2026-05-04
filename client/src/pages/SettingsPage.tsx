@@ -1,8 +1,11 @@
-import { useState } from 'react';
-import { Tag, Plus, Trash2, Check, FileSpreadsheet, Cloud, Info, MapPin } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Tag, Plus, Trash2, Check, FileSpreadsheet, Cloud, Info, MapPin, Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { CATEGORIES } from '../utils/types';
+import { useAuthFetch } from '../contexts/AuthContext';
 import React from 'react';
+
+export const APP_VERSION = '0.2.0';
 
 interface CustomCategory {
   name: string;
@@ -58,8 +61,25 @@ function loadTaxRegion(): TaxRegion {
   } catch { return { province: '', gst: 0, pst: 0, hst: 0, qst: 0, vat: 0 }; }
 }
 
+interface ScanStats {
+  totalScans: number;
+  successScans: number;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  estimatedCostUSD: number;
+  receiptCount: number;
+}
+
 export default function SettingsPage() {
   const navigate = useNavigate();
+  const authFetch = useAuthFetch();
+
+  const [scanStats, setScanStats] = useState<ScanStats | null>(null);
+
+  useEffect(() => {
+    authFetch('/api/stats').then(r => r.ok ? r.json() : null).then(d => d && setScanStats(d));
+  }, []);
 
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>(loadCustomCategories);
   const [newCatName, setNewCatName]   = useState('');
@@ -265,12 +285,37 @@ export default function SettingsPage() {
           </div>
         </Section>
 
+        {/* API Usage */}
+        <Section icon={<Activity size={16} />} title="API Usage">
+          {scanStats === null ? (
+            <p className="text-sb-muted text-xs">Loading…</p>
+          ) : (
+            <div className="space-y-2 text-sm">
+              <StatRow label="Receipts in DB"   value={String(scanStats.receiptCount)} />
+              <StatRow label="Total scans"       value={String(scanStats.totalScans)} />
+              <StatRow label="Successful scans"  value={String(scanStats.successScans)} />
+              <StatRow label="Total tokens used" value={scanStats.totalTokens.toLocaleString()} />
+              <StatRow label="Input tokens"      value={scanStats.promptTokens.toLocaleString()} />
+              <StatRow label="Output tokens"     value={scanStats.completionTokens.toLocaleString()} />
+              <div className="flex justify-between border-t border-sb-border pt-2 mt-1">
+                <span className="text-sb-muted">Est. API cost</span>
+                <span className="text-sb-green font-semibold">
+                  ${scanStats.estimatedCostUSD.toFixed(4)} USD
+                </span>
+              </div>
+              <p className="text-[11px] text-sb-muted pt-1 opacity-70">
+                gpt-4o: $5/1M input · $15/1M output tokens
+              </p>
+            </div>
+          )}
+        </Section>
+
         {/* About */}
         <Section icon={<Info size={16} />} title="About">
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-sb-muted">Version</span>
-              <span className="text-white">0.1 Beta</span>
+              <span className="text-white">{APP_VERSION}</span>
             </div>
           </div>
         </Section>
@@ -288,6 +333,15 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
         <h2 className="text-sm font-semibold text-white uppercase tracking-wider">{title}</h2>
       </div>
       {children}
+    </div>
+  );
+}
+
+function StatRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-sb-muted">{label}</span>
+      <span className="text-white">{value}</span>
     </div>
   );
 }

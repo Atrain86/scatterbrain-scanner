@@ -110,7 +110,7 @@ export default function ReceiptLibrary() {
     queryClient.invalidateQueries({ queryKey: ['receipts'] });
   }
 
-  async function onReEdit(id: number, updates: { lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number }) {
+  async function onReEdit(id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number }) {
     await authFetch(`/api/receipts/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

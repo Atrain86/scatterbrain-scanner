@@ -27,6 +27,7 @@ export function initDb() {
       category TEXT NOT NULL DEFAULT 'Other',
       client_name TEXT DEFAULT '',
       line_items TEXT,
+      raw_line_items TEXT,
       tax_lines TEXT,
       image_path TEXT,
       image_url TEXT,
@@ -34,8 +35,21 @@ export function initDb() {
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS scan_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scanned_at TEXT DEFAULT (datetime('now')),
+      prompt_tokens INTEGER DEFAULT 0,
+      completion_tokens INTEGER DEFAULT 0,
+      total_tokens INTEGER DEFAULT 0,
+      model TEXT DEFAULT '',
+      success INTEGER DEFAULT 1
+    );
   `);
+
   // Migrations for existing databases
   try { sqlite.exec(`ALTER TABLE receipts ADD COLUMN client_name TEXT DEFAULT ''`); } catch {}
+  try { sqlite.exec(`ALTER TABLE receipts ADD COLUMN raw_line_items TEXT`); } catch {}
+
   console.log('Database initialized');
 }

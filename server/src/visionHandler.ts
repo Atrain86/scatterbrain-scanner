@@ -13,6 +13,7 @@ export interface ScannedReceiptData {
   suggestedCategory: string;
   confidence: number;
   method: string;
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
 }
 
 const CATEGORY_LIST = [
@@ -126,6 +127,13 @@ Rules:
 
     const data = await response.json() as {
       choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      model?: string;
+    };
+    const usage = {
+      promptTokens: data.usage?.prompt_tokens ?? 0,
+      completionTokens: data.usage?.completion_tokens ?? 0,
+      totalTokens: data.usage?.total_tokens ?? 0,
     };
     const content = data.choices?.[0]?.message?.content;
     if (!content) {
@@ -164,7 +172,8 @@ Rules:
       totalAmount: parseFloat(parsed.totalAmount) || 0,
       suggestedCategory,
       confidence: parsed.confidence || 0.8,
-      method: 'gpt-4o-mini-vision',
+      method: 'gpt-4o-vision',
+      usage,
     };
   } catch (err) {
     console.error('Vision extraction failed:', (err as Error).message);

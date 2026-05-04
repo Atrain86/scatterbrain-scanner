@@ -103,6 +103,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     category: string;
     clientName: string;
     lineItems: string;
+    rawLineItems: string;
     taxLines: string;
   }) {
     setStep('saving');

@@ -17,8 +17,9 @@ export interface Receipt {
   total: number;
   category: string;
   clientName: string | null;
-  lineItems: string | null; // JSON string
-  taxLines: string | null;  // JSON string
+  lineItems: string | null;    // JSON: saved (selected) items
+  rawLineItems: string | null; // JSON: full original scan, never trimmed
+  taxLines: string | null;     // JSON: [{label, amount}]
   imagePath: string | null;
   imageUrl: string | null;
   notes: string | null;

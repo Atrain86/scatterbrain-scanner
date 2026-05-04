@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import ShareModal from './ShareModal';
 
 interface ReEditUpdates {
+  storeName: string;
   lineItems: string;
   taxLines: string;
   subtotal: number;
@@ -267,7 +268,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
       {reEditOpen && (
         <ReEditModal
           receipt={receipt}
-          lineItems={lineItems}
           onClose={() => setReEditOpen(false)}
           onSave={(updates) => {
             onReEdit(receipt.id, updates);
@@ -282,21 +282,40 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
 /* ── Inline re-edit modal ── */
 interface ReEditModalProps {
   receipt: Receipt;
-  lineItems: { description: string; amount: number }[];
   onClose: () => void;
   onSave: (updates: ReEditUpdates) => void;
 }
 
-function ReEditModal({ lineItems, onClose, onSave }: ReEditModalProps) {
-  const productItems = lineItems.filter(i => !isTaxLine(i.description));
-  const taxLineItems = lineItems.filter(i =>  isTaxLine(i.description));
+function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
+  // Use rawLineItems (full original scan) if available, else fall back to saved lineItems
+  const allItems: { description: string; amount: number }[] = (() => {
+    try {
+      if (receipt.rawLineItems) return JSON.parse(receipt.rawLineItems);
+      if (receipt.lineItems) return JSON.parse(receipt.lineItems);
+    } catch {}
+    return [];
+  })();
 
-  // All product items start selected (they were already saved)
+  // Which items are currently saved
+  const savedItems: { description: string; amount: number }[] = (() => {
+    try { return receipt.lineItems ? JSON.parse(receipt.lineItems) : []; } catch { return []; }
+  })();
+  const savedDescriptions = new Set(savedItems.filter(i => !isTaxLine(i.description)).map(i => i.description));
+
+  const taxLineItems = allItems.filter(i => isTaxLine(i.description));
+
+  const [storeName, setStoreName] = useState(receipt.storeName);
+
+  // Pre-check items that are in the saved set
   const [selected, setSelected] = useState<Set<number>>(() => {
     const s = new Set<number>();
-    lineItems.forEach((item, i) => { if (!isTaxLine(item.description)) s.add(i); });
+    allItems.forEach((item, i) => {
+      if (!isTaxLine(item.description) && savedDescriptions.has(item.description)) s.add(i);
+    });
     return s;
   });
+
+  const lineItems = allItems;
 
   function toggleItem(index: number) {
     setSelected(prev => {
@@ -313,6 +332,7 @@ function ReEditModal({ lineItems, onClose, onSave }: ReEditModalProps) {
       isTaxLine(item.description) ? false : selected.has(i)
     );
     onSave({
+      storeName,
       lineItems: JSON.stringify([...selectedItems, ...taxLineItems]),
       taxLines: JSON.stringify(totals.proportionalTaxes),
       subtotal: totals.selectedSubtotal,
@@ -321,18 +341,31 @@ function ReEditModal({ lineItems, onClose, onSave }: ReEditModalProps) {
     });
   }
 
+  const productItems = allItems.filter(i => !isTaxLine(i.description));
+
   return (
     <div className="fixed inset-0 z-50 bg-sb-bg flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-sb-border safe-top">
-        <h2 className="text-white font-semibold text-base">Edit Items</h2>
+        <h2 className="text-white font-semibold text-base">Edit Receipt</h2>
         <button onClick={onClose} className="text-sb-muted hover:text-white transition p-1">
           <X size={20} />
         </button>
       </div>
 
       {/* Item list */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+
+        {/* Store name editable */}
+        <div className="bg-sb-card border border-sb-border rounded-xl px-4 py-3">
+          <label className="block text-xs text-sb-muted mb-1">Store Name</label>
+          <input
+            value={storeName}
+            onChange={e => setStoreName(e.target.value)}
+            className="w-full bg-transparent text-white text-base font-semibold border-b border-sb-border pb-1 focus:outline-none focus:border-sb-green transition"
+          />
+        </div>
+
         {productItems.length === 0 ? (
           <p className="text-sb-muted text-sm text-center py-8">No line items to edit.</p>
         ) : (

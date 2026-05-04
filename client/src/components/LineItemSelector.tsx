@@ -15,6 +15,7 @@ interface Props {
     category: string;
     clientName: string;
     lineItems: string;
+    rawLineItems: string;
     taxLines: string;
   }) => void;
   onBack: () => void;
@@ -77,6 +78,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
       category,
       clientName,
       lineItems: JSON.stringify([...selectedItems, ...taxLines]),
+      rawLineItems: JSON.stringify(lineItems), // full original scan
       taxLines: JSON.stringify(totals.proportionalTaxes),
     });
   }
