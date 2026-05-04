@@ -140,64 +140,77 @@ export default function ScanModal({ onClose, onSaved }: Props) {
 
       {/* Body */}
       {step === 'pick' && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
-          {error && (
-            <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-lg px-4 py-3 text-center w-full max-w-xs">
-              {error}
-            </p>
-          )}
+        <div className="flex-1 flex flex-col px-6">
+          {/* Scan options — centered in available space */}
+          <div className="flex-1 flex flex-col items-center justify-center gap-4">
+            {error && (
+              <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-lg px-4 py-3 text-center w-full max-w-xs">
+                {error}
+              </p>
+            )}
 
-          <button
-            onClick={() => cameraInputRef.current?.click()}
-            className="w-full max-w-xs py-5 rounded-2xl bg-sb-card border border-sb-border flex flex-col items-center gap-3 hover:border-sb-green transition active:scale-95"
-          >
-            <Camera size={36} className="text-sb-green" />
-            <span className="text-white font-semibold">Camera</span>
-            <span className="text-white text-sm opacity-50">Take a photo now</span>
-          </button>
-
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full max-w-xs py-5 rounded-2xl bg-sb-card border border-sb-border flex flex-col items-center gap-3 hover:border-sb-purple transition active:scale-95"
-          >
-            <ImageIcon size={36} className="text-sb-purple" />
-            <span className="text-white font-semibold">Photo Library</span>
-            <span className="text-white text-sm opacity-50">Choose from camera roll</span>
-          </button>
-
-          {/* Paste from clipboard — desktop only */}
-          {isDesktop && (
-            <div
-              ref={pasteZoneRef}
-              onClick={handleClickPaste}
-              className={`w-full max-w-xs py-5 rounded-2xl border-2 border-dashed flex flex-col items-center gap-3 cursor-pointer transition active:scale-95 ${
-                pasteHighlight
-                  ? 'border-sb-green bg-green-950/30'
-                  : 'border-sb-border bg-sb-card hover:border-blue-400'
-              }`}
+            <button
+              onClick={() => cameraInputRef.current?.click()}
+              className="w-full max-w-xs py-5 rounded-2xl bg-sb-card border border-sb-border flex flex-col items-center gap-3 hover:border-sb-green transition active:scale-95"
             >
-              <Clipboard size={36} className="text-blue-400" />
-              <span className="text-white font-semibold">Paste Screenshot</span>
-              <span className="text-white text-sm opacity-50">Cmd+V / Ctrl+V anywhere here</span>
-            </div>
-          )}
+              <Camera size={36} className="text-sb-green" />
+              <span className="text-white font-semibold">Camera</span>
+              <span className="text-white text-sm opacity-50">Take a photo now</span>
+            </button>
 
-          {/* Hidden inputs */}
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,application/pdf"
-            className="hidden"
-            onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
-          />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full max-w-xs py-5 rounded-2xl bg-sb-card border border-sb-border flex flex-col items-center gap-3 hover:border-sb-purple transition active:scale-95"
+            >
+              <ImageIcon size={36} className="text-sb-purple" />
+              <span className="text-white font-semibold">Photo Library</span>
+              <span className="text-white text-sm opacity-50">Choose from camera roll</span>
+            </button>
+
+            {/* Paste from clipboard — desktop only */}
+            {isDesktop && (
+              <div
+                ref={pasteZoneRef}
+                onClick={handleClickPaste}
+                className={`w-full max-w-xs py-5 rounded-2xl border-2 border-dashed flex flex-col items-center gap-3 cursor-pointer transition active:scale-95 ${
+                  pasteHighlight
+                    ? 'border-sb-green bg-green-950/30'
+                    : 'border-sb-border bg-sb-card hover:border-blue-400'
+                }`}
+              >
+                <Clipboard size={36} className="text-blue-400" />
+                <span className="text-white font-semibold">Paste Screenshot</span>
+                <span className="text-white text-sm opacity-50">Cmd+V / Ctrl+V anywhere here</span>
+              </div>
+            )}
+
+            {/* Hidden inputs */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
+            />
+          </div>
+
+          {/* Large Cancel button always visible at the bottom */}
+          <div className="pb-10 pt-4 safe-bottom">
+            <button
+              onClick={onClose}
+              className="w-full py-3.5 rounded-2xl border border-sb-border text-white/60 text-sm font-medium hover:text-white hover:border-sb-muted transition active:scale-95"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 

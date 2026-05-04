@@ -15,11 +15,10 @@ export async function compressReceiptImage(file: File): Promise<File> {
 
     img.onload = () => {
       let { width, height } = img;
-      const maxWidth = 1920;
-      const maxHeight = 1080;
-
-      if (width > maxWidth || height > maxHeight) {
-        const ratio = Math.min(maxWidth / width, maxHeight / height);
+      // Receipt images: 1200px max, 65% quality — readable for OCR, small for DB storage
+      const maxDim = 1200;
+      if (width > maxDim || height > maxDim) {
+        const ratio = Math.min(maxDim / width, maxDim / height);
         width  = Math.round(width  * ratio);
         height = Math.round(height * ratio);
       }
@@ -37,7 +36,7 @@ export async function compressReceiptImage(file: File): Promise<File> {
           }));
         },
         'image/jpeg',
-        0.7 // 70% quality — matches PaintBrain receipt compression
+        0.65
       );
     };
 
