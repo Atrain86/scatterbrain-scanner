@@ -26,7 +26,7 @@ export default function VersionBanner() {
   }
 
   return (
-    <p className="text-center text-[10px] text-white/20 tracking-wider select-none">
+    <p className="text-center text-[10px] text-white/60 tracking-wider select-none">
       v{APP_VERSION} beta
     </p>
   );

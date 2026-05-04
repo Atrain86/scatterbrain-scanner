@@ -168,8 +168,8 @@ router.get('/stats', (_req: Request, res: Response) => {
   const totalTokens    = logs.reduce((s, l) => s + (l.totalTokens ?? 0), 0);
   const promptTokens   = logs.reduce((s, l) => s + (l.promptTokens ?? 0), 0);
   const completionTokens = logs.reduce((s, l) => s + (l.completionTokens ?? 0), 0);
-  // gpt-4o pricing: $5/1M input, $15/1M output
-  const estimatedCost  = (promptTokens / 1_000_000) * 5 + (completionTokens / 1_000_000) * 15;
+  // gpt-4o pricing: $2.50/1M input, $10/1M output (as of 2025)
+  const estimatedCost  = (promptTokens / 1_000_000) * 2.5 + (completionTokens / 1_000_000) * 10;
   const receiptCount   = db.select().from(receipts).all().length;
   res.json({
     totalScans, successScans, totalTokens, promptTokens, completionTokens,
