@@ -4,6 +4,7 @@ import { Receipt, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuthFetch } from '../contexts/AuthContext';
 import ScanModal from '../components/ScanModal';
 import ReceiptCard from '../components/ReceiptCard';
+import VersionBanner from '../components/VersionBanner';
 import type { Receipt as ReceiptType } from '../utils/types';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -153,13 +154,16 @@ export default function ReceiptLibrary() {
     <div className="min-h-screen bg-sb-bg flex flex-col">
 
       {/* Logo header */}
-      <header className="flex flex-col items-center pt-12 pb-4 safe-top">
+      <header className="flex flex-col items-center pt-12 pb-3 safe-top px-4">
         <img
           src="/logo.png"
           alt="Scatterbrain"
           className="h-48 w-auto"
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
         />
+        <div className="w-full max-w-xs mt-2">
+          <VersionBanner />
+        </div>
       </header>
 
       {/* Main content */}

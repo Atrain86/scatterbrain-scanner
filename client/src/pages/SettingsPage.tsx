@@ -5,7 +5,7 @@ import { CATEGORIES } from '../utils/types';
 import { useAuthFetch } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '0.3.0';
 
 interface CustomCategory {
   name: string;

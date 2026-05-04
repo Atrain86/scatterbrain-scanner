@@ -1,12 +1,7 @@
 import posthog from 'posthog-js';
 
-// Vite injects import.meta.env — these are undefined until VITE_* vars are set
-declare global {
-  interface ImportMeta { env: Record<string, string | undefined> }
-}
-
-const KEY  = (import.meta as ImportMeta).env.VITE_POSTHOG_KEY;
-const HOST = (import.meta as ImportMeta).env.VITE_POSTHOG_HOST;
+const KEY  = import.meta.env.VITE_POSTHOG_KEY as string | undefined;
+const HOST = import.meta.env.VITE_POSTHOG_HOST as string | undefined;
 
 export function initAnalytics() {
   if (!KEY) return;
