@@ -63,8 +63,9 @@ export function useCloudAuth() {
 
   const connectToProvider = useCallback((provider: CloudProvider) => {
     const endpoint = provider === 'google-drive' ? '/api/auth/google/init' : '/api/auth/dropbox/init';
-    const clientOrigin = encodeURIComponent(window.location.origin);
-    window.location.href = `${endpoint}?clientOrigin=${clientOrigin}`;
+    const url = new URL(endpoint, window.location.origin);
+    url.searchParams.set('clientOrigin', window.location.origin);
+    window.location.href = url.toString();
   }, []);
 
   const disconnectProvider = useCallback((provider: CloudProvider) => {
