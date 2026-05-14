@@ -8,11 +8,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 
 function parseClientOrigin(value: string | undefined): string {
   if (!value) return '';
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
+  return value;
 }
 
 function buildAuthRedirectUrl(clientOrigin: string, provider: string, payload: Record<string, any>): string {
@@ -85,7 +81,6 @@ router.get('/auth/google/init', (req: Request, res: Response) => {
     return;
   }
 
-  const state = encodeURIComponent(clientOrigin || '');
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri);
@@ -93,7 +88,7 @@ router.get('/auth/google/init', (req: Request, res: Response) => {
   url.searchParams.set('scope', 'openid email profile https://www.googleapis.com/auth/drive.file');
   url.searchParams.set('access_type', 'offline');
   url.searchParams.set('prompt', 'consent');
-  url.searchParams.set('state', state);
+  url.searchParams.set('state', clientOrigin || '');
 
   res.redirect(url.toString());
 });
@@ -159,13 +154,12 @@ router.get('/auth/dropbox/init', (req: Request, res: Response) => {
     return;
   }
 
-  const state = encodeURIComponent(clientOrigin || '');
   const url = new URL('https://www.dropbox.com/oauth2/authorize');
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('token_access_type', 'offline');
-  url.searchParams.set('state', state);
+  url.searchParams.set('state', clientOrigin || '');
 
   res.redirect(url.toString());
 });
