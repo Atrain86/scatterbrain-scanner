@@ -62,7 +62,6 @@ export function useCloudAuth() {
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
       if (!event.data || event.data.type !== 'scatterbrain_cloud_auth') return;
 
       const { provider, payload } = event.data as {

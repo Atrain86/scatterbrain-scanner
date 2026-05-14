@@ -55,27 +55,25 @@ const DEFAULT_CATEGORIES: CustomCategory[] = [
 ];
 
 const STORAGE_KEY = 'sb_custom_categories';
+const CATEGORY_VERSION_KEY = 'sb_category_version';
+const CURRENT_CATEGORY_VERSION = '2';
 const TAX_STORAGE_KEY = 'sb_tax_region';
-
-const LEGACY_CATEGORY_NAMES = new Set([
-  'Supplies & Materials', 'Gas & Fuel', 'Vehicle & Auto', 'Equipment & Tools',
-  'Meals & Entertainment', 'Office Supplies', 'Subcontractors', 'Phone & Internet', 'Other',
-]);
 
 function loadCustomCategories(): CustomCategory[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const stored: CustomCategory[] = JSON.parse(raw);
-      // Migrate: if every stored entry is a legacy name, reset to new defaults
-      if (stored.every(c => LEGACY_CATEGORY_NAMES.has(c.name))) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_CATEGORIES));
-        return DEFAULT_CATEGORIES;
-      }
-      return stored;
+    // Version stamp — if version doesn't match, reset to current defaults
+    const storedVersion = localStorage.getItem(CATEGORY_VERSION_KEY);
+    if (storedVersion !== CURRENT_CATEGORY_VERSION) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_CATEGORIES));
+      localStorage.setItem(CATEGORY_VERSION_KEY, CURRENT_CATEGORY_VERSION);
+      return DEFAULT_CATEGORIES;
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_CATEGORIES));
-    return DEFAULT_CATEGORIES;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_CATEGORIES));
+      return DEFAULT_CATEGORIES;
+    }
+    return JSON.parse(raw) as CustomCategory[];
   } catch { return DEFAULT_CATEGORIES; }
 }
 
