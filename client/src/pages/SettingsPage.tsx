@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity } from 'lucide-react';
+import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
 import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue } from '../lib/cloudSync';
 import React from 'react';
 
-export const APP_VERSION = '0.3.5';
+export const APP_VERSION = '0.3.6';
 
 interface CustomCategory {
   name: string;
@@ -235,7 +235,7 @@ export default function SettingsPage() {
       <main className="flex-1 px-4 py-4 pb-24 space-y-4 max-w-lg mx-auto w-full">
 
         {/* Categories */}
-        <Section icon={<Tag size={16} />} title="Categories">
+        <Section icon={<Tag size={16} />} title="Categories" defaultOpen={false}>
           {/* All categories — custom ones are deletable */}
           <div className="space-y-1.5 mb-4">
             {customCategories.length === 0 ? (
@@ -378,7 +378,7 @@ export default function SettingsPage() {
         </Section>
 
         {/* Cloud backup */}
-        <Section icon={<Cloud size={16} />} title="Cloud Backup">
+        <Section icon={<Cloud size={16} />} title="Cloud Backup" defaultOpen={false}>
           <div className="space-y-3">
             <CloudRow
               label="Google Drive"
@@ -507,14 +507,21 @@ export default function SettingsPage() {
   );
 }
 
-function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function Section({ icon, title, children, defaultOpen = true }: { icon: React.ReactNode; title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="bg-sb-card border border-sb-border rounded-2xl p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-sb-green">{icon}</span>
-        <h2 className="text-sm font-semibold text-white uppercase tracking-wider">{title}</h2>
-      </div>
-      {children}
+    <div className="bg-sb-card border border-sb-border rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sb-green">{icon}</span>
+          <h2 className="text-sm font-semibold text-white uppercase tracking-wider">{title}</h2>
+        </div>
+        <ChevronDown size={16} className={`text-sb-muted transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && <div className="px-4 pb-4 pt-1">{children}</div>}
     </div>
   );
 }
