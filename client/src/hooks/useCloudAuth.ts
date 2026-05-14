@@ -60,38 +60,13 @@ export function useCloudAuth() {
     saveCloudSettings(settings);
   }, [settings]);
 
-  // Handle redirect-back from OAuth — read tokens from URL params and clear them
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const provider = params.get('cloud_auth') as CloudProvider | null;
-    if (!provider) return;
-
-    const payload: Record<string, string> = {};
-    for (const key of ['access_token', 'refresh_token', 'expires_in', 'token_type', 'scope', 'email']) {
-      const val = params.get(key);
-      if (val) payload[key] = val;
-    }
-
-    const state = normalizeProviderState(payload);
-    setSettings(current => ({
-      ...current,
-      [provider === 'google-drive' ? 'googleDrive' : 'dropbox']: state,
-      primaryProvider: current.primaryProvider || provider,
-    }));
-
-    // Strip auth params from URL without triggering a navigation
-    const clean = new URL(window.location.href);
-    clean.searchParams.delete('cloud_auth');
-    for (const key of ['access_token', 'refresh_token', 'expires_in', 'token_type', 'scope', 'email']) {
-      clean.searchParams.delete(key);
-    }
-    window.history.replaceState({}, '', clean.toString());
-  }, []);
 
   const connectToProvider = useCallback((provider: CloudProvider) => {
     const endpoint = provider === 'google-drive' ? '/api/auth/google/init' : '/api/auth/dropbox/init';
     const clientOrigin = encodeURIComponent(window.location.origin);
-    window.location.href = `${endpoint}?clientOrigin=${clientOrigin}`;
+    // Use _blank so OAuth opens in Safari browser, not inside the PWA shell.
+    // When Google redirects back to /settings?cloud_auth=..., iOS opens it in the PWA.
+    window.open(`${endpoint}?clientOrigin=${clientOrigin}`, '_blank');
   }, []);
 
   const disconnectProvider = useCallback((provider: CloudProvider) => {

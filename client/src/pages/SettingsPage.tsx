@@ -6,7 +6,7 @@ import { useCloudAuth } from '../hooks/useCloudAuth';
 import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue } from '../lib/cloudSync';
 import React from 'react';
 
-export const APP_VERSION = '0.3.7';
+export const APP_VERSION = '0.3.8';
 
 interface CustomCategory {
   name: string;
