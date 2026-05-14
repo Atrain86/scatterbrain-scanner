@@ -26,16 +26,19 @@
       (function() {
         var params = new URLSearchParams(window.location.search);
         var provider = params.get('cloud_auth');
+        console.log('[OAuth] cloud_auth param:', provider, 'search:', window.location.search);
         if (!provider) return;
         try {
           var raw = localStorage.getItem('sb_cloud_settings');
           var settings = raw ? JSON.parse(raw) : { googleDrive: {}, dropbox: {}, primaryProvider: null, autoSync: true };
           var key = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
           var expiresIn = params.get('expires_in');
+          var token = params.get('access_token');
+          console.log('[OAuth] saving provider:', provider, 'token present:', !!token);
           settings[key] = {
             connected: true,
             email: params.get('email'),
-            accessToken: params.get('access_token'),
+            accessToken: token,
             refreshToken: params.get('refresh_token'),
             expiresAt: expiresIn ? Date.now() + Number(expiresIn) * 1000 : null,
             scope: params.get('scope'),
@@ -43,8 +46,8 @@
           };
           if (!settings.primaryProvider) settings.primaryProvider = provider;
           localStorage.setItem('sb_cloud_settings', JSON.stringify(settings));
-        } catch(e) {}
-        // Redirect to /settings clean — before React router does anything
+          console.log('[OAuth] saved to localStorage, redirecting to /settings');
+        } catch(e) { console.error('[OAuth] error:', e); }
         window.history.replaceState({}, '', '/settings');
       })();
     </script>
