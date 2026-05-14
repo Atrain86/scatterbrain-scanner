@@ -62,8 +62,9 @@ export function useCloudAuth() {
 
 
   const connectToProvider = useCallback((provider: CloudProvider) => {
-    const endpoint = provider === 'google-drive' ? '/api/auth/google/init' : '/api/auth/dropbox/init';
-    const url = new URL(endpoint, window.location.origin);
+    const base = 'https://scatterbrain-scanner.onrender.com';
+    const endpoint = provider === 'google-drive' ? `${base}/api/auth/google/init` : `${base}/api/auth/dropbox/init`;
+    const url = new URL(endpoint);
     url.searchParams.set('clientOrigin', window.location.origin);
     window.location.href = url.toString();
   }, []);

@@ -6,7 +6,7 @@ import { useCloudAuth } from '../hooks/useCloudAuth';
 import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue } from '../lib/cloudSync';
 import React from 'react';
 
-export const APP_VERSION = '0.4.3';
+export const APP_VERSION = '0.4.4';
 
 interface CustomCategory {
   name: string;
@@ -385,7 +385,7 @@ export default function SettingsPage() {
               description="Upload directly to your Drive"
               status={cloudSettings.googleDrive.connected ? `Connected: ${cloudSettings.googleDrive.email ?? 'Drive'}` : 'Not connected'}
               actionLabel={cloudSettings.googleDrive.connected ? 'Disconnect' : 'Connect'}
-              connectHref={!cloudSettings.googleDrive.connected ? `/api/auth/google/init?clientOrigin=${encodeURIComponent(window.location.origin)}` : undefined}
+              connectHref={!cloudSettings.googleDrive.connected ? `https://scatterbrain-scanner.onrender.com/api/auth/google/init?clientOrigin=${encodeURIComponent(window.location.origin)}` : undefined}
               onAction={cloudSettings.googleDrive.connected ? () => disconnectProvider('google-drive') : undefined}
             />
             <CloudRow
@@ -393,7 +393,7 @@ export default function SettingsPage() {
               description="Upload to your app folder"
               status={cloudSettings.dropbox.connected ? `Connected: ${cloudSettings.dropbox.email ?? 'Dropbox'}` : 'Not connected'}
               actionLabel={cloudSettings.dropbox.connected ? 'Disconnect' : 'Connect'}
-              connectHref={!cloudSettings.dropbox.connected ? `/api/auth/dropbox/init?clientOrigin=${encodeURIComponent(window.location.origin)}` : undefined}
+              connectHref={!cloudSettings.dropbox.connected ? `https://scatterbrain-scanner.onrender.com/api/auth/dropbox/init?clientOrigin=${encodeURIComponent(window.location.origin)}` : undefined}
               onAction={cloudSettings.dropbox.connected ? () => disconnectProvider('dropbox') : undefined}
             />
             <div className="rounded-2xl border border-sb-border bg-sb-card2 p-3 space-y-3">
