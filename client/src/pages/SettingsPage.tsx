@@ -6,7 +6,7 @@ import { useCloudAuth } from '../hooks/useCloudAuth';
 import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue } from '../lib/cloudSync';
 import React from 'react';
 
-export const APP_VERSION = '0.4.0';
+export const APP_VERSION = '0.4.1';
 
 interface CustomCategory {
   name: string;
@@ -385,14 +385,16 @@ export default function SettingsPage() {
               description="Upload directly to your Drive"
               status={cloudSettings.googleDrive.connected ? `Connected: ${cloudSettings.googleDrive.email ?? 'Drive'}` : 'Not connected'}
               actionLabel={cloudSettings.googleDrive.connected ? 'Disconnect' : 'Connect'}
-              onAction={() => cloudSettings.googleDrive.connected ? disconnectProvider('google-drive') : connectToProvider('google-drive')}
+              connectHref={!cloudSettings.googleDrive.connected ? `/api/auth/google/init?clientOrigin=${encodeURIComponent(window.location.origin)}` : undefined}
+              onAction={cloudSettings.googleDrive.connected ? () => disconnectProvider('google-drive') : undefined}
             />
             <CloudRow
               label="Dropbox"
               description="Upload to your app folder"
               status={cloudSettings.dropbox.connected ? `Connected: ${cloudSettings.dropbox.email ?? 'Dropbox'}` : 'Not connected'}
               actionLabel={cloudSettings.dropbox.connected ? 'Disconnect' : 'Connect'}
-              onAction={() => cloudSettings.dropbox.connected ? disconnectProvider('dropbox') : connectToProvider('dropbox')}
+              connectHref={!cloudSettings.dropbox.connected ? `/api/auth/dropbox/init?clientOrigin=${encodeURIComponent(window.location.origin)}` : undefined}
+              onAction={cloudSettings.dropbox.connected ? () => disconnectProvider('dropbox') : undefined}
             />
             <div className="rounded-2xl border border-sb-border bg-sb-card2 p-3 space-y-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -535,7 +537,7 @@ function StatRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CloudRow({ label, description, status, actionLabel, onAction }: { label: string; description: string; status?: string; actionLabel?: string; onAction?: () => void }) {
+function CloudRow({ label, description, status, actionLabel, onAction, connectHref }: { label: string; description: string; status?: string; actionLabel?: string; onAction?: () => void; connectHref?: string }) {
   return (
     <div className="flex items-center justify-between py-3 border-b border-sb-border last:border-0">
       <div>
@@ -543,7 +545,14 @@ function CloudRow({ label, description, status, actionLabel, onAction }: { label
         <p className="text-sb-muted text-xs">{description}</p>
         {status && <p className="text-[11px] text-sb-green mt-1">{status}</p>}
       </div>
-      {actionLabel ? (
+      {connectHref ? (
+        <a
+          href={connectHref}
+          className="rounded-full border border-sb-border bg-sb-card2 px-3 py-1.5 text-xs font-semibold text-white transition hover:border-sb-green"
+        >
+          {actionLabel}
+        </a>
+      ) : actionLabel ? (
         <button
           onClick={onAction}
           className="rounded-full border border-sb-border bg-sb-card2 px-3 py-1.5 text-xs font-semibold text-white transition hover:border-sb-green"
