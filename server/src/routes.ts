@@ -15,32 +15,17 @@ function parseClientOrigin(value: string | undefined): string {
   }
 }
 
-function renderAuthCallbackPage(provider: string, clientOrigin: string, payload: Record<string, any>) {
-  const safePayload = JSON.stringify(payload).replace(/</g, '\\u003c');
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Scatterbrain Cloud Auth</title>
-  <style>body{background:#000;color:#fff;font-family:system-ui, sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;padding:24px;}</style>
-</head>
-<body>
-  <div style="max-width:520px;text-align:center;">
-    <h1 style="margin-bottom:0.5rem;">${provider} connected</h1>
-    <p style="opacity:.75;margin-bottom:1.2rem;">You may now close this window and return to Scatterbrain.</p>
-    <script>
-      const payload = ${safePayload};
-      const targetOrigin = ${JSON.stringify(clientOrigin || '*')};
-      if (window.opener && !window.opener.closed) {
-        window.opener.postMessage({ type: 'scatterbrain_cloud_auth', provider: ${JSON.stringify(provider)}, payload }, targetOrigin);
-        window.close();
-      } else {
-        document.body.insertAdjacentHTML('beforeend', '<p style="opacity:.75;">Return to Scatterbrain to complete the connection.</p>');
-      }
-    </script>
-  </div>
-</body>
-</html>`;
+function buildAuthRedirectUrl(clientOrigin: string, provider: string, payload: Record<string, any>): string {
+  const base = `${clientOrigin}/settings`;
+  const params = new URLSearchParams();
+  params.set('cloud_auth', provider);
+  if (payload.access_token)  params.set('access_token',  payload.access_token);
+  if (payload.refresh_token) params.set('refresh_token', payload.refresh_token);
+  if (payload.expires_in)    params.set('expires_in',    String(payload.expires_in));
+  if (payload.token_type)    params.set('token_type',    payload.token_type);
+  if (payload.scope)         params.set('scope',         payload.scope);
+  if (payload.email)         params.set('email',         payload.email);
+  return `${base}?${params.toString()}`;
 }
 
 // ── OCR (Vision API proxy) ────────────────────────────────────────────────────
@@ -156,7 +141,8 @@ router.get('/auth/google/callback', async (req: Request, res: Response) => {
       email: userInfo?.email ?? null,
     };
 
-    res.send(renderAuthCallbackPage('google-drive', clientOrigin, payload));
+    const redirectUrl = buildAuthRedirectUrl(clientOrigin === '*' ? 'http://localhost:5174' : clientOrigin, 'google-drive', payload);
+    res.redirect(redirectUrl);
   } catch (error) {
     console.error('Google callback error:', error);
     res.status(500).send('Google OAuth callback failed.');
@@ -229,7 +215,8 @@ router.get('/auth/dropbox/callback', async (req: Request, res: Response) => {
       email: accountInfo?.email ?? null,
     };
 
-    res.send(renderAuthCallbackPage('dropbox', clientOrigin, payload));
+    const redirectUrl = buildAuthRedirectUrl(clientOrigin === '*' ? 'http://localhost:5174' : clientOrigin, 'dropbox', payload);
+    res.redirect(redirectUrl);
   } catch (error) {
     console.error('Dropbox callback error:', error);
     res.status(500).send('Dropbox OAuth callback failed.');

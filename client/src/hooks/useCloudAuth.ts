@@ -60,35 +60,38 @@ export function useCloudAuth() {
     saveCloudSettings(settings);
   }, [settings]);
 
+  // Handle redirect-back from OAuth — read tokens from URL params and clear them
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (!event.data || event.data.type !== 'scatterbrain_cloud_auth') return;
+    const params = new URLSearchParams(window.location.search);
+    const provider = params.get('cloud_auth') as CloudProvider | null;
+    if (!provider) return;
 
-      const { provider, payload } = event.data as {
-        provider: CloudProvider;
-        payload: Record<string, any>;
-      };
+    const payload: Record<string, string> = {};
+    for (const key of ['access_token', 'refresh_token', 'expires_in', 'token_type', 'scope', 'email']) {
+      const val = params.get(key);
+      if (val) payload[key] = val;
+    }
 
-      const state = normalizeProviderState(payload);
-      setSettings(current => ({
-        ...current,
-        [provider === 'google-drive' ? 'googleDrive' : 'dropbox']: state,
-        primaryProvider:
-          current.primaryProvider || provider,
-      }));
-    };
+    const state = normalizeProviderState(payload);
+    setSettings(current => ({
+      ...current,
+      [provider === 'google-drive' ? 'googleDrive' : 'dropbox']: state,
+      primaryProvider: current.primaryProvider || provider,
+    }));
 
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    // Strip auth params from URL without triggering a navigation
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete('cloud_auth');
+    for (const key of ['access_token', 'refresh_token', 'expires_in', 'token_type', 'scope', 'email']) {
+      clean.searchParams.delete(key);
+    }
+    window.history.replaceState({}, '', clean.toString());
   }, []);
 
   const connectToProvider = useCallback((provider: CloudProvider) => {
     const endpoint = provider === 'google-drive' ? '/api/auth/google/init' : '/api/auth/dropbox/init';
     const clientOrigin = encodeURIComponent(window.location.origin);
-    const popup = window.open(`${endpoint}?clientOrigin=${clientOrigin}`, 'scatterbrain-cloud-auth', 'width=520,height=700');
-    if (!popup) {
-      window.alert('Unable to open cloud auth window. Please allow popups and try again.');
-    }
+    window.location.href = `${endpoint}?clientOrigin=${clientOrigin}`;
   }, []);
 
   const disconnectProvider = useCallback((provider: CloudProvider) => {
