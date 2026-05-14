@@ -17,16 +17,17 @@ export interface ScannedReceiptData {
 }
 
 const CATEGORY_LIST = [
-  'Supplies & Materials',
-  'Gas & Fuel',
-  'Vehicle & Auto',
-  'Equipment & Tools',
-  'Meals & Entertainment',
-  'Office Supplies',
-  'Subcontractors',
+  'Comm',
+  'Loan/Interest',
+  'Meals',
+  'Medical',
+  'Postage',
+  'Supplies & Hardware',
+  'AI Services',
   'Insurance',
-  'Phone & Internet',
-  'Other',
+  'Rent',
+  'Travel',
+  'Subscriptions',
 ];
 
 export async function extractReceiptLineItems(
@@ -90,7 +91,7 @@ Rules:
 - Include EVERY line item with a price (products, services, fees, AND taxes like GST/PST/HST)
 - Do NOT include subtotal, total, or grand total rows
 - totalAmount = the final total on the receipt (including tax)
-- suggestedCategory: match store/items to best category. Home Depot/hardware → Supplies & Materials. Gas stations → Gas & Fuel. Restaurants/cafes → Meals & Entertainment. Auto parts → Vehicle & Auto. Staples/office → Office Supplies.
+- suggestedCategory: match store/items to best category. Restaurants/cafes → Meals. Hardware/tools → Supplies & Hardware. Phone/internet bills → Comm. Hotels/flights → Travel. OpenAI/Claude/software → AI Services. Doctor/pharmacy → Medical. Office rent → Rent. Netflix/SaaS → Subscriptions. Stamps/shipping → Postage. Car loans/credit → Loan/Interest.
 - If you cannot read individual line items but can read the total, set lineItems to null and set totalAmount
 - If completely unreadable, set confidence below 0.4 and lineItems to null, totalAmount to 0
 - date must be YYYY-MM-DD or null`;

@@ -40,28 +40,40 @@ const PALETTE_COLORS: string[] = [
   '#64748B', '#6B7280', '#888888', '#9CA3AF', '#4B5563',
 ];
 
-// The 10 default categories — seeded into localStorage on first load
 const DEFAULT_CATEGORIES: CustomCategory[] = [
-  { name: 'Supplies & Materials', color: '#E67E22' },
-  { name: 'Gas & Fuel',           color: '#F44747' },
-  { name: 'Vehicle & Auto',       color: '#0C87C1' },
-  { name: 'Equipment & Tools',    color: '#eab308' },
-  { name: 'Meals & Entertainment',color: '#4ade80' },
-  { name: 'Office Supplies',      color: '#a855f7' },
-  { name: 'Subcontractors',       color: '#4ECDC4' },
-  { name: 'Insurance',            color: '#888888' },
-  { name: 'Phone & Internet',     color: '#2DD4BF' },
-  { name: 'Other',                color: '#6B7280' },
+  { name: 'Comm',                color: '#2DD4BF' },
+  { name: 'Loan/Interest',       color: '#F44747' },
+  { name: 'Meals',               color: '#4ade80' },
+  { name: 'Medical',             color: '#60a5fa' },
+  { name: 'Postage',             color: '#E67E22' },
+  { name: 'Supplies & Hardware', color: '#eab308' },
+  { name: 'AI Services',         color: '#a855f7' },
+  { name: 'Insurance',           color: '#888888' },
+  { name: 'Rent',                color: '#0C87C1' },
+  { name: 'Travel',              color: '#4ECDC4' },
+  { name: 'Subscriptions',       color: '#f472b6' },
 ];
 
 const STORAGE_KEY = 'sb_custom_categories';
 const TAX_STORAGE_KEY = 'sb_tax_region';
 
+const LEGACY_CATEGORY_NAMES = new Set([
+  'Supplies & Materials', 'Gas & Fuel', 'Vehicle & Auto', 'Equipment & Tools',
+  'Meals & Entertainment', 'Office Supplies', 'Subcontractors', 'Phone & Internet', 'Other',
+]);
+
 function loadCustomCategories(): CustomCategory[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-    // First load — seed with defaults and save
+    if (raw) {
+      const stored: CustomCategory[] = JSON.parse(raw);
+      // Migrate: if every stored entry is a legacy name, reset to new defaults
+      if (stored.every(c => LEGACY_CATEGORY_NAMES.has(c.name))) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_CATEGORIES));
+        return DEFAULT_CATEGORIES;
+      }
+      return stored;
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_CATEGORIES));
     return DEFAULT_CATEGORIES;
   } catch { return DEFAULT_CATEGORIES; }

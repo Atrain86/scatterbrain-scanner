@@ -25,9 +25,7 @@ function loadSyncQueue(): CloudSyncQueueItem[] {
     const raw = localStorage.getItem(SYNC_QUEUE_KEY);
     if (!raw) return [];
     return JSON.parse(raw) as CloudSyncQueueItem[];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 function saveSyncQueue(queue: CloudSyncQueueItem[]) {
@@ -78,31 +76,79 @@ function decodeDataUri(dataUri: string): Blob {
   const mimeType = mimeMatch?.[1] ?? 'application/octet-stream';
   const binary = atob(data);
   const array = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    array[i] = binary.charCodeAt(i);
-  }
+  for (let i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
   return new Blob([array], { type: mimeType });
 }
 
 async function loadImageBlob(imageUrl: string | null): Promise<Blob | null> {
   if (!imageUrl) return null;
-  if (imageUrl.startsWith('data:')) {
-    return decodeDataUri(imageUrl);
-  }
-
+  if (imageUrl.startsWith('data:')) return decodeDataUri(imageUrl);
   const response = await fetch(imageUrl);
   if (!response.ok) throw new Error('Failed to fetch receipt image for cloud upload');
   return await response.blob();
 }
 
-function buildDriveMultipartBody(fileBlob: Blob, fileName: string, description: string) {
+// ── Google Drive folder helpers ───────────────────────────────────────────────
+
+async function findOrCreateDriveFolder(
+  accessToken: string,
+  folderName: string,
+  parentId: string | null
+): Promise<string> {
+  // Search for existing folder
+  const parentQuery = parentId ? `'${parentId}' in parents` : "'root' in parents";
+  const query = `name='${folderName.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.folder' and ${parentQuery} and trashed=false`;
+
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name)`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!searchRes.ok) throw new Error(`Drive folder search failed: ${await searchRes.text()}`);
+  const searchData = await searchRes.json() as { files: { id: string }[] };
+
+  if (searchData.files.length > 0) return searchData.files[0].id;
+
+  // Create it
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: parentId ? [parentId] : [],
+    }),
+  });
+  if (!createRes.ok) throw new Error(`Drive folder create failed: ${await createRes.text()}`);
+  const createData = await createRes.json() as { id: string };
+  return createData.id;
+}
+
+// Returns the folder ID for: Scatterbrain Scanner/receipts/{year}/{category}/
+async function ensureReceiptFolder(
+  accessToken: string,
+  year: string,
+  category: string
+): Promise<string> {
+  const rootId  = await findOrCreateDriveFolder(accessToken, 'Scatterbrain Scanner', null);
+  const rcptId  = await findOrCreateDriveFolder(accessToken, 'receipts', rootId);
+  const yearId  = await findOrCreateDriveFolder(accessToken, year, rcptId);
+  const catId   = await findOrCreateDriveFolder(accessToken, category, yearId);
+  return catId;
+}
+
+// ── Drive upload ──────────────────────────────────────────────────────────────
+
+function buildDriveMultipartBody(fileBlob: Blob, fileName: string, description: string, parentId: string) {
   const boundary = '-------314159265358979323846';
   const metadata = {
     name: fileName,
     mimeType: fileBlob.type || 'application/octet-stream',
     description,
+    parents: [parentId],
   };
-
   return new Blob([
     `--${boundary}\r\n`,
     'Content-Type: application/json; charset=UTF-8\r\n\r\n',
@@ -114,9 +160,15 @@ function buildDriveMultipartBody(fileBlob: Blob, fileName: string, description: 
   ]);
 }
 
-async function uploadToGoogleDrive(accessToken: string, fileBlob: Blob, fileName: string, description: string) {
+async function uploadToGoogleDrive(
+  accessToken: string,
+  fileBlob: Blob,
+  fileName: string,
+  description: string,
+  folderId: string
+) {
   const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink';
-  const body = buildDriveMultipartBody(fileBlob, fileName, description);
+  const body = buildDriveMultipartBody(fileBlob, fileName, description, folderId);
   const response = await fetch(uploadUrl, {
     method: 'POST',
     headers: {
@@ -125,15 +177,20 @@ async function uploadToGoogleDrive(accessToken: string, fileBlob: Blob, fileName
     },
     body,
   });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Google Drive upload failed: ${errorText}`);
-  }
+  if (!response.ok) throw new Error(`Google Drive upload failed: ${await response.text()}`);
   return await response.json();
 }
 
-async function uploadToDropbox(accessToken: string, fileBlob: Blob, fileName: string) {
-  const dropboxPath = `/Scatterbrain/${fileName}`;
+// ── Dropbox upload ────────────────────────────────────────────────────────────
+
+async function uploadToDropbox(
+  accessToken: string,
+  fileBlob: Blob,
+  fileName: string,
+  year: string,
+  category: string
+) {
+  const dropboxPath = `/Scatterbrain Scanner/receipts/${year}/${category}/${fileName}`;
   const response = await fetch('https://content.dropboxapi.com/2/files/upload', {
     method: 'POST',
     headers: {
@@ -143,12 +200,11 @@ async function uploadToDropbox(accessToken: string, fileBlob: Blob, fileName: st
     },
     body: fileBlob,
   });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Dropbox upload failed: ${errorText}`);
-  }
+  if (!response.ok) throw new Error(`Dropbox upload failed: ${await response.text()}`);
   return await response.json();
 }
+
+// ── Token refresh ─────────────────────────────────────────────────────────────
 
 async function refreshGoogleAccessToken(refreshToken: string) {
   const response = await fetch('/api/auth/google/refresh', {
@@ -156,10 +212,7 @@ async function refreshGoogleAccessToken(refreshToken: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),
   });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Google refresh failed: ${text}`);
-  }
+  if (!response.ok) throw new Error(`Google refresh failed: ${await response.text()}`);
   return await response.json();
 }
 
@@ -169,10 +222,7 @@ async function refreshDropboxAccessToken(refreshToken: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),
   });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Dropbox refresh failed: ${text}`);
-  }
+  if (!response.ok) throw new Error(`Dropbox refresh failed: ${await response.text()}`);
   return await response.json();
 }
 
@@ -194,10 +244,7 @@ async function ensureValidAccessToken(providerState: CloudProviderState, provide
   if (providerState.accessToken && providerState.expiresAt && providerState.expiresAt > now + 5000) {
     return providerState.accessToken;
   }
-
-  if (!providerState.refreshToken) {
-    return null;
-  }
+  if (!providerState.refreshToken) return null;
 
   const payload = provider === 'google-drive'
     ? await refreshGoogleAccessToken(providerState.refreshToken)
@@ -209,10 +256,11 @@ async function ensureValidAccessToken(providerState: CloudProviderState, provide
     ...settings,
     [provider === 'google-drive' ? 'googleDrive' : 'dropbox']: nextProviderState,
   } as CloudSettings;
-
   saveCloudSettings(nextSettings);
   return nextProviderState.accessToken;
 }
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 export function getCloudSyncQueue() {
   return loadSyncQueue();
@@ -224,7 +272,6 @@ export function getCloudSyncSummary(provider?: CloudProvider | null): CloudSyncS
   const queue = loadSyncQueue();
   const relevantQueue = activeProvider ? queue.filter(item => item.provider === activeProvider) : queue;
   const status = loadSyncStatus();
-
   return {
     pendingCount: relevantQueue.length,
     failedCount: relevantQueue.filter(item => !!item.lastError).length,
@@ -236,8 +283,12 @@ export function getCloudSyncSummary(provider?: CloudProvider | null): CloudSyncS
 }
 
 export async function enqueueReceiptSync(receipt: Receipt, provider: CloudProvider) {
-  const imageName = makeSafeFileName(`receipt-${receipt.id}-${receipt.storeName || 'receipt'}.jpg`);
-  const metadata = getReceiptMetadata(receipt);
+  const year = (receipt.receiptDate || '').slice(0, 4) || String(new Date().getFullYear());
+  const safeStore = makeSafeFileName(receipt.storeName || 'receipt');
+  const safeDate = receipt.receiptDate || new Date().toISOString().slice(0, 10);
+  const safeTotal = receipt.total.toFixed(2);
+  const baseName = `${safeDate}_${safeStore}_$${safeTotal}`;
+  const imageName = makeSafeFileName(`${baseName}.jpg`);
 
   const newItem: CloudSyncQueueItem = {
     id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -245,7 +296,7 @@ export async function enqueueReceiptSync(receipt: Receipt, provider: CloudProvid
     receiptId: receipt.id,
     imageUrl: receipt.imageUrl,
     imageName,
-    metadata,
+    metadata: getReceiptMetadata(receipt),
     createdAt: Date.now(),
     attemptCount: 0,
     lastError: null,
@@ -269,7 +320,8 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
   };
 
   if (!activeProvider) {
-    const result: CloudSyncSummary = {
+    saveSyncStatus(status);
+    return {
       pendingCount: queue.length,
       failedCount: queue.filter(item => !!item.lastError).length,
       lastRunAt: status.lastRunAt,
@@ -277,15 +329,14 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
       errorMessage: 'Please choose Google Drive or Dropbox in settings.',
       processedCount: 0,
     };
-    saveSyncStatus(status);
-    return result;
   }
 
   const providerState = settings[activeProvider === 'google-drive' ? 'googleDrive' : 'dropbox'];
   const relevantQueue = queue.filter(item => item.provider === activeProvider);
 
   if (!providerState.connected) {
-    const result: CloudSyncSummary = {
+    saveSyncStatus(status);
+    return {
       pendingCount: relevantQueue.length,
       failedCount: relevantQueue.filter(item => !!item.lastError).length,
       lastRunAt: status.lastRunAt,
@@ -293,13 +344,12 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
       errorMessage: 'Reconnect your cloud provider to resume sync.',
       processedCount: 0,
     };
-    saveSyncStatus(status);
-    return result;
   }
 
   const accessToken = await ensureValidAccessToken(providerState, activeProvider);
   if (!accessToken) {
-    const result: CloudSyncSummary = {
+    saveSyncStatus(status);
+    return {
       pendingCount: relevantQueue.length,
       failedCount: relevantQueue.filter(item => !!item.lastError).length,
       lastRunAt: status.lastRunAt,
@@ -307,8 +357,6 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
       errorMessage: 'Reconnect your cloud provider or check your refresh token.',
       processedCount: 0,
     };
-    saveSyncStatus(status);
-    return result;
   }
 
   const nextQueue = [...queue];
@@ -317,26 +365,42 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
   let lastError: string | null = null;
 
   for (const item of relevantQueue) {
-    const receiptPayload = item.metadata;
-    const fileDescription = `Receipt backup for ${receiptPayload.storeName} on ${receiptPayload.receiptDate}`;
+    const meta = item.metadata;
+    const year = (meta.receiptDate || '').slice(0, 4) || String(new Date().getFullYear());
+    const category = meta.category || 'Other';
+    const fileDescription = `Receipt from ${meta.storeName} on ${meta.receiptDate}`;
 
     try {
-      const fileBlob = await loadImageBlob(item.imageUrl);
-      if (fileBlob) {
-        await (item.provider === 'google-drive'
-          ? uploadToGoogleDrive(accessToken, fileBlob, item.imageName, fileDescription)
-          : uploadToDropbox(accessToken, fileBlob, item.imageName));
-      }
+      if (activeProvider === 'google-drive') {
+        // Ensure the folder structure exists, get the target folder ID
+        const folderId = await ensureReceiptFolder(accessToken, year, category);
 
-      const metadataBlob = new Blob([JSON.stringify(receiptPayload, null, 2)], { type: 'application/json' });
-      const metadataName = item.imageName.replace(/\.[^.]+$/, '') + '.json';
-      await (item.provider === 'google-drive'
-        ? uploadToGoogleDrive(accessToken, metadataBlob, metadataName, `Metadata for ${receiptPayload.storeName}`)
-        : uploadToDropbox(accessToken, metadataBlob, metadataName));
+        // Upload image
+        const fileBlob = await loadImageBlob(item.imageUrl);
+        if (fileBlob) {
+          await uploadToGoogleDrive(accessToken, fileBlob, item.imageName, fileDescription, folderId);
+        }
+
+        // Upload JSON sidecar
+        const metadataBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
+        const metadataName = item.imageName.replace(/\.[^.]+$/, '') + '.json';
+        await uploadToGoogleDrive(accessToken, metadataBlob, metadataName, `Metadata for ${meta.storeName}`, folderId);
+
+      } else {
+        // Dropbox — folder path is built into the upload path
+        const fileBlob = await loadImageBlob(item.imageUrl);
+        if (fileBlob) {
+          await uploadToDropbox(accessToken, fileBlob, item.imageName, year, category);
+        }
+        const metadataBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
+        const metadataName = item.imageName.replace(/\.[^.]+$/, '') + '.json';
+        await uploadToDropbox(accessToken, metadataBlob, metadataName, year, category);
+      }
 
       const index = nextQueue.findIndex(q => q.id === item.id);
       if (index >= 0) nextQueue.splice(index, 1);
       processedCount += 1;
+
     } catch (error) {
       const errorMessage = (error as Error).message || 'Cloud sync failed';
       lastError = errorMessage;

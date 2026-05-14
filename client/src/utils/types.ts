@@ -38,16 +38,17 @@ export interface ScannedReceiptData {
 }
 
 export const CATEGORIES = [
-  { name: 'Supplies & Materials', color: '#E67E22', tailwind: 'cat-supplies' },
-  { name: 'Gas & Fuel',           color: '#F44747', tailwind: 'cat-gas' },
-  { name: 'Vehicle & Auto',       color: '#0C87C1', tailwind: 'cat-vehicle' },
-  { name: 'Equipment & Tools',    color: '#eab308', tailwind: 'cat-equipment' },
-  { name: 'Meals & Entertainment',color: '#4ade80', tailwind: 'cat-meals' },
-  { name: 'Office Supplies',      color: '#a855f7', tailwind: 'cat-office' },
-  { name: 'Subcontractors',       color: '#4ECDC4', tailwind: 'cat-subs' },
+  { name: 'Comm',                 color: '#2DD4BF', tailwind: 'cat-comm' },
+  { name: 'Loan/Interest',        color: '#F44747', tailwind: 'cat-loan' },
+  { name: 'Meals',                color: '#4ade80', tailwind: 'cat-meals' },
+  { name: 'Medical',              color: '#60a5fa', tailwind: 'cat-medical' },
+  { name: 'Postage',              color: '#E67E22', tailwind: 'cat-postage' },
+  { name: 'Supplies & Hardware',  color: '#eab308', tailwind: 'cat-supplies' },
+  { name: 'AI Services',          color: '#a855f7', tailwind: 'cat-ai' },
   { name: 'Insurance',            color: '#888888', tailwind: 'cat-insurance' },
-  { name: 'Phone & Internet',     color: '#2DD4BF', tailwind: 'cat-phone' },
-  { name: 'Other',                color: '#6B7280', tailwind: 'cat-other' },
+  { name: 'Rent',                 color: '#0C87C1', tailwind: 'cat-rent' },
+  { name: 'Travel',               color: '#4ECDC4', tailwind: 'cat-travel' },
+  { name: 'Subscriptions',        color: '#f472b6', tailwind: 'cat-subscriptions' },
 ] as const;
 
 export type CategoryName = typeof CATEGORIES[number]['name'];
