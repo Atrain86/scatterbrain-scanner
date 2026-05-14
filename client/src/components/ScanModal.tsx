@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Camera, Image as ImageIcon, Clipboard } from 'lucide-react';
-import { useAuthFetch } from '../contexts/AuthContext';
 import { compressReceiptImage } from '../lib/imageCompression';
+import { enqueueReceiptSync, processCloudSyncQueue } from '../lib/cloudSync';
+import { loadCloudSettings } from '../hooks/useCloudAuth';
+import { addReceipt } from '../lib/db';
 import LineItemSelector from './LineItemSelector';
 import type { ScannedReceiptData } from '../utils/types';
 
@@ -12,22 +14,21 @@ interface Props {
 
 type Step = 'pick' | 'scanning' | 'select' | 'saving';
 
-// Detect desktop (non-touch) for showing paste option
 const isDesktop = !('ontouchstart' in window) && window.innerWidth > 768;
 
-export default function ScanModal({ onClose, onSaved }: Props) {
-  const authFetch = useAuthFetch();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const pasteZoneRef = useRef<HTMLDivElement>(null);
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
-  const [step, setStep] = useState<Step>('pick');
-  const [scanned, setScanned] = useState<ScannedReceiptData | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [error, setError] = useState('');
+export default function ScanModal({ onClose, onSaved }: Props) {
+  const fileInputRef   = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const pasteZoneRef   = useRef<HTMLDivElement>(null);
+
+  const [step,           setStep]           = useState<Step>('pick');
+  const [scanned,        setScanned]        = useState<ScannedReceiptData | null>(null);
+  const [imageFile,      setImageFile]      = useState<File | null>(null);
+  const [error,          setError]          = useState('');
   const [pasteHighlight, setPasteHighlight] = useState(false);
 
-  // Listen for paste events anywhere in the modal when on pick step
   useEffect(() => {
     if (step !== 'pick') return;
 
@@ -65,7 +66,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     form.append('receipt', compressed);
 
     try {
-      const res = await authFetch('/api/receipts/scan', { method: 'POST', body: form });
+      const res = await fetch(`${API_BASE}/api/ocr/receipt`, { method: 'POST', body: form });
       if (!res.ok) throw new Error('Scan failed');
       const data: ScannedReceiptData = await res.json();
       setScanned(data);
@@ -107,13 +108,53 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     taxLines: string;
   }) {
     setStep('saving');
-    const form = new FormData();
-    Object.entries(payload).forEach(([k, v]) => form.append(k, String(v)));
-    if (imageFile) form.append('receipt', imageFile);
+
+    // Convert image to base64 data URL for IndexedDB storage
+    let imageUrl: string | null = null;
+    if (imageFile) {
+      try {
+        imageUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(imageFile);
+        });
+      } catch {
+        // non-fatal — save without image
+      }
+    }
+
+    const now = new Date().toISOString();
 
     try {
-      const res = await authFetch('/api/receipts', { method: 'POST', body: form });
-      if (!res.ok) throw new Error('Save failed');
+      const receipt = await addReceipt({
+        storeName:    payload.storeName,
+        receiptDate:  payload.receiptDate,
+        subtotal:     payload.subtotal,
+        taxAmount:    payload.taxAmount,
+        total:        payload.total,
+        category:     payload.category,
+        clientName:   payload.clientName || null,
+        lineItems:    payload.lineItems,
+        rawLineItems: payload.rawLineItems,
+        taxLines:     payload.taxLines,
+        imagePath:    null,
+        imageUrl,
+        notes:        null,
+        createdAt:    now,
+        updatedAt:    now,
+      });
+
+      try {
+        const cloudSettings = loadCloudSettings();
+        if (cloudSettings.autoSync && cloudSettings.primaryProvider) {
+          await enqueueReceiptSync(receipt, cloudSettings.primaryProvider);
+          void processCloudSyncQueue();
+        }
+      } catch (syncError) {
+        console.warn('Cloud sync enqueue failed:', (syncError as Error).message);
+      }
+
       onSaved();
     } catch (err) {
       setError((err as Error).message || 'Could not save receipt.');
@@ -141,7 +182,6 @@ export default function ScanModal({ onClose, onSaved }: Props) {
       {/* Body */}
       {step === 'pick' && (
         <div className="flex-1 flex flex-col px-6">
-          {/* Scan options — centered in available space */}
           <div className="flex-1 flex flex-col items-center justify-center gap-4">
             {error && (
               <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-lg px-4 py-3 text-center w-full max-w-xs">
@@ -167,7 +207,6 @@ export default function ScanModal({ onClose, onSaved }: Props) {
               <span className="text-white text-sm opacity-50">Choose from camera roll</span>
             </button>
 
-            {/* Paste from clipboard — desktop only */}
             {isDesktop && (
               <div
                 ref={pasteZoneRef}
@@ -184,7 +223,6 @@ export default function ScanModal({ onClose, onSaved }: Props) {
               </div>
             )}
 
-            {/* Hidden inputs */}
             <input
               ref={cameraInputRef}
               type="file"
@@ -202,7 +240,6 @@ export default function ScanModal({ onClose, onSaved }: Props) {
             />
           </div>
 
-          {/* Large Cancel button always visible at the bottom */}
           <div className="pb-10 pt-4 safe-bottom">
             <button
               onClick={onClose}

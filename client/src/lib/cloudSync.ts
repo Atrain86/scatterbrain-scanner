@@ -1,0 +1,369 @@
+import type { CloudProvider, CloudProviderState, CloudSettings, CloudSyncQueueItem, Receipt } from '../utils/types';
+import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
+
+const SYNC_QUEUE_KEY = 'sb_cloud_sync_queue';
+const SYNC_STATUS_KEY = 'sb_cloud_sync_status';
+
+interface CloudSyncStatus {
+  lastRunAt: number | null;
+  lastResult: string | null;
+  errorMessage: string | null;
+  processedCount: number;
+}
+
+export interface CloudSyncSummary {
+  pendingCount: number;
+  failedCount: number;
+  lastRunAt: number | null;
+  lastResult: string | null;
+  errorMessage: string | null;
+  processedCount: number;
+}
+
+function loadSyncQueue(): CloudSyncQueueItem[] {
+  try {
+    const raw = localStorage.getItem(SYNC_QUEUE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as CloudSyncQueueItem[];
+  } catch {
+    return [];
+  }
+}
+
+function saveSyncQueue(queue: CloudSyncQueueItem[]) {
+  localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(queue));
+}
+
+function loadSyncStatus(): CloudSyncStatus {
+  try {
+    const raw = localStorage.getItem(SYNC_STATUS_KEY);
+    if (!raw) return { lastRunAt: null, lastResult: null, errorMessage: null, processedCount: 0 };
+    return JSON.parse(raw) as CloudSyncStatus;
+  } catch {
+    return { lastRunAt: null, lastResult: null, errorMessage: null, processedCount: 0 };
+  }
+}
+
+function saveSyncStatus(status: CloudSyncStatus) {
+  localStorage.setItem(SYNC_STATUS_KEY, JSON.stringify(status));
+}
+
+function makeSafeFileName(value: string) {
+  return value.replace(/[^a-zA-Z0-9._\- ]+/g, '_').trim();
+}
+
+function getReceiptMetadata(receipt: Receipt) {
+  return {
+    id: receipt.id,
+    storeName: receipt.storeName,
+    receiptDate: receipt.receiptDate,
+    subtotal: receipt.subtotal,
+    taxAmount: receipt.taxAmount,
+    total: receipt.total,
+    category: receipt.category,
+    clientName: receipt.clientName,
+    lineItems: receipt.lineItems ? JSON.parse(receipt.lineItems) : null,
+    rawLineItems: receipt.rawLineItems ? JSON.parse(receipt.rawLineItems) : null,
+    taxLines: receipt.taxLines ? JSON.parse(receipt.taxLines) : null,
+    imageUrl: receipt.imageUrl,
+    notes: receipt.notes,
+    createdAt: receipt.createdAt,
+    updatedAt: receipt.updatedAt,
+  };
+}
+
+function decodeDataUri(dataUri: string): Blob {
+  const [meta, data] = dataUri.split(',');
+  const mimeMatch = meta.match(/data:([^;]+);/);
+  const mimeType = mimeMatch?.[1] ?? 'application/octet-stream';
+  const binary = atob(data);
+  const array = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    array[i] = binary.charCodeAt(i);
+  }
+  return new Blob([array], { type: mimeType });
+}
+
+async function loadImageBlob(imageUrl: string | null): Promise<Blob | null> {
+  if (!imageUrl) return null;
+  if (imageUrl.startsWith('data:')) {
+    return decodeDataUri(imageUrl);
+  }
+
+  const response = await fetch(imageUrl);
+  if (!response.ok) throw new Error('Failed to fetch receipt image for cloud upload');
+  return await response.blob();
+}
+
+function buildDriveMultipartBody(fileBlob: Blob, fileName: string, description: string) {
+  const boundary = '-------314159265358979323846';
+  const metadata = {
+    name: fileName,
+    mimeType: fileBlob.type || 'application/octet-stream',
+    description,
+  };
+
+  return new Blob([
+    `--${boundary}\r\n`,
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n',
+    JSON.stringify(metadata),
+    `\r\n--${boundary}\r\n`,
+    `Content-Type: ${fileBlob.type || 'application/octet-stream'}\r\n\r\n`,
+    fileBlob,
+    `\r\n--${boundary}--`,
+  ]);
+}
+
+async function uploadToGoogleDrive(accessToken: string, fileBlob: Blob, fileName: string, description: string) {
+  const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink';
+  const body = buildDriveMultipartBody(fileBlob, fileName, description);
+  const response = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'multipart/related; boundary=-------314159265358979323846',
+    },
+    body,
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Drive upload failed: ${errorText}`);
+  }
+  return await response.json();
+}
+
+async function uploadToDropbox(accessToken: string, fileBlob: Blob, fileName: string) {
+  const dropboxPath = `/Scatterbrain/${fileName}`;
+  const response = await fetch('https://content.dropboxapi.com/2/files/upload', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/octet-stream',
+      'Dropbox-API-Arg': JSON.stringify({ path: dropboxPath, mode: 'add', autorename: true, mute: true }),
+    },
+    body: fileBlob,
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Dropbox upload failed: ${errorText}`);
+  }
+  return await response.json();
+}
+
+async function refreshGoogleAccessToken(refreshToken: string) {
+  const response = await fetch('/api/auth/google/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Google refresh failed: ${text}`);
+  }
+  return await response.json();
+}
+
+async function refreshDropboxAccessToken(refreshToken: string) {
+  const response = await fetch('/api/auth/dropbox/refresh', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Dropbox refresh failed: ${text}`);
+  }
+  return await response.json();
+}
+
+function normalizeProviderState(state: CloudProviderState, payload: Record<string, any>): CloudProviderState {
+  const expiresIn = payload.expires_in ?? payload.expiresIn;
+  return {
+    connected: true,
+    email: payload.email ?? state.email ?? null,
+    accessToken: payload.access_token ?? payload.accessToken ?? state.accessToken,
+    refreshToken: payload.refresh_token ?? payload.refreshToken ?? state.refreshToken,
+    expiresAt: expiresIn ? Date.now() + Number(expiresIn) * 1000 : state.expiresAt,
+    scope: payload.scope ?? state.scope,
+    tokenType: payload.token_type ?? payload.tokenType ?? state.tokenType,
+  };
+}
+
+async function ensureValidAccessToken(providerState: CloudProviderState, provider: CloudProvider) {
+  const now = Date.now();
+  if (providerState.accessToken && providerState.expiresAt && providerState.expiresAt > now + 5000) {
+    return providerState.accessToken;
+  }
+
+  if (!providerState.refreshToken) {
+    return null;
+  }
+
+  const payload = provider === 'google-drive'
+    ? await refreshGoogleAccessToken(providerState.refreshToken)
+    : await refreshDropboxAccessToken(providerState.refreshToken);
+
+  const settings = loadCloudSettings();
+  const nextProviderState = normalizeProviderState(providerState, payload);
+  const nextSettings: CloudSettings = {
+    ...settings,
+    [provider === 'google-drive' ? 'googleDrive' : 'dropbox']: nextProviderState,
+  } as CloudSettings;
+
+  saveCloudSettings(nextSettings);
+  return nextProviderState.accessToken;
+}
+
+export function getCloudSyncQueue() {
+  return loadSyncQueue();
+}
+
+export function getCloudSyncSummary(provider?: CloudProvider | null): CloudSyncSummary {
+  const settings = loadCloudSettings();
+  const activeProvider = provider || settings.primaryProvider;
+  const queue = loadSyncQueue();
+  const relevantQueue = activeProvider ? queue.filter(item => item.provider === activeProvider) : queue;
+  const status = loadSyncStatus();
+
+  return {
+    pendingCount: relevantQueue.length,
+    failedCount: relevantQueue.filter(item => !!item.lastError).length,
+    lastRunAt: status.lastRunAt,
+    lastResult: status.lastResult,
+    errorMessage: status.errorMessage,
+    processedCount: status.processedCount,
+  };
+}
+
+export async function enqueueReceiptSync(receipt: Receipt, provider: CloudProvider) {
+  const imageName = makeSafeFileName(`receipt-${receipt.id}-${receipt.storeName || 'receipt'}.jpg`);
+  const metadata = getReceiptMetadata(receipt);
+
+  const newItem: CloudSyncQueueItem = {
+    id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    provider,
+    receiptId: receipt.id,
+    imageUrl: receipt.imageUrl,
+    imageName,
+    metadata,
+    createdAt: Date.now(),
+    attemptCount: 0,
+    lastError: null,
+  };
+
+  const queue = loadSyncQueue();
+  queue.push(newItem);
+  saveSyncQueue(queue);
+  return newItem;
+}
+
+export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
+  const settings = loadCloudSettings();
+  const queue = loadSyncQueue();
+  const activeProvider = settings.primaryProvider;
+  const status: CloudSyncStatus = {
+    lastRunAt: Date.now(),
+    lastResult: null,
+    errorMessage: null,
+    processedCount: 0,
+  };
+
+  if (!activeProvider) {
+    const result: CloudSyncSummary = {
+      pendingCount: queue.length,
+      failedCount: queue.filter(item => !!item.lastError).length,
+      lastRunAt: status.lastRunAt,
+      lastResult: 'No primary cloud provider selected',
+      errorMessage: 'Please choose Google Drive or Dropbox in settings.',
+      processedCount: 0,
+    };
+    saveSyncStatus(status);
+    return result;
+  }
+
+  const providerState = settings[activeProvider === 'google-drive' ? 'googleDrive' : 'dropbox'];
+  const relevantQueue = queue.filter(item => item.provider === activeProvider);
+
+  if (!providerState.connected) {
+    const result: CloudSyncSummary = {
+      pendingCount: relevantQueue.length,
+      failedCount: relevantQueue.filter(item => !!item.lastError).length,
+      lastRunAt: status.lastRunAt,
+      lastResult: `${activeProvider === 'google-drive' ? 'Google Drive' : 'Dropbox'} is not connected`,
+      errorMessage: 'Reconnect your cloud provider to resume sync.',
+      processedCount: 0,
+    };
+    saveSyncStatus(status);
+    return result;
+  }
+
+  const accessToken = await ensureValidAccessToken(providerState, activeProvider);
+  if (!accessToken) {
+    const result: CloudSyncSummary = {
+      pendingCount: relevantQueue.length,
+      failedCount: relevantQueue.filter(item => !!item.lastError).length,
+      lastRunAt: status.lastRunAt,
+      lastResult: 'Unable to refresh access token',
+      errorMessage: 'Reconnect your cloud provider or check your refresh token.',
+      processedCount: 0,
+    };
+    saveSyncStatus(status);
+    return result;
+  }
+
+  const nextQueue = [...queue];
+  let processedCount = 0;
+  let failedCount = 0;
+  let lastError: string | null = null;
+
+  for (const item of relevantQueue) {
+    const receiptPayload = item.metadata;
+    const fileDescription = `Receipt backup for ${receiptPayload.storeName} on ${receiptPayload.receiptDate}`;
+
+    try {
+      const fileBlob = await loadImageBlob(item.imageUrl);
+      if (fileBlob) {
+        await (item.provider === 'google-drive'
+          ? uploadToGoogleDrive(accessToken, fileBlob, item.imageName, fileDescription)
+          : uploadToDropbox(accessToken, fileBlob, item.imageName));
+      }
+
+      const metadataBlob = new Blob([JSON.stringify(receiptPayload, null, 2)], { type: 'application/json' });
+      const metadataName = item.imageName.replace(/\.[^.]+$/, '') + '.json';
+      await (item.provider === 'google-drive'
+        ? uploadToGoogleDrive(accessToken, metadataBlob, metadataName, `Metadata for ${receiptPayload.storeName}`)
+        : uploadToDropbox(accessToken, metadataBlob, metadataName));
+
+      const index = nextQueue.findIndex(q => q.id === item.id);
+      if (index >= 0) nextQueue.splice(index, 1);
+      processedCount += 1;
+    } catch (error) {
+      const errorMessage = (error as Error).message || 'Cloud sync failed';
+      lastError = errorMessage;
+      failedCount += 1;
+      const index = nextQueue.findIndex(q => q.id === item.id);
+      if (index >= 0) {
+        nextQueue[index] = {
+          ...nextQueue[index],
+          attemptCount: nextQueue[index].attemptCount + 1,
+          lastError: errorMessage,
+        };
+      }
+      console.warn('Cloud sync error:', errorMessage);
+    }
+  }
+
+  saveSyncQueue(nextQueue);
+
+  const result: CloudSyncSummary = {
+    pendingCount: nextQueue.filter(item => item.provider === activeProvider).length,
+    failedCount: nextQueue.filter(item => item.provider === activeProvider && !!item.lastError).length,
+    lastRunAt: status.lastRunAt,
+    lastResult: failedCount > 0 ? `Completed with ${failedCount} failures` : `Uploaded ${processedCount} receipt(s)`,
+    errorMessage: lastError,
+    processedCount,
+  };
+
+  saveSyncStatus(result);
+  return result;
+}

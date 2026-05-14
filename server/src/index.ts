@@ -3,7 +3,6 @@ import express from 'express';
 import cors from 'cors';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { initDb } from './db.js';
 import routes from './routes.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -23,9 +22,6 @@ app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 
 // All API routes
 app.use('/api', routes);
-
-// Initialize database tables
-initDb();
 
 app.listen(PORT, () => {
   console.log(`Scatterbrain Scanner API running on http://localhost:${PORT}`);

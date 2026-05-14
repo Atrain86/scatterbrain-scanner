@@ -1,200 +1,301 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { desc } from 'drizzle-orm';
-import { eq } from 'drizzle-orm';
-import { db } from './db.js';
-import { receipts, scanLogs } from './schema.js';
 import { extractReceiptLineItems } from './visionHandler.js';
-import { uploadReceiptImage, deleteReceiptImage } from './r2.js';
-import { buildExcel } from './excelExport.js';
+import { sendReceiptEmail } from './email.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-// ── Receipts ──────────────────────────────────────────────────────────────────
+function parseClientOrigin(value: string | undefined): string {
+  if (!value) return '';
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
-// Scan (parse only — does NOT save)
-router.post('/receipts/scan', upload.single('receipt'), async (req: Request, res: Response) => {
+function renderAuthCallbackPage(provider: string, clientOrigin: string, payload: Record<string, any>) {
+  const safePayload = JSON.stringify(payload).replace(/</g, '\\u003c');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Scatterbrain Cloud Auth</title>
+  <style>body{background:#000;color:#fff;font-family:system-ui, sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;padding:24px;}</style>
+</head>
+<body>
+  <div style="max-width:520px;text-align:center;">
+    <h1 style="margin-bottom:0.5rem;">${provider} connected</h1>
+    <p style="opacity:.75;margin-bottom:1.2rem;">You may now close this window and return to Scatterbrain.</p>
+    <script>
+      const payload = ${safePayload};
+      const targetOrigin = ${JSON.stringify(clientOrigin || '*')};
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage({ type: 'scatterbrain_cloud_auth', provider: ${JSON.stringify(provider)}, payload }, targetOrigin);
+        window.close();
+      } else {
+        document.body.insertAdjacentHTML('beforeend', '<p style="opacity:.75;">Return to Scatterbrain to complete the connection.</p>');
+      }
+    </script>
+  </div>
+</body>
+</html>`;
+}
+
+// ── OCR (Vision API proxy) ────────────────────────────────────────────────────
+
+router.post('/ocr/receipt', upload.single('receipt'), async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
   try {
     const result = await extractReceiptLineItems(req.file.buffer, req.file.originalname);
-    // Log token usage
-    db.insert(scanLogs).values({
-      promptTokens: result.usage?.promptTokens ?? 0,
-      completionTokens: result.usage?.completionTokens ?? 0,
-      totalTokens: result.usage?.totalTokens ?? 0,
-      model: 'gpt-4o',
-      success: 1,
-    }).run();
     res.json(result);
   } catch (err) {
-    console.error('Scan error:', err);
-    db.insert(scanLogs).values({ model: 'gpt-4o', success: 0 }).run();
-    res.status(500).json({ error: 'Scan failed' });
+    console.error('OCR error:', err);
+    res.status(500).json({ error: 'OCR failed' });
   }
 });
 
-// Save receipt after user confirms line items
-router.post('/receipts', upload.single('receipt'), async (req: Request, res: Response) => {
-  const { storeName, receiptDate, subtotal, taxAmount, total, category, clientName, lineItems, rawLineItems, taxLines, notes } = req.body;
+// ── Email share ───────────────────────────────────────────────────────────────
 
-  if (!storeName || !receiptDate) {
-    res.status(400).json({ error: 'storeName and receiptDate are required' });
-    return;
-  }
-
-  let imagePath = '';
-  let imageUrl = '';
-
-  if (req.file) {
-    try {
-      if (process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID) {
-        const uploaded = await uploadReceiptImage(req.file.buffer, req.file.originalname, 1);
-        imagePath = uploaded.key;
-        imageUrl = uploaded.url;
-      } else {
-        // No R2 configured — store as base64 data URL directly in DB
-        const mime = req.file.mimetype || 'image/jpeg';
-        imageUrl = `data:${mime};base64,${req.file.buffer.toString('base64')}`;
-        imagePath = 'base64';
-      }
-    } catch (err) {
-      console.error('Image storage failed:', err);
-    }
-  }
-
-  const receipt = db.insert(receipts).values({
-    storeName,
-    receiptDate,
-    subtotal: parseFloat(subtotal) || 0,
-    taxAmount: parseFloat(taxAmount) || 0,
-    total: parseFloat(total) || 0,
-    category: category || 'Other',
-    clientName: clientName || '',
-    lineItems: lineItems || null,
-    rawLineItems: rawLineItems || null,
-    taxLines: taxLines || null,
-    imagePath,
-    imageUrl,
-    notes: notes || null,
-  }).returning().get();
-
-  res.json(receipt);
-});
-
-// List all receipts
-router.get('/receipts', (_req: Request, res: Response) => {
-  const all = db.select().from(receipts)
-    .orderBy(desc(receipts.receiptDate))
-    .all();
-  res.json(all);
-});
-
-// Get single receipt
-router.get('/receipts/:id', (req: Request, res: Response) => {
-  const receipt = db.select().from(receipts)
-    .where(eq(receipts.id, parseInt(req.params.id)))
-    .get();
-  if (!receipt) { res.status(404).json({ error: 'Not found' }); return; }
-  res.json(receipt);
-});
-
-// Update receipt
-router.put('/receipts/:id', (req: Request, res: Response) => {
-  const { storeName, receiptDate, subtotal, taxAmount, total, category, clientName, lineItems, taxLines, notes } = req.body;
-  db.update(receipts)
-    .set({
-      storeName, receiptDate,
-      subtotal: parseFloat(subtotal) || 0,
-      taxAmount: parseFloat(taxAmount) || 0,
+router.post('/share/email', async (req: Request, res: Response) => {
+  const { to, storeName, date, total, category, lineItemsHtml, imageUrl } = req.body;
+  if (!to || !storeName) { res.status(400).json({ error: 'Missing required fields' }); return; }
+  try {
+    await sendReceiptEmail({
+      to,
+      replyTo: process.env.REPLY_TO_EMAIL || 'noreply@scatterbrainscanner.com',
+      storeName,
+      date,
       total: parseFloat(total) || 0,
       category,
-      clientName: clientName ?? undefined,
-      lineItems, taxLines, notes,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(receipts.id, parseInt(req.params.id)))
-    .run();
-  res.json({ ok: true });
-});
-
-// Delete receipt
-router.delete('/receipts/:id', async (req: Request, res: Response) => {
-  const receipt = db.select().from(receipts)
-    .where(eq(receipts.id, parseInt(req.params.id)))
-    .get();
-  if (!receipt) { res.status(404).json({ error: 'Not found' }); return; }
-
-  if (receipt.imagePath) await deleteReceiptImage(receipt.imagePath);
-
-  db.delete(receipts)
-    .where(eq(receipts.id, parseInt(req.params.id)))
-    .run();
-
-  res.json({ ok: true });
-});
-
-// ── Export ────────────────────────────────────────────────────────────────────
-
-router.get('/export/download', async (req: Request, res: Response) => {
-  const year = parseInt(req.query.year as string) || new Date().getFullYear();
-  const clientFilter = (req.query.client as string | undefined)?.trim() || '';
-
-  const allReceipts = db.select().from(receipts)
-    .all()
-    .filter(r => {
-      if (!r.receiptDate.startsWith(String(year))) return false;
-      if (clientFilter && (r.clientName || '') !== clientFilter) return false;
-      return true;
+      lineItemsHtml: lineItemsHtml || '',
+      imageUrl: imageUrl || null,
     });
-
-  try {
-    const { buffer, fileName } = buildExcel(allReceipts, year, '', '');
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.send(buffer);
+    res.json({ ok: true });
   } catch (err) {
-    console.error('Export failed:', err);
-    res.status(500).json({ error: 'Failed to generate export' });
+    console.error('Email share failed:', err);
+    res.status(500).json({ error: 'Failed to send email' });
   }
-});
-
-// ── Scan stats ────────────────────────────────────────────────────────────────
-
-router.get('/stats', (_req: Request, res: Response) => {
-  const logs = db.select().from(scanLogs).all();
-
-  // Baseline: 2 real scans (2,354 tokens, $0.01) happened before scan logging
-  // was in place — add them so totals stay in sync with OpenAI dashboard
-  const BASELINE_SCANS   = 2;
-  const BASELINE_TOKENS  = 2354;
-  const BASELINE_COST    = 0.01;
-
-  const totalScans     = logs.length + BASELINE_SCANS;
-  const successScans   = logs.filter(l => l.success === 1).length + BASELINE_SCANS;
-  const totalTokens    = logs.reduce((s, l) => s + (l.totalTokens ?? 0), 0) + BASELINE_TOKENS;
-  const promptTokens   = logs.reduce((s, l) => s + (l.promptTokens ?? 0), 0);
-  const completionTokens = logs.reduce((s, l) => s + (l.completionTokens ?? 0), 0);
-  // gpt-4o pricing: $2.50/1M input, $10/1M output (as of 2025)
-  const estimatedCost  = (promptTokens / 1_000_000) * 2.5 + (completionTokens / 1_000_000) * 10 + BASELINE_COST;
-  const receiptCount   = db.select().from(receipts).all().length;
-  res.json({
-    totalScans, successScans, totalTokens, promptTokens, completionTokens,
-    estimatedCostUSD: Math.round(estimatedCost * 10000) / 10000,
-    receiptCount,
-  });
 });
 
 // ── Health ────────────────────────────────────────────────────────────────────
 
 router.get('/health', (_req: Request, res: Response) => {
-  const receiptCount = db.select().from(receipts).all().length;
   res.json({
     status: 'ok',
     openai: !!process.env.OPENAI_API_KEY,
-    r2: !!(process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID),
-    receiptCount,
   });
+});
+
+// ── Cloud OAuth ──────────────────────────────────────────────────────────────────
+
+router.get('/auth/google/init', (req: Request, res: Response) => {
+  const clientOrigin = parseClientOrigin(req.query.clientOrigin?.toString());
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+
+  if (!clientId || !redirectUri) {
+    res.status(500).send('Google OAuth is not configured.');
+    return;
+  }
+
+  const state = encodeURIComponent(clientOrigin || '');
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  url.searchParams.set('client_id', clientId);
+  url.searchParams.set('redirect_uri', redirectUri);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', 'openid email profile https://www.googleapis.com/auth/drive.file');
+  url.searchParams.set('access_type', 'offline');
+  url.searchParams.set('prompt', 'consent');
+  url.searchParams.set('state', state);
+
+  res.redirect(url.toString());
+});
+
+router.get('/auth/google/callback', async (req: Request, res: Response) => {
+  const code = req.query.code?.toString();
+  const state = parseClientOrigin(req.query.state?.toString());
+  const clientOrigin = state || '*';
+
+  if (!code) {
+    res.status(400).send('Missing authorization code.');
+    return;
+  }
+
+  const tokenUri = 'https://oauth2.googleapis.com/token';
+  try {
+    const response = await fetch(tokenUri, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID || '',
+        client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+        redirect_uri: process.env.GOOGLE_REDIRECT_URI || '',
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    const tokenData = await response.json() as any;
+    if (!response.ok) {
+      console.error('Google token exchange failed:', tokenData);
+      res.status(500).send('Google token exchange failed.');
+      return;
+    }
+
+    const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
+      },
+    });
+    const userInfo = await userInfoRes.json() as any;
+
+    const payload = {
+      ...tokenData,
+      email: userInfo?.email ?? null,
+    };
+
+    res.send(renderAuthCallbackPage('google-drive', clientOrigin, payload));
+  } catch (error) {
+    console.error('Google callback error:', error);
+    res.status(500).send('Google OAuth callback failed.');
+  }
+});
+
+router.get('/auth/dropbox/init', (req: Request, res: Response) => {
+  const clientOrigin = parseClientOrigin(req.query.clientOrigin?.toString());
+  const redirectUri = process.env.DROPBOX_REDIRECT_URI;
+  const clientId = process.env.DROPBOX_APP_KEY;
+
+  if (!clientId || !redirectUri) {
+    res.status(500).send('Dropbox OAuth is not configured.');
+    return;
+  }
+
+  const state = encodeURIComponent(clientOrigin || '');
+  const url = new URL('https://www.dropbox.com/oauth2/authorize');
+  url.searchParams.set('client_id', clientId);
+  url.searchParams.set('redirect_uri', redirectUri);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('token_access_type', 'offline');
+  url.searchParams.set('state', state);
+
+  res.redirect(url.toString());
+});
+
+router.get('/auth/dropbox/callback', async (req: Request, res: Response) => {
+  const code = req.query.code?.toString();
+  const state = parseClientOrigin(req.query.state?.toString());
+  const clientOrigin = state || '*';
+
+  if (!code) {
+    res.status(400).send('Missing authorization code.');
+    return;
+  }
+
+  const tokenUri = 'https://api.dropbox.com/oauth2/token';
+  try {
+    const response = await fetch(tokenUri, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        grant_type: 'authorization_code',
+        client_id: process.env.DROPBOX_APP_KEY || '',
+        client_secret: process.env.DROPBOX_APP_SECRET || '',
+        redirect_uri: process.env.DROPBOX_REDIRECT_URI || '',
+      }),
+    });
+
+    const tokenData = await response.json() as any;
+    if (!response.ok) {
+      console.error('Dropbox token exchange failed:', tokenData);
+      res.status(500).send('Dropbox token exchange failed.');
+      return;
+    }
+
+    const accountRes = await fetch('https://api.dropboxapi.com/2/users/get_current_account', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    const accountInfo = await accountRes.json() as any;
+
+    const payload = {
+      ...tokenData,
+      email: accountInfo?.email ?? null,
+    };
+
+    res.send(renderAuthCallbackPage('dropbox', clientOrigin, payload));
+  } catch (error) {
+    console.error('Dropbox callback error:', error);
+    res.status(500).send('Dropbox OAuth callback failed.');
+  }
+});
+
+router.post('/auth/google/refresh', async (req: Request, res: Response) => {
+  const refreshToken = req.body.refreshToken?.toString();
+  if (!refreshToken) { res.status(400).json({ error: 'Missing refreshToken' }); return; }
+
+  const tokenUri = 'https://oauth2.googleapis.com/token';
+  try {
+    const response = await fetch(tokenUri, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID || '',
+        client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    const tokenData = await response.json() as any;
+    if (!response.ok) {
+      console.error('Google refresh failed:', tokenData);
+      res.status(500).json({ error: 'Google refresh failed', details: tokenData });
+      return;
+    }
+
+    res.json(tokenData);
+  } catch (error) {
+    console.error('Google refresh error:', error);
+    res.status(500).json({ error: 'Google refresh failed.' });
+  }
+});
+
+router.post('/auth/dropbox/refresh', async (req: Request, res: Response) => {
+  const refreshToken = req.body.refreshToken?.toString();
+  if (!refreshToken) { res.status(400).json({ error: 'Missing refreshToken' }); return; }
+
+  const tokenUri = 'https://api.dropbox.com/oauth2/token';
+  try {
+    const response = await fetch(tokenUri, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: process.env.DROPBOX_APP_KEY || '',
+        client_secret: process.env.DROPBOX_APP_SECRET || '',
+      }),
+    });
+
+    const tokenData = await response.json() as any;
+    if (!response.ok) {
+      console.error('Dropbox refresh failed:', tokenData);
+      res.status(500).json({ error: 'Dropbox refresh failed', details: tokenData });
+      return;
+    }
+
+    res.json(tokenData);
+  } catch (error) {
+    console.error('Dropbox refresh error:', error);
+    res.status(500).json({ error: 'Dropbox refresh failed.' });
+  }
 });
 
 export default router;

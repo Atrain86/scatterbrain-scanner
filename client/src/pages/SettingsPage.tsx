@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthFetch } from '../contexts/AuthContext';
+import { getAllReceipts } from '../lib/db';
+import { useCloudAuth } from '../hooks/useCloudAuth';
+import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue } from '../lib/cloudSync';
 import React from 'react';
 
 export const APP_VERSION = '0.3.1';
@@ -106,17 +108,62 @@ interface ScanStats {
   completionTokens: number;
   estimatedCostUSD: number;
   receiptCount: number;
+  // Legacy fields kept for type compat — not displayed
 }
 
 export default function SettingsPage() {
   const navigate = useNavigate();
-  const authFetch = useAuthFetch();
+  const { settings: cloudSettings, connectToProvider, disconnectProvider, setPrimaryProvider, toggleAutoSync } = useCloudAuth();
 
+  const [syncStatus, setSyncStatus] = useState(() => getCloudSyncSummary(cloudSettings.primaryProvider));
+  const [syncQueue, setSyncQueue] = useState(() => getCloudSyncQueue());
+  const [isSyncing, setIsSyncing] = useState(false);
   const [scanStats, setScanStats] = useState<ScanStats | null>(null);
 
   useEffect(() => {
-    authFetch('/api/stats').then(r => r.ok ? r.json() : null).then(d => d && setScanStats(d));
+    getAllReceipts().then(rows => {
+      setScanStats({
+        totalScans: rows.length,
+        successScans: rows.length,
+        totalTokens: 0,
+        promptTokens: 0,
+        completionTokens: 0,
+        estimatedCostUSD: 0,
+        receiptCount: rows.length,
+      });
+    });
   }, []);
+
+  useEffect(() => {
+    setSyncStatus(getCloudSyncSummary(cloudSettings.primaryProvider));
+    setSyncQueue(getCloudSyncQueue());
+
+    if (!cloudSettings.autoSync || !cloudSettings.primaryProvider) return;
+    if (cloudSettings.primaryProvider === 'google-drive' && !cloudSettings.googleDrive.connected) return;
+    if (cloudSettings.primaryProvider === 'dropbox' && !cloudSettings.dropbox.connected) return;
+
+    void processCloudSyncQueue().then(status => {
+      setSyncStatus(status);
+      setSyncQueue(getCloudSyncQueue());
+    });
+  }, [cloudSettings]);
+
+  async function handleSyncNow() {
+    setIsSyncing(true);
+    try {
+      const status = await processCloudSyncQueue();
+      setSyncStatus(status);
+      setSyncQueue(getCloudSyncQueue());
+    } catch (error) {
+      setSyncStatus(prev => ({
+        ...prev,
+        lastResult: 'Manual sync failed',
+        errorMessage: (error as Error).message,
+      }));
+    } finally {
+      setIsSyncing(false);
+    }
+  }
 
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>(loadCustomCategories);
   const [newCatName, setNewCatName]   = useState('');
@@ -320,40 +367,116 @@ export default function SettingsPage() {
           </p>
         </Section>
 
-        {/* Cloud stubs */}
-        <Section icon={<Cloud size={16} />} title="Cloud Export">
+        {/* Cloud backup */}
+        <Section icon={<Cloud size={16} />} title="Cloud Backup">
           <div className="space-y-3">
-            <CloudRow label="Google Drive" description="Upload directly to your Drive" comingSoon />
-            <CloudRow label="Dropbox" description="Upload to your app folder" comingSoon />
-            <p className="text-xs text-sb-muted pt-1">Coming after beta.</p>
+            <CloudRow
+              label="Google Drive"
+              description="Upload directly to your Drive"
+              status={cloudSettings.googleDrive.connected ? `Connected: ${cloudSettings.googleDrive.email ?? 'Drive'}` : 'Not connected'}
+              actionLabel={cloudSettings.googleDrive.connected ? 'Disconnect' : 'Connect'}
+              onAction={() => cloudSettings.googleDrive.connected ? disconnectProvider('google-drive') : connectToProvider('google-drive')}
+            />
+            <CloudRow
+              label="Dropbox"
+              description="Upload to your app folder"
+              status={cloudSettings.dropbox.connected ? `Connected: ${cloudSettings.dropbox.email ?? 'Dropbox'}` : 'Not connected'}
+              actionLabel={cloudSettings.dropbox.connected ? 'Disconnect' : 'Connect'}
+              onAction={() => cloudSettings.dropbox.connected ? disconnectProvider('dropbox') : connectToProvider('dropbox')}
+            />
+            <div className="rounded-2xl border border-sb-border bg-sb-card2 p-3 space-y-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-white text-sm">Sync status</p>
+                  <p className="text-xs text-sb-muted">Pending uploads and retry state for your selected cloud provider.</p>
+                </div>
+                <button
+                  onClick={handleSyncNow}
+                  disabled={isSyncing || !cloudSettings.primaryProvider || !(cloudSettings.primaryProvider === 'google-drive' ? cloudSettings.googleDrive.connected : cloudSettings.dropbox.connected)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${isSyncing ? 'bg-sb-border text-white cursor-not-allowed' : 'bg-sb-green text-black'} ${!cloudSettings.primaryProvider ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {isSyncing ? 'Syncing…' : 'Sync now'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="rounded-xl bg-sb-card px-3 py-2">
+                  <p className="text-sb-muted">Pending</p>
+                  <p className="text-white font-semibold">{syncStatus.pendingCount}</p>
+                </div>
+                <div className="rounded-xl bg-sb-card px-3 py-2">
+                  <p className="text-sb-muted">Failed</p>
+                  <p className="text-white font-semibold">{syncStatus.failedCount}</p>
+                </div>
+                <div className="rounded-xl bg-sb-card px-3 py-2">
+                  <p className="text-sb-muted">Last synced</p>
+                  <p className="text-white font-semibold">
+                    {syncStatus.lastRunAt ? new Date(syncStatus.lastRunAt).toLocaleString() : 'Never'}
+                  </p>
+                </div>
+              </div>
+
+              {syncStatus.lastResult && (
+                <p className="text-xs text-sb-muted">{syncStatus.lastResult}</p>
+              )}
+
+              {syncStatus.errorMessage && (
+                <p className="text-xs text-red-400">Error: {syncStatus.errorMessage}</p>
+              )}
+
+              {syncQueue.length > 0 && (
+                <div className="rounded-xl bg-sb-card px-3 py-3 text-xs space-y-2">
+                  <p className="text-sb-muted">Queued receipts ({syncQueue.length})</p>
+                  <div className="space-y-1">
+                    {syncQueue.slice(0, 3).map(item => (
+                      <div key={item.id} className="flex items-center justify-between gap-2">
+                        <span>{item.metadata.storeName || 'Receipt'} </span>
+                        <span className="text-sb-green">{item.provider === 'google-drive' ? 'Drive' : 'Dropbox'}</span>
+                      </div>
+                    ))}
+                    {syncQueue.length > 3 && (
+                      <p className="text-sb-muted">and {syncQueue.length - 3} more...</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            {cloudSettings.googleDrive.connected && cloudSettings.dropbox.connected && (
+              <div className="space-y-2 rounded-2xl border border-sb-border bg-sb-card2 p-3 text-sm text-sb-muted">
+                <p className="text-white font-medium">Primary provider</p>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={() => setPrimaryProvider('google-drive')}
+                    className={`rounded-full px-3 py-1.5 transition ${cloudSettings.primaryProvider === 'google-drive' ? 'bg-sb-green text-black' : 'bg-sb-card border border-sb-border text-white'}`}
+                  >
+                    Google Drive
+                  </button>
+                  <button
+                    onClick={() => setPrimaryProvider('dropbox')}
+                    className={`rounded-full px-3 py-1.5 transition ${cloudSettings.primaryProvider === 'dropbox' ? 'bg-sb-green text-black' : 'bg-sb-card border border-sb-border text-white'}`}
+                  >
+                    Dropbox
+                  </button>
+                </div>
+              </div>
+            )}
+            <p className="text-xs text-sb-muted pt-1">
+              Use cloud backup for extra persistence. This connects your receipts to your own Drive or Dropbox account.
+            </p>
           </div>
         </Section>
 
-        {/* API Usage */}
-        <Section icon={<Activity size={16} />} title="API Usage">
+        {/* Receipt Stats */}
+        <Section icon={<Activity size={16} />} title="Receipts">
           {scanStats === null ? (
             <p className="text-sb-muted text-xs">Loading…</p>
-          ) : scanStats.totalScans === 0 ? (
-            <div className="space-y-2">
-              <p className="text-xs text-sb-muted">No scans logged yet. Scan your first receipt to start tracking usage.</p>
-              <StatRow label="Receipts in DB" value={String(scanStats.receiptCount)} />
-            </div>
+          ) : scanStats.receiptCount === 0 ? (
+            <p className="text-xs text-sb-muted">No receipts yet. Scan your first receipt to start tracking expenses.</p>
           ) : (
             <div className="space-y-2 text-sm">
-              <StatRow label="Receipts in DB"   value={String(scanStats.receiptCount)} />
-              <StatRow label="Total scans"       value={String(scanStats.totalScans)} />
-              <StatRow label="Successful scans"  value={String(scanStats.successScans)} />
-              <StatRow label="Total tokens used" value={scanStats.totalTokens.toLocaleString()} />
-              <StatRow label="Input tokens"      value={scanStats.promptTokens.toLocaleString()} />
-              <StatRow label="Output tokens"     value={scanStats.completionTokens.toLocaleString()} />
-              <div className="flex justify-between border-t border-sb-border pt-2 mt-1">
-                <span className="text-sb-muted">Est. API cost</span>
-                <span className="text-sb-green font-semibold">
-                  ${scanStats.estimatedCostUSD.toFixed(4)} USD
-                </span>
-              </div>
+              <StatRow label="Receipts stored" value={String(scanStats.receiptCount)} />
               <p className="text-[11px] text-sb-muted pt-1 opacity-70">
-                gpt-4o: $2.50/1M input · $10/1M output tokens
+                Stored locally in your browser (IndexedDB). Back up via Google Drive or Dropbox above.
               </p>
             </div>
           )}
@@ -395,16 +518,22 @@ function StatRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CloudRow({ label, description, comingSoon }: { label: string; description: string; comingSoon?: boolean }) {
+function CloudRow({ label, description, status, actionLabel, onAction }: { label: string; description: string; status?: string; actionLabel?: string; onAction?: () => void }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-sb-border last:border-0">
+    <div className="flex items-center justify-between py-3 border-b border-sb-border last:border-0">
       <div>
         <p className="text-white text-sm">{label}</p>
         <p className="text-sb-muted text-xs">{description}</p>
+        {status && <p className="text-[11px] text-sb-green mt-1">{status}</p>}
       </div>
-      {comingSoon && (
-        <span className="text-xs px-2 py-0.5 rounded-full bg-sb-card2 border border-sb-border text-sb-muted">Soon</span>
-      )}
+      {actionLabel ? (
+        <button
+          onClick={onAction}
+          className="rounded-full border border-sb-border bg-sb-card2 px-3 py-1.5 text-xs font-semibold text-white transition hover:border-sb-green"
+        >
+          {actionLabel}
+        </button>
+      ) : null}
     </div>
   );
 }

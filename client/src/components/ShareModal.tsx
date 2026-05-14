@@ -1,42 +1,67 @@
 import { useState } from 'react';
 import { X, Mail, Share2, Send, Clock } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { useAuthFetch } from '../contexts/AuthContext';
 import { track } from '../lib/analytics';
 import type { Receipt } from '../utils/types';
+
+const RECIPIENTS_KEY = 'sb_recent_recipients';
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
+
+function loadRecentRecipients(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECIPIENTS_KEY) || '[]');
+  } catch { return []; }
+}
+
+function saveRecentRecipient(email: string) {
+  const list = loadRecentRecipients().filter(e => e !== email);
+  list.unshift(email);
+  localStorage.setItem(RECIPIENTS_KEY, JSON.stringify(list.slice(0, 10)));
+}
 
 interface Props {
   receipt: Receipt;
   onClose: () => void;
-  userEmail: string;
 }
 
-export default function ShareModal({ receipt, onClose, userEmail }: Props) {
-  const authFetch = useAuthFetch();
-  const [email, setEmail] = useState('');
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState('');
-
-  const { data: recentRecipients = [] } = useQuery<string[]>({
-    queryKey: ['recipients'],
-    queryFn: async () => {
-      const res = await authFetch('/api/recipients');
-      return res.ok ? res.json() : [];
-    },
-  });
+export default function ShareModal({ receipt, onClose }: Props) {
+  const [email,            setEmail]            = useState('');
+  const [sending,          setSending]          = useState(false);
+  const [sent,             setSent]             = useState(false);
+  const [error,            setError]            = useState('');
+  const [recentRecipients] = useState<string[]>(loadRecentRecipients);
 
   async function handleEmailShare() {
     if (!email.trim()) { setError('Enter a recipient email'); return; }
     setError('');
     setSending(true);
     try {
-      const res = await authFetch(`/api/receipts/${receipt.id}/share`, {
+      const lineItemsHtml = (() => {
+        try {
+          const items = JSON.parse(receipt.lineItems || '[]') as { description: string; amount: number }[];
+          return items.map(i =>
+            `<div style="display:flex;justify-content:space-between;font-size:13px;padding:2px 0;">
+               <span style="color:#ccc">${i.description}</span>
+               <span style="color:#fff">$${i.amount.toFixed(2)}</span>
+             </div>`
+          ).join('');
+        } catch { return ''; }
+      })();
+
+      const res = await fetch(`${API_BASE}/api/share/email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: email.trim() }),
+        body: JSON.stringify({
+          to: email.trim(),
+          storeName: receipt.storeName,
+          date: receipt.receiptDate,
+          total: receipt.total,
+          category: receipt.category,
+          lineItemsHtml,
+          imageUrl: receipt.imageUrl,
+        }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed');
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to send');
+      saveRecentRecipient(email.trim());
       track('receipt_shared', { method: 'email' });
       setSent(true);
     } catch (err) {
@@ -48,20 +73,16 @@ export default function ShareModal({ receipt, onClose, userEmail }: Props) {
 
   async function handleNativeShare() {
     const text = `Receipt from ${receipt.storeName} — $${receipt.total.toFixed(2)} on ${receipt.receiptDate}`;
-
     if (navigator.share) {
       try {
         const shareData: ShareData = { title: `Receipt: ${receipt.storeName}`, text };
-        // Attach image if available and browser supports file sharing
         if (receipt.imageUrl && navigator.canShare) {
           try {
             const imgRes = await fetch(receipt.imageUrl);
-            const blob = await imgRes.blob();
-            const file = new File([blob], 'receipt.jpg', { type: blob.type });
-            if (navigator.canShare({ files: [file] })) {
-              shareData.files = [file];
-            }
-          } catch { /* fall through to text-only share */ }
+            const blob   = await imgRes.blob();
+            const file   = new File([blob], 'receipt.jpg', { type: blob.type });
+            if (navigator.canShare({ files: [file] })) shareData.files = [file];
+          } catch { /* text-only share */ }
         }
         await navigator.share(shareData);
         track('receipt_shared', { method: 'native' });
@@ -70,9 +91,8 @@ export default function ShareModal({ receipt, onClose, userEmail }: Props) {
         if ((err as Error).name !== 'AbortError') setError('Share cancelled');
       }
     } else {
-      // Fallback: copy to clipboard
       await navigator.clipboard.writeText(text);
-      setError('Link copied to clipboard (native share not available in this browser)');
+      setError('Copied to clipboard (native share not available in this browser)');
     }
   }
 
@@ -82,7 +102,6 @@ export default function ShareModal({ receipt, onClose, userEmail }: Props) {
         className="w-full bg-sb-card border-t border-sb-border rounded-t-3xl p-6 pb-10 animate-slide-up"
         onClick={e => e.stopPropagation()}
       >
-        {/* Handle */}
         <div className="w-10 h-1 bg-sb-border rounded-full mx-auto mb-5" />
 
         <div className="flex items-center justify-between mb-5">
@@ -111,7 +130,6 @@ export default function ShareModal({ receipt, onClose, userEmail }: Props) {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Native share button (SMS, WhatsApp, etc.) */}
             <button
               onClick={handleNativeShare}
               className="w-full flex items-center gap-3 bg-sb-card2 border border-sb-border rounded-xl px-4 py-3.5 hover:border-sb-purple transition"
@@ -125,14 +143,12 @@ export default function ShareModal({ receipt, onClose, userEmail }: Props) {
               </div>
             </button>
 
-            {/* Divider */}
             <div className="flex items-center gap-3">
               <div className="flex-1 border-t border-sb-border" />
               <span className="text-sb-muted text-xs">or email</span>
               <div className="flex-1 border-t border-sb-border" />
             </div>
 
-            {/* Recent recipients */}
             {recentRecipients.length > 0 && (
               <div>
                 <p className="text-xs text-sb-muted mb-2 flex items-center gap-1.5">
@@ -156,7 +172,6 @@ export default function ShareModal({ receipt, onClose, userEmail }: Props) {
               </div>
             )}
 
-            {/* Email input */}
             <div>
               <label className="block text-xs text-sb-muted mb-1.5">
                 <Mail size={11} className="inline mr-1" /> Recipient email
@@ -172,7 +187,7 @@ export default function ShareModal({ receipt, onClose, userEmail }: Props) {
             </div>
 
             {error && (
-              <p className="text-sb-red text-xs bg-red-950/30 border border-red-900/40 rounded-lg px-3 py-2">
+              <p className="text-red-400 text-xs bg-red-950/30 border border-red-900/40 rounded-lg px-3 py-2">
                 {error}
               </p>
             )}

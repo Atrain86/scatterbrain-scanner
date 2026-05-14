@@ -9,15 +9,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.17.19",
+    "date-fns": "^3.3.1",
+    "dexie": "^4.4.2",
+    "lucide-react": "^0.555.0",
+    "posthog-js": "^1.369.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.21.1",
-    "@tanstack/react-query": "^5.17.19",
-    "lucide-react": "^0.555.0",
-    "posthog-js": "^1.369.3",
     "recharts": "^2.10.4",
-    "xlsx-js-style": "^1.2.0",
-    "date-fns": "^3.3.1"
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.48",

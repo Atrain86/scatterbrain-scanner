@@ -35,6 +35,8 @@ export default defineConfig({
           'vendor-query':   ['@tanstack/react-query'],
           'vendor-charts':  ['recharts'],
           'vendor-posthog': ['posthog-js'],
+          'vendor-xlsx':    ['xlsx'],
+          'vendor-dexie':   ['dexie'],
         },
       },
     },

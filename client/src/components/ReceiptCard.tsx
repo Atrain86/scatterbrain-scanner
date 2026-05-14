@@ -3,7 +3,6 @@ import { ChevronDown, ChevronUp, Trash2, Check, Pencil, Share2, Image as ImageIc
 import type { Receipt } from '../utils/types';
 import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
 import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
-import { useAuth } from '../contexts/AuthContext';
 import ShareModal from './ShareModal';
 
 interface ReEditUpdates {
@@ -23,7 +22,6 @@ interface Props {
 }
 
 export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReEdit }: Props) {
-  const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [editingCat, setEditingCat] = useState(false);
   const [imgFullscreen, setImgFullscreen] = useState(false);
@@ -247,7 +245,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
         <ShareModal
           receipt={receipt}
           onClose={() => setShareOpen(false)}
-          userEmail={user?.email ?? ''}
         />
       )}
 

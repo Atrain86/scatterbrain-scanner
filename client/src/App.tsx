@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import ReceiptLibrary from './pages/ReceiptLibrary';
@@ -5,8 +6,18 @@ import DashboardPage from './pages/DashboardPage';
 import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
 import BottomNav from './components/BottomNav';
+import { processCloudSyncQueue } from './lib/cloudSync';
 
 export default function App() {
+  useEffect(() => {
+    void processCloudSyncQueue();
+    const handleFocus = () => {
+      void processCloudSyncQueue();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
+
   return (
     <BrowserRouter>
       <AuthProvider>

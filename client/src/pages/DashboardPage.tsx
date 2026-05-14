@@ -1,27 +1,17 @@
 import { useMemo } from 'react';
 import { ArrowLeft, TrendingUp, Receipt, Tag } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
-import { useAuthFetch } from '../contexts/AuthContext';
-import type { Receipt as ReceiptType } from '../utils/types';
-import { CATEGORIES, getCategoryColor } from '../utils/types';
+import { useReceipts } from '../hooks/useReceipts';
+import { getCategoryColor } from '../utils/types';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const authFetch = useAuthFetch();
+  const { receipts, isLoading } = useReceipts();
 
-  const { data: receipts = [], isLoading } = useQuery<ReceiptType[]>({
-    queryKey: ['receipts'],
-    queryFn: async () => {
-      const res = await authFetch('/api/receipts');
-      return res.ok ? res.json() : [];
-    },
-  });
-
-  const now = new Date();
+  const now       = new Date();
   const thisMonth = now.getMonth();
   const thisYear  = now.getFullYear();
 
@@ -30,14 +20,11 @@ export default function DashboardPage() {
       const d = new Date(r.receiptDate + 'T00:00:00');
       return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
     });
-    const yearReceipts = receipts.filter(r =>
-      r.receiptDate.startsWith(String(thisYear))
-    );
+    const yearReceipts = receipts.filter(r => r.receiptDate.startsWith(String(thisYear)));
 
     const monthTotal = monthReceipts.reduce((s, r) => s + r.total, 0);
     const yearTotal  = yearReceipts.reduce((s, r) => s + r.total, 0);
 
-    // Spending by category (all time for the chart, this year for totals)
     const byCat: Record<string, number> = {};
     yearReceipts.forEach(r => {
       byCat[r.category] = (byCat[r.category] ?? 0) + r.total;
@@ -50,7 +37,11 @@ export default function DashboardPage() {
     const topCategory = categoryData[0]?.name ?? null;
     const recent = [...receipts].slice(0, 5);
 
-    return { monthTotal, monthCount: monthReceipts.length, yearTotal, yearCount: yearReceipts.length, categoryData, topCategory, recent };
+    return {
+      monthTotal, monthCount: monthReceipts.length,
+      yearTotal,  yearCount:  yearReceipts.length,
+      categoryData, topCategory, recent,
+    };
   }, [receipts, thisMonth, thisYear]);
 
   const monthName = now.toLocaleString('en-CA', { month: 'long' });
@@ -71,7 +62,6 @@ export default function DashboardPage() {
           </div>
         ) : (
           <>
-            {/* Month + YTD stat cards */}
             <div className="grid grid-cols-2 gap-3">
               <StatCard
                 label={monthName}
@@ -89,7 +79,6 @@ export default function DashboardPage() {
               />
             </div>
 
-            {/* Top category */}
             {stats.topCategory && (
               <div className="bg-sb-card border border-sb-border rounded-2xl p-4 flex items-center gap-3">
                 <div
@@ -102,16 +91,12 @@ export default function DashboardPage() {
                   <p className="text-xs text-sb-muted">Top category this year</p>
                   <p className="text-white font-semibold text-sm">{stats.topCategory}</p>
                 </div>
-                <span
-                  className="ml-auto text-base font-bold"
-                  style={{ color: getCategoryColor(stats.topCategory) }}
-                >
+                <span className="ml-auto text-base font-bold" style={{ color: getCategoryColor(stats.topCategory) }}>
                   ${stats.categoryData[0]?.total.toFixed(2)}
                 </span>
               </div>
             )}
 
-            {/* Spending by category bar chart */}
             {stats.categoryData.length > 0 && (
               <div className="bg-sb-card border border-sb-border rounded-2xl p-4">
                 <p className="text-xs text-sb-muted uppercase tracking-wider font-medium mb-4">
@@ -153,7 +138,6 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Recent activity */}
             {stats.recent.length > 0 && (
               <div className="bg-sb-card border border-sb-border rounded-2xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-sb-border">
@@ -162,10 +146,7 @@ export default function DashboardPage() {
                 {stats.recent.map(r => {
                   const catColor = getCategoryColor(r.category);
                   return (
-                    <div
-                      key={r.id}
-                      className="flex items-center gap-3 px-4 py-3 border-b border-sb-border last:border-0"
-                    >
+                    <div key={r.id} className="flex items-center gap-3 px-4 py-3 border-b border-sb-border last:border-0">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: catColor }} />
                       <div className="flex-1 min-w-0">
                         <p className="text-white text-sm truncate">{r.storeName}</p>

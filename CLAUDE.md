@@ -17,7 +17,7 @@
 |-------|-------|
 | Name | Scatterbrain Scanner |
 | Type | Mobile-first PWA — receipt scanner for freelancers & small biz |
-| Location | /Users/atrain/Documents/AI_LOCAL/SCATTERBRAIN_SCANNER |
+| Location | /Users/atrain_m5/Documents/AI_LOCAL/SCATTERBRAIN_SCANNER |
 | Parent app | PaintBrain (DO NOT modify PB codebase) |
 | Dev Server | localhost:5174 (client) → localhost:3002 (API) |
 | Database (local) | SQLite at data/scatterbrain.db |

@@ -1,48 +1,37 @@
 import { useState, useMemo } from 'react';
 import { Download, CheckCircle, FileSpreadsheet, User } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { useAuthFetch } from '../contexts/AuthContext';
+import * as XLSX from 'xlsx';
+import { useReceipts } from '../hooks/useReceipts';
 import type { Receipt } from '../utils/types';
 
 export default function ExportPage() {
-  const authFetch = useAuthFetch();
+  const { receipts } = useReceipts();
 
   const currentYear = new Date().getFullYear();
-  const [year, setYear]               = useState(currentYear);
+  const [year,            setYear]            = useState(currentYear);
   const [selectedClients, setSelectedClients] = useState<Set<string>>(new Set());
-  const [exporting, setExporting]     = useState(false);
-  const [done, setDone]               = useState(false);
-  const [error, setError]             = useState('');
-
-  const { data: receipts = [] } = useQuery<Receipt[]>({
-    queryKey: ['receipts'],
-    queryFn: async () => {
-      const res = await authFetch('/api/receipts');
-      return res.ok ? res.json() : [];
-    },
-  });
+  const [exporting,       setExporting]       = useState(false);
+  const [done,            setDone]            = useState(false);
+  const [error,           setError]           = useState('');
 
   const years: number[] = [];
   for (let y = currentYear; y >= currentYear - 5; y--) years.push(y);
 
-  // Receipts for selected year
   const yearReceipts = useMemo(
     () => receipts.filter(r => r.receiptDate.startsWith(String(year))),
     [receipts, year]
   );
 
-  // All unique client names used in this year (blank = "No Client")
   const clientNames = useMemo(() => {
     const names = new Set<string>();
     yearReceipts.forEach(r => names.add(r.clientName?.trim() || ''));
     return Array.from(names).sort((a, b) => {
-      if (!a) return 1; // blank last
+      if (!a) return 1;
       if (!b) return -1;
       return a.localeCompare(b);
     });
   }, [yearReceipts]);
 
-  // When year changes, reset client selection
   function handleYearChange(y: number) {
     setYear(y);
     setSelectedClients(new Set());
@@ -57,48 +46,113 @@ export default function ExportPage() {
     });
   }
 
-  function selectAllClients() {
-    setSelectedClients(new Set(clientNames));
-  }
-
-  function clearClients() {
-    setSelectedClients(new Set());
-  }
-
-  // Receipts that will be exported (year + selected client filter)
   const exportReceipts = useMemo(() => {
-    if (selectedClients.size === 0) return yearReceipts; // no filter = all
+    if (selectedClients.size === 0) return yearReceipts;
     return yearReceipts.filter(r => selectedClients.has(r.clientName?.trim() || ''));
   }, [yearReceipts, selectedClients]);
 
   const exportTotal = exportReceipts.reduce((s, r) => s + r.total, 0);
 
+  function buildWorkbook(rows: Receipt[], clientLabel: string | null) {
+    const wb = XLSX.utils.book_new();
+
+    // ── Summary sheet ──────────────────────────────────────────────────────────
+    const byCat: Record<string, { count: number; subtotal: number; tax: number; total: number }> = {};
+    rows.forEach(r => {
+      if (!byCat[r.category]) byCat[r.category] = { count: 0, subtotal: 0, tax: 0, total: 0 };
+      byCat[r.category].count++;
+      byCat[r.category].subtotal += r.subtotal;
+      byCat[r.category].tax      += r.taxAmount;
+      byCat[r.category].total    += r.total;
+    });
+
+    const summaryRows: (string | number)[][] = [
+      [`Expense Summary — ${year}${clientLabel ? ` — ${clientLabel}` : ''}`],
+      [],
+      ['Category', 'Receipts', 'Subtotal', 'Tax', 'Total'],
+    ];
+    Object.entries(byCat).sort((a, b) => b[1].total - a[1].total).forEach(([cat, v]) => {
+      summaryRows.push([cat, v.count, v.subtotal, v.tax, v.total]);
+    });
+    const grandSubtotal = rows.reduce((s, r) => s + r.subtotal, 0);
+    const grandTax      = rows.reduce((s, r) => s + r.taxAmount, 0);
+    summaryRows.push(['Grand Total', rows.length, grandSubtotal, grandTax, exportTotal]);
+
+    const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+    // Currency format for columns C-E (subtotal, tax, total)
+    const range = XLSX.utils.decode_range(summarySheet['!ref'] || 'A1');
+    for (let row = 3; row <= range.e.r; row++) {
+      ['C', 'D', 'E'].forEach(col => {
+        const cell = summarySheet[`${col}${row + 1}`];
+        if (cell) cell.z = '"$"#,##0.00';
+      });
+    }
+    summarySheet['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary');
+
+    // ── Per-category sheets ────────────────────────────────────────────────────
+    Object.entries(byCat).forEach(([cat]) => {
+      const catRows = rows.filter(r => r.category === cat).sort((a, b) => a.receiptDate.localeCompare(b.receiptDate));
+      const sheetRows: (string | number)[][] = [
+        [cat],
+        [],
+        ['Date', 'Store', 'Client', 'Items', 'Subtotal', 'Tax', 'Total'],
+      ];
+      catRows.forEach(r => {
+        let items = '';
+        try {
+          const parsed = JSON.parse(r.lineItems || '[]') as { description: string }[];
+          items = parsed.map(i => i.description).join(', ');
+        } catch {}
+        sheetRows.push([
+          r.receiptDate,
+          r.storeName,
+          r.clientName || '',
+          items,
+          r.subtotal,
+          r.taxAmount,
+          r.total,
+        ]);
+      });
+      const catSubtotal = catRows.reduce((s, r) => s + r.subtotal, 0);
+      const catTax      = catRows.reduce((s, r) => s + r.taxAmount, 0);
+      const catTotal    = catRows.reduce((s, r) => s + r.total, 0);
+      sheetRows.push(['Category Total', '', '', '', catSubtotal, catTax, catTotal]);
+
+      const sheet = XLSX.utils.aoa_to_sheet(sheetRows);
+      const sheetRange = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
+      for (let row = 3; row <= sheetRange.e.r; row++) {
+        ['E', 'F', 'G'].forEach(col => {
+          const cell = sheet[`${col}${row + 1}`];
+          if (cell) cell.z = '"$"#,##0.00';
+        });
+      }
+      sheet['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 16 }, { wch: 40 }, { wch: 10 }, { wch: 8 }, { wch: 10 }];
+      // Sheet names max 31 chars
+      XLSX.utils.book_append_sheet(wb, sheet, cat.slice(0, 31));
+    });
+
+    return wb;
+  }
+
   async function handleDownload() {
     setError('');
     setExporting(true);
-
     try {
-      // If specific clients selected, download once per client
       const targets = selectedClients.size > 0 ? Array.from(selectedClients) : [null];
-
       for (const client of targets) {
-        const url = client !== null
-          ? `/api/export/download?year=${year}&client=${encodeURIComponent(client)}`
-          : `/api/export/download?year=${year}`;
-        const res = await authFetch(url);
-        if (!res.ok) throw new Error('Export failed');
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
+        const rows = client !== null
+          ? exportReceipts.filter(r => (r.clientName?.trim() || '') === client)
+          : exportReceipts;
+
+        const wb = buildWorkbook(rows, client);
         const suffix = client ? `_${client.replace(/[^a-z0-9]/gi, '_')}` : '';
-        a.download = `Expenses_${year}${suffix}.xlsx`;
-        a.click();
-        URL.revokeObjectURL(blobUrl);
+        const fileName = `Expenses_${year}${suffix}.xlsx`;
+        XLSX.writeFile(wb, fileName);
       }
       setDone(true);
     } catch (err) {
-      setError((err as Error).message);
+      setError((err as Error).message || 'Export failed');
     } finally {
       setExporting(false);
     }
@@ -166,8 +220,8 @@ export default function ExportPage() {
                 <p className="text-xs text-sb-muted uppercase tracking-wider font-medium">Filter by Client</p>
               </div>
               <div className="flex gap-3">
-                <button onClick={selectAllClients} className="text-xs text-sb-green hover:underline">All</button>
-                <button onClick={clearClients} className="text-xs text-sb-muted hover:underline">None</button>
+                <button onClick={() => setSelectedClients(new Set(clientNames))} className="text-xs text-sb-green hover:underline">All</button>
+                <button onClick={() => setSelectedClients(new Set())} className="text-xs text-sb-muted hover:underline">None</button>
               </div>
             </div>
             <p className="text-xs text-sb-muted mb-3 opacity-70">
@@ -178,16 +232,14 @@ export default function ExportPage() {
             <div className="space-y-1">
               {clientNames.map(name => {
                 const checked = selectedClients.has(name);
-                const label = name || 'No Client';
-                const count = yearReceipts.filter(r => (r.clientName?.trim() || '') === name).length;
+                const label   = name || 'No Client';
+                const count   = yearReceipts.filter(r => (r.clientName?.trim() || '') === name).length;
                 return (
                   <button
                     key={name || '__none__'}
                     onClick={() => toggleClient(name)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition ${
-                      checked
-                        ? 'border-blue-700 bg-blue-950/30'
-                        : 'border-sb-border hover:border-sb-muted'
+                      checked ? 'border-blue-700 bg-blue-950/30' : 'border-sb-border hover:border-sb-muted'
                     }`}
                   >
                     <div
@@ -214,14 +266,12 @@ export default function ExportPage() {
 
         {/* Summary */}
         <div className="bg-sb-card border border-sb-border rounded-2xl p-4">
-          <p className="text-xs text-sb-muted uppercase tracking-wider font-medium mb-3">
-            Export Summary
-          </p>
+          <p className="text-xs text-sb-muted uppercase tracking-wider font-medium mb-3">Export Summary</p>
           {exportReceipts.length === 0 ? (
             <p className="text-sb-muted text-sm">No receipts match your selection.</p>
           ) : (
             <div className="space-y-2">
-              <SummaryRow label="Year" value={String(year)} />
+              <SummaryRow label="Year"     value={String(year)} />
               <SummaryRow label="Receipts" value={String(exportReceipts.length)} />
               {selectedClients.size > 0 && (
                 <SummaryRow
@@ -246,7 +296,7 @@ export default function ExportPage() {
         </div>
 
         {error && (
-          <p className="text-sb-red text-sm bg-red-950/30 border border-red-900/40 rounded-xl px-4 py-3">
+          <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/40 rounded-xl px-4 py-3">
             {error}
           </p>
         )}

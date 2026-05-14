@@ -1,13 +1,10 @@
 import { useState, useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Receipt, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
-import { useAuthFetch } from '../contexts/AuthContext';
+import { useReceipts } from '../hooks/useReceipts';
 import ScanModal from '../components/ScanModal';
 import ReceiptCard from '../components/ReceiptCard';
 import VersionBanner from '../components/VersionBanner';
 import type { Receipt as ReceiptType } from '../utils/types';
-
-// ── Types ──────────────────────────────────────────────────────────────────────
 
 type SearchMode = 'all' | 'store' | 'client' | 'item';
 
@@ -18,49 +15,31 @@ const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
   item:   'Item',
 };
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
 function monthKey(receiptDate: string) {
-  // "2025-06-22" → "2025-06"
   return receiptDate.slice(0, 7);
 }
 
 function monthLabel(key: string) {
-  // "2025-06" → "June 2025"
   const [y, m] = key.split('-');
   return new Date(Number(y), Number(m) - 1, 1).toLocaleString('en-CA', { month: 'long', year: 'numeric' });
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
-
 export default function ReceiptLibrary() {
-  const authFetch   = useAuthFetch();
-  const queryClient = useQueryClient();
+  const { receipts, isLoading, reload, remove, update } = useReceipts();
 
-  const [scanOpen,    setScanOpen]    = useState(false);
-  const [search,      setSearch]      = useState('');
-  const [searchMode,  setSearchMode]  = useState<SearchMode>('all');
+  const [scanOpen,     setScanOpen]     = useState(false);
+  const [search,       setSearch]       = useState('');
+  const [searchMode,   setSearchMode]   = useState<SearchMode>('all');
   const [showModeMenu, setShowModeMenu] = useState(false);
 
-  // Which month-groups are collapsed (key = "YYYY-MM")
   const currentMonthKey = monthKey(new Date().toISOString().slice(0, 10));
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-
-  const { data: receipts = [], isLoading } = useQuery<ReceiptType[]>({
-    queryKey: ['receipts'],
-    queryFn: async () => {
-      const res = await authFetch('/api/receipts');
-      if (!res.ok) throw new Error('Failed to load receipts');
-      return res.json();
-    },
-  });
 
   // ── Search filter ────────────────────────────────────────────────────────────
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return receipts;
-
     return receipts.filter(r => {
       if (searchMode === 'store' || searchMode === 'all') {
         if (r.storeName.toLowerCase().includes(q)) return true;
@@ -82,10 +61,8 @@ export default function ReceiptLibrary() {
 
   const grouped = useMemo(() => {
     const thisYear = String(new Date().getFullYear());
-
-    // Separate current year vs archive
-    const thisYearReceipts  = filtered.filter(r => r.receiptDate.startsWith(thisYear));
-    const archiveReceipts   = filtered.filter(r => !r.receiptDate.startsWith(thisYear));
+    const thisYearReceipts = filtered.filter(r => r.receiptDate.startsWith(thisYear));
+    const archiveReceipts  = filtered.filter(r => !r.receiptDate.startsWith(thisYear));
 
     function groupByMonth(list: ReceiptType[]) {
       const map = new Map<string, ReceiptType[]>();
@@ -94,15 +71,14 @@ export default function ReceiptLibrary() {
         if (!map.has(key)) map.set(key, []);
         map.get(key)!.push(r);
       });
-      // Sort months descending
       return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
     }
 
     return {
       thisYear,
-      thisYearMonths:  groupByMonth(thisYearReceipts),
-      archiveMonths:   groupByMonth(archiveReceipts),
-      thisYearTotal:   thisYearReceipts.reduce((s, r) => s + r.total, 0),
+      thisYearMonths: groupByMonth(thisYearReceipts),
+      archiveMonths:  groupByMonth(archiveReceipts),
+      thisYearTotal:  thisYearReceipts.reduce((s, r) => s + r.total, 0),
     };
   }, [filtered]);
 
@@ -118,34 +94,30 @@ export default function ReceiptLibrary() {
 
   function onSaved() {
     setScanOpen(false);
-    queryClient.invalidateQueries({ queryKey: ['receipts'] });
+    void reload();
   }
 
   async function onDelete(id: number) {
     if (!confirm('Delete this receipt?')) return;
-    await authFetch(`/api/receipts/${id}`, { method: 'DELETE' });
-    queryClient.invalidateQueries({ queryKey: ['receipts'] });
+    await remove(id);
   }
 
   async function onUpdateCategory(id: number, category: string) {
-    await authFetch(`/api/receipts/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category }),
-    });
-    queryClient.invalidateQueries({ queryKey: ['receipts'] });
+    await update(id, { category });
   }
 
-  async function onReEdit(id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number }) {
-    await authFetch(`/api/receipts/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    queryClient.invalidateQueries({ queryKey: ['receipts'] });
+  async function onReEdit(id: number, updates: {
+    storeName: string;
+    lineItems: string;
+    taxLines: string;
+    subtotal: number;
+    taxAmount: number;
+    total: number;
+  }) {
+    await update(id, updates);
   }
 
-  const isSearching = search.trim() !== '';
+  const isSearching   = search.trim() !== '';
   const filteredTotal = filtered.reduce((s, r) => s + r.total, 0);
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -153,7 +125,6 @@ export default function ReceiptLibrary() {
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
 
-      {/* Logo header */}
       <header className="flex flex-col items-center pt-12 pb-3 safe-top px-4">
         <img
           src="/logo.png"
@@ -166,7 +137,6 @@ export default function ReceiptLibrary() {
         </div>
       </header>
 
-      {/* Main content */}
       <main className="flex-1 px-3 pt-2 pb-56 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
@@ -177,7 +147,6 @@ export default function ReceiptLibrary() {
           <EmptyState onScan={() => setScanOpen(true)} />
 
         ) : isSearching ? (
-          /* ── Search results ── */
           <div className="animate-fade-in space-y-2">
             <div className="flex items-center justify-between px-1 mb-2">
               <p className="text-white text-[11px] opacity-60">
@@ -206,9 +175,7 @@ export default function ReceiptLibrary() {
           </div>
 
         ) : (
-          /* ── Month-grouped list ── */
           <div className="space-y-1">
-            {/* Current year header */}
             <div className="flex items-center justify-between px-1 pt-1 pb-2">
               <p className="text-white text-xs font-semibold opacity-70">{grouped.thisYear}</p>
               <span className="text-sb-green text-sm font-bold">${grouped.thisYearTotal.toFixed(2)}</span>
@@ -231,7 +198,6 @@ export default function ReceiptLibrary() {
               />
             ))}
 
-            {/* Archive section */}
             {grouped.archiveMonths.length > 0 && (
               <>
                 <div className="px-1 pt-5 pb-2">
@@ -261,7 +227,6 @@ export default function ReceiptLibrary() {
         style={{ bottom: 'calc(56px + env(safe-area-inset-bottom))' }}
       >
         <div className="flex items-center gap-2">
-          {/* Mode picker */}
           <div className="relative">
             <button
               onClick={() => setShowModeMenu(p => !p)}
@@ -285,7 +250,6 @@ export default function ReceiptLibrary() {
             )}
           </div>
 
-          {/* Search input */}
           <div className="relative flex-1">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white opacity-40" />
             <input
@@ -329,10 +293,8 @@ interface MonthGroupProps {
 
 function MonthGroup({ monthKey: key, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit }: MonthGroupProps) {
   const total = receipts.reduce((s, r) => s + r.total, 0);
-
   return (
     <div className="mb-1">
-      {/* Month header — tappable to collapse */}
       <button
         onClick={onToggle}
         className="w-full flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-white/5 transition active:bg-white/10"
@@ -341,15 +303,11 @@ function MonthGroup({ monthKey: key, receipts, collapsed, onToggle, onDelete, on
           {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         </span>
         <span className="flex-1 text-white text-sm font-semibold text-left">{monthLabel(key)}</span>
-        <span
-          className="text-[10px] px-2 py-0.5 rounded-full bg-sb-card border border-sb-border text-sb-muted mr-1"
-        >
+        <span className="text-[10px] px-2 py-0.5 rounded-full bg-sb-card border border-sb-border text-sb-muted mr-1">
           {receipts.length} receipt{receipts.length !== 1 ? 's' : ''}
         </span>
         <span className="text-sb-green text-sm font-bold">${total.toFixed(2)}</span>
       </button>
-
-      {/* Receipt cards */}
       {!collapsed && (
         <div className="space-y-1.5 pl-1 animate-fade-in">
           {receipts.map(r => (

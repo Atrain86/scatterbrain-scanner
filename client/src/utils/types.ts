@@ -52,6 +52,18 @@ export const CATEGORIES = [
 
 export type CategoryName = typeof CATEGORIES[number]['name'];
 
+export interface CloudSyncQueueItem {
+  id: string;
+  provider: CloudProvider;
+  receiptId: number;
+  imageUrl: string | null;
+  imageName: string;
+  metadata: Record<string, any>;
+  createdAt: number;
+  attemptCount: number;
+  lastError: string | null;
+}
+
 export function getCategoryColor(name: string): string {
   return CATEGORIES.find(c => c.name === name)?.color ?? '#6B7280';
 }
@@ -66,4 +78,23 @@ export function getAllCategories(): { name: string; color: string }[] {
 
 export function getCategoryColorDynamic(name: string): string {
   return getAllCategories().find(c => c.name === name)?.color ?? '#6B7280';
+}
+
+export type CloudProvider = 'google-drive' | 'dropbox';
+
+export interface CloudProviderState {
+  connected: boolean;
+  email: string | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+  expiresAt: number | null;
+  scope: string | null;
+  tokenType: string | null;
+}
+
+export interface CloudSettings {
+  googleDrive: CloudProviderState;
+  dropbox: CloudProviderState;
+  primaryProvider: CloudProvider | null;
+  autoSync: boolean;
 }
