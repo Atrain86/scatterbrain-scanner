@@ -20,6 +20,33 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Intercept OAuth redirect before React loads — store tokens immediately
+      (function() {
+        var params = new URLSearchParams(window.location.search);
+        var provider = params.get('cloud_auth');
+        if (!provider) return;
+        try {
+          var raw = localStorage.getItem('sb_cloud_settings');
+          var settings = raw ? JSON.parse(raw) : { googleDrive: {}, dropbox: {}, primaryProvider: null, autoSync: true };
+          var key = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
+          var expiresIn = params.get('expires_in');
+          settings[key] = {
+            connected: true,
+            email: params.get('email'),
+            accessToken: params.get('access_token'),
+            refreshToken: params.get('refresh_token'),
+            expiresAt: expiresIn ? Date.now() + Number(expiresIn) * 1000 : null,
+            scope: params.get('scope'),
+            tokenType: params.get('token_type'),
+          };
+          if (!settings.primaryProvider) settings.primaryProvider = provider;
+          localStorage.setItem('sb_cloud_settings', JSON.stringify(settings));
+        } catch(e) {}
+        // Redirect to /settings clean — before React router does anything
+        window.history.replaceState({}, '', '/settings');
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

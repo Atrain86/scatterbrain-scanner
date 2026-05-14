@@ -64,9 +64,7 @@ export function useCloudAuth() {
   const connectToProvider = useCallback((provider: CloudProvider) => {
     const endpoint = provider === 'google-drive' ? '/api/auth/google/init' : '/api/auth/dropbox/init';
     const clientOrigin = encodeURIComponent(window.location.origin);
-    // Use _blank so OAuth opens in Safari browser, not inside the PWA shell.
-    // When Google redirects back to /settings?cloud_auth=..., iOS opens it in the PWA.
-    window.open(`${endpoint}?clientOrigin=${clientOrigin}`, '_blank');
+    window.location.href = `${endpoint}?clientOrigin=${clientOrigin}`;
   }, []);
 
   const disconnectProvider = useCallback((provider: CloudProvider) => {
