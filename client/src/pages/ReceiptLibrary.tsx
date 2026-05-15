@@ -15,13 +15,13 @@ const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
   item:   'Item',
 };
 
-function monthKey(receiptDate: string) {
-  return receiptDate.slice(0, 7);
-}
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
+function monthKey(receiptDate: string) { return receiptDate.slice(0, 7); }
+function yearOf(receiptDate: string)   { return receiptDate.slice(0, 4); }
 function monthLabel(key: string) {
-  const [y, m] = key.split('-');
-  return new Date(Number(y), Number(m) - 1, 1).toLocaleString('en-CA', { month: 'long', year: 'numeric' });
+  const [, m] = key.split('-');
+  return MONTH_NAMES[Number(m) - 1];
 }
 
 export default function ReceiptLibrary() {
@@ -32,17 +32,23 @@ export default function ReceiptLibrary() {
   const [searchMode,   setSearchMode]   = useState<SearchMode>('all');
   const [showModeMenu, setShowModeMenu] = useState(false);
 
-  const currentMonthKey = monthKey(new Date().toISOString().slice(0, 10));
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const thisYear = String(new Date().getFullYear());
 
-  // ── Search filter ────────────────────────────────────────────────────────────
+  // current year months: collapsed set (month key → collapsed)
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+  // archive years: expanded set (year → expanded)
+  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
+  // archive year months: expanded set ("year-month" → expanded)
+  const [expandedArchiveMonths, setExpandedArchiveMonths] = useState<Set<string>>(new Set());
+
+  // ── Search filter ──────────────────────────────────────────────────────────
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return receipts;
     return receipts.filter(r => {
       if (searchMode === 'store' || searchMode === 'all') {
-        if (r.storeName.toLowerCase().includes(q)) return true;
+        if ((r.storeName || '').toLowerCase().includes(q)) return true;
       }
       if (searchMode === 'client' || searchMode === 'all') {
         if ((r.clientName || '').toLowerCase().includes(q)) return true;
@@ -57,45 +63,50 @@ export default function ReceiptLibrary() {
     });
   }, [receipts, search, searchMode]);
 
-  // ── Group by year → month ────────────────────────────────────────────────────
+  // ── Group receipts ──────────────────────────────────────────────────────────
 
   const grouped = useMemo(() => {
-    const thisYear = String(new Date().getFullYear());
-    const thisYearReceipts = filtered.filter(r => r.receiptDate.startsWith(thisYear));
-    const archiveReceipts  = filtered.filter(r => !r.receiptDate.startsWith(thisYear));
+    const thisYearList = filtered.filter(r => yearOf(r.receiptDate) === thisYear);
+    const archiveList  = filtered.filter(r => yearOf(r.receiptDate) !== thisYear);
 
-    function groupByMonth(list: ReceiptType[]) {
+    // Group by month, sort receipts within each month by date desc
+    function byMonth(list: ReceiptType[]): [string, ReceiptType[]][] {
       const map = new Map<string, ReceiptType[]>();
       list.forEach(r => {
-        const key = monthKey(r.receiptDate);
-        if (!map.has(key)) map.set(key, []);
-        map.get(key)!.push(r);
+        const k = monthKey(r.receiptDate);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k)!.push(r);
       });
+      // Sort receipts within month by date descending
+      map.forEach(arr => arr.sort((a, b) => b.receiptDate.localeCompare(a.receiptDate)));
+      // Sort months descending
       return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
     }
 
-    return {
-      thisYear,
-      thisYearMonths: groupByMonth(thisYearReceipts),
-      archiveMonths:  groupByMonth(archiveReceipts),
-      thisYearTotal:  thisYearReceipts.reduce((s, r) => s + r.total, 0),
-    };
-  }, [filtered]);
-
-  function toggleMonth(key: string) {
-    setCollapsed(prev => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
+    // Group archive by year → month
+    const archiveByYear = new Map<string, [string, ReceiptType[]][]>();
+    archiveList.forEach(r => {
+      const y = yearOf(r.receiptDate);
+      if (!archiveByYear.has(y)) archiveByYear.set(y, []);
     });
-  }
+    // Build month groups per year
+    const archiveYears: [string, [string, ReceiptType[]][]][] = [];
+    const archiveYearList = Array.from(new Set(archiveList.map(r => yearOf(r.receiptDate)))).sort((a, b) => b.localeCompare(a));
+    archiveYearList.forEach(y => {
+      const yearReceipts = archiveList.filter(r => yearOf(r.receiptDate) === y);
+      archiveYears.push([y, byMonth(yearReceipts)]);
+    });
 
-  // ── Mutations ────────────────────────────────────────────────────────────────
+    return {
+      thisYearMonths: byMonth(thisYearList),
+      thisYearTotal: thisYearList.reduce((s, r) => s + r.total, 0),
+      archiveYears,
+    };
+  }, [filtered, thisYear]);
 
-  function onSaved() {
-    setScanOpen(false);
-    void reload();
-  }
+  // ── Mutations ──────────────────────────────────────────────────────────────
+
+  function onSaved() { setScanOpen(false); void reload(); }
 
   async function onDelete(id: number) {
     if (!confirm('Delete this receipt?')) return;
@@ -107,12 +118,8 @@ export default function ReceiptLibrary() {
   }
 
   async function onReEdit(id: number, updates: {
-    storeName: string;
-    lineItems: string;
-    taxLines: string;
-    subtotal: number;
-    taxAmount: number;
-    total: number;
+    storeName: string; lineItems: string; taxLines: string;
+    subtotal: number; taxAmount: number; total: number;
   }) {
     await update(id, updates);
   }
@@ -120,7 +127,7 @@ export default function ReceiptLibrary() {
   const isSearching   = search.trim() !== '';
   const filteredTotal = filtered.reduce((s, r) => s + r.total, 0);
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
@@ -175,54 +182,98 @@ export default function ReceiptLibrary() {
           </div>
 
         ) : (
-          <div className="space-y-1">
-            <div className="flex items-center justify-between px-1 pt-1 pb-2">
-              <p className="text-white text-xs font-semibold opacity-70">{grouped.thisYear}</p>
+          <div className="space-y-0.5">
+
+            {/* ── Current year ── */}
+            <div className="flex items-center justify-between px-2 pt-1 pb-3">
+              <p className="text-white text-base font-bold" style={{ fontFamily: "'Poppins', sans-serif" }}>{thisYear}</p>
               <span className="text-sb-green text-sm font-bold">${grouped.thisYearTotal.toFixed(2)}</span>
             </div>
 
             {grouped.thisYearMonths.length === 0 && (
-              <p className="text-sb-muted text-xs px-1 pb-4">No receipts this year.</p>
+              <p className="text-sb-muted text-xs px-2 pb-4">No receipts this year yet.</p>
             )}
 
             {grouped.thisYearMonths.map(([key, items]) => (
               <MonthGroup
                 key={key}
-                monthKey={key}
+                label={monthLabel(key)}
                 receipts={items}
-                collapsed={collapsed.has(key)}
-                onToggle={() => toggleMonth(key)}
+                collapsed={collapsedMonths.has(key)}
+                onToggle={() => {
+                  setCollapsedMonths(prev => {
+                    const next = new Set(prev);
+                    next.has(key) ? next.delete(key) : next.add(key);
+                    return next;
+                  });
+                }}
                 onDelete={onDelete}
                 onUpdateCategory={onUpdateCategory}
                 onReEdit={onReEdit}
               />
             ))}
 
-            {grouped.archiveMonths.length > 0 && (
-              <>
-                <div className="px-1 pt-5 pb-2">
-                  <p className="text-sb-muted text-[11px] uppercase tracking-wider font-medium">Archive</p>
-                </div>
-                {grouped.archiveMonths.map(([key, items]) => (
-                  <MonthGroup
-                    key={key}
-                    monthKey={key}
-                    receipts={items}
-                    collapsed={!collapsed.has('open:' + key)}
-                    onToggle={() => {
-                      setCollapsed(prev => {
-                        const next = new Set(prev);
-                        const openKey = 'open:' + key;
-                        next.has(openKey) ? next.delete(openKey) : next.add(openKey);
-                        return next;
-                      });
-                    }}
-                    onDelete={onDelete}
-                    onUpdateCategory={onUpdateCategory}
-                    onReEdit={onReEdit}
-                  />
-                ))}
-              </>
+            {/* ── Archive years ── */}
+            {grouped.archiveYears.length > 0 && (
+              <div className="pt-4">
+                <p className="text-sb-muted text-[11px] uppercase tracking-wider font-medium px-2 pb-2">Archive</p>
+                {grouped.archiveYears.map(([year, months]) => {
+                  const yearTotal = months.flatMap(([, r]) => r).reduce((s, r) => s + r.total, 0);
+                  const yearOpen  = expandedYears.has(year);
+                  return (
+                    <div key={year} className="mb-1">
+                      {/* Year header */}
+                      <button
+                        onClick={() => {
+                          setExpandedYears(prev => {
+                            const next = new Set(prev);
+                            next.has(year) ? next.delete(year) : next.add(year);
+                            return next;
+                          });
+                        }}
+                        className="w-full flex items-center gap-2 px-2 py-2.5 rounded-xl hover:bg-white/5 transition active:bg-white/10"
+                      >
+                        <span className="text-sb-muted" style={{ width: 14 }}>
+                          {yearOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        </span>
+                        <span className="flex-1 text-white text-sm font-bold text-left">{year}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-sb-card border border-sb-border text-sb-muted mr-1">
+                          {months.flatMap(([, r]) => r).length} receipts
+                        </span>
+                        <span className="text-sb-green text-sm font-bold">${yearTotal.toFixed(2)}</span>
+                      </button>
+
+                      {/* Months within year */}
+                      {yearOpen && (
+                        <div className="pl-3 space-y-0.5 animate-fade-in">
+                          {months.map(([mKey, mItems]) => {
+                            const archiveKey = `${year}-${mKey}`;
+                            const monthOpen  = expandedArchiveMonths.has(archiveKey);
+                            return (
+                              <MonthGroup
+                                key={mKey}
+                                label={monthLabel(mKey)}
+                                receipts={mItems}
+                                collapsed={!monthOpen}
+                                onToggle={() => {
+                                  setExpandedArchiveMonths(prev => {
+                                    const next = new Set(prev);
+                                    next.has(archiveKey) ? next.delete(archiveKey) : next.add(archiveKey);
+                                    return next;
+                                  });
+                                }}
+                                onDelete={onDelete}
+                                onUpdateCategory={onUpdateCategory}
+                                onReEdit={onReEdit}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
@@ -248,7 +299,7 @@ export default function ReceiptLibrary() {
                   <button
                     key={mode}
                     onClick={() => { setSearchMode(mode); setShowModeMenu(false); }}
-                    className={`w-full px-3 py-2 text-[11px] text-left transition hover:bg-white/5 ${searchMode === mode ? 'text-sb-green' : 'text-white'}`}
+                    className={`w-full px-3 py-2.5 text-[12px] text-left transition hover:bg-white/5 ${searchMode === mode ? 'text-sb-green' : 'text-white'}`}
                   >
                     {SEARCH_MODE_LABELS[mode]}
                   </button>
@@ -286,10 +337,10 @@ export default function ReceiptLibrary() {
   );
 }
 
-// ── MonthGroup ─────────────────────────────────────────────────────────────────
+// ── MonthGroup ──────────────────────────────────────────────────────────────────
 
 interface MonthGroupProps {
-  monthKey: string;
+  label: string;
   receipts: ReceiptType[];
   collapsed: boolean;
   onToggle: () => void;
@@ -298,7 +349,7 @@ interface MonthGroupProps {
   onReEdit: (id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number }) => void;
 }
 
-function MonthGroup({ monthKey: key, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit }: MonthGroupProps) {
+function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit }: MonthGroupProps) {
   const total = receipts.reduce((s, r) => s + r.total, 0);
   return (
     <div className="mb-1">
@@ -309,7 +360,7 @@ function MonthGroup({ monthKey: key, receipts, collapsed, onToggle, onDelete, on
         <span className="text-sb-muted" style={{ width: 14 }}>
           {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         </span>
-        <span className="flex-1 text-white text-sm font-semibold text-left">{monthLabel(key)}</span>
+        <span className="flex-1 text-white text-sm font-semibold text-left">{label}</span>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-sb-card border border-sb-border text-sb-muted mr-1">
           {receipts.length} receipt{receipts.length !== 1 ? 's' : ''}
         </span>
@@ -332,7 +383,7 @@ function MonthGroup({ monthKey: key, receipts, collapsed, onToggle, onDelete, on
   );
 }
 
-// ── EmptyState ─────────────────────────────────────────────────────────────────
+// ── EmptyState ──────────────────────────────────────────────────────────────────
 
 function EmptyState({ onScan }: { onScan: () => void }) {
   return (

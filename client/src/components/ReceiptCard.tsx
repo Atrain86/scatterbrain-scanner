@@ -62,96 +62,48 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
         {/* ── Collapsed row ── */}
         <button
           onClick={() => setExpanded(p => !p)}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-left active:bg-white/5 transition"
+          className="w-full flex items-center gap-3 px-3 py-3 text-left active:bg-white/5 transition"
         >
           {/* Category color bar */}
           <span
             className="w-1 self-stretch rounded-full flex-shrink-0"
-            style={{ backgroundColor: catColor, minHeight: 32 }}
+            style={{ backgroundColor: catColor, minHeight: 36 }}
           />
 
-          {/* Store + date */}
+          {/* Store + date + category */}
           <div className="flex-1 min-w-0">
             <p className="text-white font-bold text-sm leading-tight truncate"
                style={{ fontFamily: "'Poppins', sans-serif" }}>
               {receipt.storeName || 'Unknown Store'}
             </p>
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
               {receipt.clientName && (
-                <span className="text-[10px] px-1.5 py-0 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-snug">
+                <span className="text-[10px] px-1.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-snug">
                   {receipt.clientName}
+                </span>
+              )}
+              {receipt.category && (
+                <span
+                  className="text-[10px] px-1.5 rounded-full leading-snug"
+                  style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
+                >
+                  {receipt.category}
                 </span>
               )}
             </div>
           </div>
 
-          {/* Total */}
-          <span className="text-sb-green font-bold text-base leading-tight flex-shrink-0">
-            ${receipt.total.toFixed(2)}
-          </span>
-
-          <span className="text-sb-muted flex-shrink-0 ml-0.5">
-            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </span>
+          {/* Total + chevron */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <span className="text-sb-green font-bold text-base leading-tight">
+              ${receipt.total.toFixed(2)}
+            </span>
+            <span className="text-sb-muted">
+              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </span>
+          </div>
         </button>
-
-        {/* ── Action row (always visible) ── */}
-        <div className="flex items-center justify-between px-3 pb-1.5">
-          {/* Category pill — tap to edit */}
-          <div className="relative" ref={editingCat ? catPickerRef : undefined}>
-            <button
-              onClick={e => { e.stopPropagation(); setEditingCat(p => !p); }}
-              className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full transition hover:brightness-125"
-              style={{
-                backgroundColor: catColor + '22',
-                color: catColor,
-                border: `1px solid ${catColor}44`,
-              }}
-            >
-              {receipt.category}
-              <Pencil size={9} />
-            </button>
-
-            {editingCat && (
-              <div
-                ref={catPickerRef}
-                className="absolute top-full left-0 mt-1 w-52 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl"
-                style={{ animation: 'fadeIn 120ms ease-out' }}
-              >
-                {getAllCategories().map(cat => (
-                  <button
-                    key={cat.name}
-                    onClick={() => pickCategory(cat.name)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-white/5 transition"
-                  >
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                    <span className="text-white flex-1">{cat.name}</span>
-                    {cat.name === receipt.category && <Check size={11} className="text-sb-green" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Action icons */}
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setShareOpen(true)}
-              className="text-sb-purple hover:brightness-125 transition"
-              title="Share"
-            >
-              <Share2 size={15} />
-            </button>
-            <button
-              onClick={() => onDelete(receipt.id)}
-              className="text-sb-red hover:brightness-125 transition"
-              title="Delete"
-            >
-              <Trash2 size={15} />
-            </button>
-          </div>
-        </div>
 
         {/* ── Expanded detail ── */}
         {expanded && (
@@ -226,16 +178,72 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                 <p className="text-sb-muted text-xs italic border-t border-sb-border pt-2">{receipt.notes}</p>
               )}
 
-              {/* Edit Items button */}
-              {productItems.length > 0 && (
-                <button
-                  onClick={() => setReEditOpen(true)}
-                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-sb-border text-white/60 text-xs hover:text-white hover:border-sb-muted transition"
-                >
-                  <Pencil size={13} />
-                  Edit Items
-                </button>
-              )}
+              {/* Action row */}
+              <div className="border-t border-sb-border pt-3 flex items-center justify-between">
+
+                {/* Category picker */}
+                <div className="relative" ref={editingCat ? catPickerRef : undefined}>
+                  <button
+                    onClick={e => { e.stopPropagation(); setEditingCat(p => !p); }}
+                    className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-full transition hover:brightness-125"
+                    style={{
+                      backgroundColor: catColor + '22',
+                      color: catColor,
+                      border: `1px solid ${catColor}44`,
+                    }}
+                  >
+                    {receipt.category || 'Set category'}
+                    <Pencil size={9} />
+                  </button>
+
+                  {editingCat && (
+                    <div
+                      ref={catPickerRef}
+                      className="absolute bottom-full left-0 mb-1 w-52 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl"
+                      style={{ animation: 'fadeIn 120ms ease-out' }}
+                    >
+                      {getAllCategories().map(cat => (
+                        <button
+                          key={cat.name}
+                          onClick={() => pickCategory(cat.name)}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-white/5 transition"
+                        >
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                          <span className="text-white flex-1">{cat.name}</span>
+                          {cat.name === receipt.category && <Check size={11} className="text-sb-green" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right actions */}
+                <div className="flex items-center gap-4">
+                  {productItems.length > 0 && (
+                    <button
+                      onClick={() => setReEditOpen(true)}
+                      className="text-sb-muted hover:text-white transition"
+                      title="Edit items"
+                    >
+                      <Pencil size={15} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShareOpen(true)}
+                    className="text-sb-purple hover:brightness-125 transition"
+                    title="Share"
+                  >
+                    <Share2 size={15} />
+                  </button>
+                  <button
+                    onClick={() => onDelete(receipt.id)}
+                    className="text-sb-red hover:brightness-125 transition"
+                    title="Delete"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -261,7 +269,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
         </div>
       )}
 
-      {/* ── Re-edit modal ── */}
       {reEditOpen && (
         <ReEditModal
           receipt={receipt}
@@ -284,7 +291,6 @@ interface ReEditModalProps {
 }
 
 function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
-  // Use rawLineItems (full original scan) if available, else fall back to saved lineItems
   const allItems: { description: string; amount: number }[] = (() => {
     try {
       if (receipt.rawLineItems) return JSON.parse(receipt.rawLineItems);
@@ -293,7 +299,6 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
     return [];
   })();
 
-  // Which items are currently saved
   const savedItems: { description: string; amount: number }[] = (() => {
     try { return receipt.lineItems ? JSON.parse(receipt.lineItems) : []; } catch { return []; }
   })();
@@ -303,7 +308,6 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
 
   const [storeName, setStoreName] = useState(receipt.storeName);
 
-  // Pre-check items that are in the saved set
   const [selected, setSelected] = useState<Set<number>>(() => {
     const s = new Set<number>();
     allItems.forEach((item, i) => {
@@ -342,7 +346,6 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 bg-sb-bg flex flex-col">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-sb-border safe-top">
         <h2 className="text-white font-semibold text-base">Edit Receipt</h2>
         <button onClick={onClose} className="text-sb-muted hover:text-white transition p-1">
@@ -350,10 +353,7 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
         </button>
       </div>
 
-      {/* Item list */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-
-        {/* Store name editable */}
         <div className="bg-sb-card border border-sb-border rounded-xl px-4 py-3">
           <label className="block text-xs text-sb-muted mb-1">Store Name</label>
           <input
@@ -421,7 +421,6 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
           </div>
         )}
 
-        {/* Proportional tax summary */}
         {totals.proportionalTaxes.length > 0 && (
           <div className="mt-3 bg-sb-card border border-sb-border rounded-xl px-4 py-3 space-y-1.5">
             <p className="text-xs text-sb-muted mb-2">Proportional Tax</p>
@@ -435,7 +434,6 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
         )}
       </div>
 
-      {/* Footer */}
       <div className="border-t border-sb-border px-4 py-4 safe-bottom">
         <div className="flex items-center justify-between">
           <div>

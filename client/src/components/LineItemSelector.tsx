@@ -138,7 +138,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
           </button>
 
           {showCategoryPicker && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-sb-card border border-sb-border rounded-xl overflow-hidden z-10 shadow-xl">
+            <div className="absolute bottom-full left-0 right-0 mb-1 bg-sb-card border border-sb-border rounded-xl overflow-y-auto z-10 shadow-xl" style={{ maxHeight: '60vh' }}>
               {allCategories.map(cat => (
                 <button
                   key={cat.name}
