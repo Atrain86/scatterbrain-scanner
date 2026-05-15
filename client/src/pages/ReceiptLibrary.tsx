@@ -208,8 +208,15 @@ export default function ReceiptLibrary() {
                     key={key}
                     monthKey={key}
                     receipts={items}
-                    collapsed={collapsed.has(key) !== false ? collapsed.has(key) : true}
-                    onToggle={() => toggleMonth(key)}
+                    collapsed={!collapsed.has('open:' + key)}
+                    onToggle={() => {
+                      setCollapsed(prev => {
+                        const next = new Set(prev);
+                        const openKey = 'open:' + key;
+                        next.has(openKey) ? next.delete(openKey) : next.add(openKey);
+                        return next;
+                      });
+                    }}
                     onDelete={onDelete}
                     onUpdateCategory={onUpdateCategory}
                     onReEdit={onReEdit}

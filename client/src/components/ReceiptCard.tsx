@@ -74,7 +74,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
           <div className="flex-1 min-w-0">
             <p className="text-white font-bold text-sm leading-tight truncate"
                style={{ fontFamily: "'Poppins', sans-serif" }}>
-              {receipt.storeName}
+              {receipt.storeName || 'Unknown Store'}
             </p>
             <div className="flex items-center gap-1.5 flex-wrap">
               <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
