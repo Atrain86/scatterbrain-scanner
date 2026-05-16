@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, ChevronDown } from 'lucide-react';
+import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, ChevronDown, DownloadCloud } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
-import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue } from '../lib/cloudSync';
+import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue, restoreFromGoogleDrive, type RestoreResult } from '../lib/cloudSync';
 import React from 'react';
 
 export const APP_VERSION = '0.4.6';
@@ -129,6 +129,9 @@ export default function SettingsPage() {
   const [syncQueue, setSyncQueue] = useState(() => getCloudSyncQueue());
   const [isSyncing, setIsSyncing] = useState(false);
   const [scanStats, setScanStats] = useState<ScanStats | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   useEffect(() => {
     getAllReceipts().then(rows => {
@@ -172,6 +175,26 @@ export default function SettingsPage() {
       }));
     } finally {
       setIsSyncing(false);
+    }
+  }
+
+  async function handleRestoreFromDrive() {
+    setIsRestoring(true);
+    setRestoreResult(null);
+    setRestoreError(null);
+    try {
+      const existing = await getAllReceipts();
+      const result = await restoreFromGoogleDrive(
+        existing.map(r => ({ storeName: r.storeName, receiptDate: r.receiptDate, total: r.total }))
+      );
+      setRestoreResult(result);
+      // Refresh receipt count
+      const rows = await getAllReceipts();
+      setScanStats(prev => prev ? { ...prev, receiptCount: rows.length, totalScans: rows.length, successScans: rows.length } : prev);
+    } catch (err) {
+      setRestoreError((err as Error).message);
+    } finally {
+      setIsRestoring(false);
     }
   }
 
@@ -388,6 +411,54 @@ export default function SettingsPage() {
               connectHref={!cloudSettings.googleDrive.connected ? `https://scatterbrain-scanner.onrender.com/api/auth/google/init?clientOrigin=${encodeURIComponent(window.location.origin)}` : undefined}
               onAction={cloudSettings.googleDrive.connected ? () => disconnectProvider('google-drive') : undefined}
             />
+
+            {cloudSettings.googleDrive.connected && (
+              <div className="rounded-2xl border border-sb-border bg-sb-card2 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-white text-sm">Restore from Drive</p>
+                    <p className="text-xs text-sb-muted">Import receipts backed up to your Google Drive on another device.</p>
+                  </div>
+                  <button
+                    onClick={handleRestoreFromDrive}
+                    disabled={isRestoring}
+                    className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition flex-shrink-0 ${isRestoring ? 'bg-sb-border text-white cursor-not-allowed' : 'bg-sb-purple text-white hover:brightness-110'}`}
+                  >
+                    <DownloadCloud size={13} />
+                    {isRestoring ? 'Restoring…' : 'Restore'}
+                  </button>
+                </div>
+
+                {isRestoring && (
+                  <div className="flex items-center gap-2 text-xs text-sb-muted">
+                    <div className="w-3 h-3 border border-sb-purple border-t-transparent rounded-full animate-spin" />
+                    Scanning your Drive for receipts…
+                  </div>
+                )}
+
+                {restoreResult && !isRestoring && (
+                  <div className="rounded-xl bg-sb-card px-3 py-2.5 space-y-1 text-xs">
+                    <p className="text-sb-green font-semibold">
+                      {restoreResult.imported === 0
+                        ? 'Nothing new — already up to date.'
+                        : `Imported ${restoreResult.imported} receipt${restoreResult.imported !== 1 ? 's' : ''}.`}
+                    </p>
+                    {restoreResult.skipped > 0 && (
+                      <p className="text-sb-muted">{restoreResult.skipped} already on this device — skipped.</p>
+                    )}
+                    {restoreResult.failed > 0 && (
+                      <p className="text-red-400">{restoreResult.failed} failed to import.</p>
+                    )}
+                  </div>
+                )}
+
+                {restoreError && !isRestoring && (
+                  <p className="text-xs text-red-400 bg-red-950/30 border border-red-900/50 rounded-xl px-3 py-2">
+                    {restoreError}
+                  </p>
+                )}
+              </div>
+            )}
             <CloudRow
               label="Dropbox"
               description="Upload to your app folder"

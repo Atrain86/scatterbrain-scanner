@@ -1,5 +1,6 @@
 import type { CloudProvider, CloudProviderState, CloudSettings, CloudSyncQueueItem, Receipt } from '../utils/types';
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
+import { addReceipt } from './db';
 
 const SYNC_QUEUE_KEY = 'sb_cloud_sync_queue';
 const SYNC_STATUS_KEY = 'sb_cloud_sync_status';
@@ -260,6 +261,140 @@ async function ensureValidAccessToken(providerState: CloudProviderState, provide
   return nextProviderState.accessToken;
 }
 
+// ── Drive restore ─────────────────────────────────────────────────────────────
+
+async function listDriveJsonFiles(accessToken: string, folderId: string): Promise<{ id: string; name: string }[]> {
+  let files: { id: string; name: string }[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const query = `'${folderId}' in parents and mimeType='application/json' and trashed=false`;
+    const url = new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', query);
+    url.searchParams.set('fields', 'nextPageToken,files(id,name)');
+    url.searchParams.set('pageSize', '100');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) throw new Error(`Drive list failed: ${await res.text()}`);
+    const data = await res.json() as { nextPageToken?: string; files: { id: string; name: string }[] };
+    files = files.concat(data.files);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return files;
+}
+
+async function listAllDriveReceiptJsons(accessToken: string): Promise<{ id: string; name: string }[]> {
+  // Walk: root → Scatterbrain Scanner → receipts → each year → each category
+  const rootId    = await findOrCreateDriveFolder(accessToken, 'Scatterbrain Scanner', null);
+  const rcptId    = await findOrCreateDriveFolder(accessToken, 'receipts', rootId);
+
+  // List year folders
+  const yearFolders = await listDriveFolders(accessToken, rcptId);
+  const allFiles: { id: string; name: string }[] = [];
+
+  for (const yearFolder of yearFolders) {
+    const catFolders = await listDriveFolders(accessToken, yearFolder.id);
+    for (const catFolder of catFolders) {
+      const jsons = await listDriveJsonFiles(accessToken, catFolder.id);
+      allFiles.push(...jsons);
+    }
+  }
+
+  return allFiles;
+}
+
+async function listDriveFolders(accessToken: string, parentId: string): Promise<{ id: string; name: string }[]> {
+  const query = `'${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const url = new URL('https://www.googleapis.com/drive/v3/files');
+  url.searchParams.set('q', query);
+  url.searchParams.set('fields', 'files(id,name)');
+  url.searchParams.set('pageSize', '100');
+
+  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`Drive folder list failed: ${await res.text()}`);
+  const data = await res.json() as { files: { id: string; name: string }[] };
+  return data.files;
+}
+
+async function downloadDriveFile(accessToken: string, fileId: string): Promise<string> {
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) throw new Error(`Drive download failed: ${await res.text()}`);
+  return await res.text();
+}
+
+export interface RestoreResult {
+  imported: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+}
+
+export async function restoreFromGoogleDrive(
+  existingReceipts: { storeName: string; receiptDate: string; total: number }[]
+): Promise<RestoreResult> {
+  const settings = loadCloudSettings();
+  const providerState = settings.googleDrive;
+
+  if (!providerState.connected) throw new Error('Google Drive is not connected.');
+
+  const accessToken = await ensureValidAccessToken(providerState, 'google-drive');
+  if (!accessToken) throw new Error('Unable to get a valid Google Drive access token. Try reconnecting.');
+
+  const jsonFiles = await listAllDriveReceiptJsons(accessToken);
+
+  const result: RestoreResult = { imported: 0, skipped: 0, failed: 0, errors: [] };
+
+  // Build a dedup set: "storeName|receiptDate|total"
+  const existingKeys = new Set(
+    existingReceipts.map(r => `${r.storeName}|${r.receiptDate}|${r.total.toFixed(2)}`)
+  );
+
+  for (const file of jsonFiles) {
+    try {
+      const text = await downloadDriveFile(accessToken, file.id);
+      const meta = JSON.parse(text) as Record<string, any>;
+
+      const key = `${meta.storeName ?? ''}|${meta.receiptDate ?? ''}|${Number(meta.total ?? 0).toFixed(2)}`;
+      if (existingKeys.has(key)) {
+        result.skipped += 1;
+        continue;
+      }
+
+      const now = new Date().toISOString();
+      await addReceipt({
+        storeName:    meta.storeName    ?? '',
+        receiptDate:  meta.receiptDate  ?? now.slice(0, 10),
+        subtotal:     Number(meta.subtotal  ?? 0),
+        taxAmount:    Number(meta.taxAmount ?? 0),
+        total:        Number(meta.total     ?? 0),
+        category:     meta.category     ?? 'Other',
+        clientName:   meta.clientName   ?? null,
+        lineItems:    typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
+        rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
+        taxLines:     typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
+        imagePath:    null,
+        imageUrl:     meta.imageUrl     ?? null,
+        notes:        meta.notes        ?? null,
+        createdAt:    meta.createdAt    ?? now,
+        updatedAt:    meta.updatedAt    ?? now,
+      });
+
+      existingKeys.add(key);
+      result.imported += 1;
+    } catch (err) {
+      result.failed += 1;
+      result.errors.push((err as Error).message);
+    }
+  }
+
+  return result;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function getCloudSyncQueue() {
@@ -381,10 +516,10 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
           await uploadToGoogleDrive(accessToken, fileBlob, item.imageName, fileDescription, folderId);
         }
 
-        // Upload JSON sidecar
+        // Upload JSON metadata sidecar (needed for restore)
         const metadataBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
         const metadataName = item.imageName.replace(/\.[^.]+$/, '') + '.json';
-        await uploadToGoogleDrive(accessToken, metadataBlob, metadataName, `Metadata for ${meta.storeName}`, folderId);
+        await uploadToGoogleDrive(accessToken, metadataBlob, metadataName, fileDescription, folderId);
 
       } else {
         // Dropbox — folder path is built into the upload path
