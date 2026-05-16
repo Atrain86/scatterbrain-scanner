@@ -191,24 +191,34 @@ export default function ExportPage() {
 
       <main className="flex-1 px-4 py-4 pb-28 space-y-4 max-w-lg mx-auto w-full overflow-y-auto">
 
-        {/* Year picker */}
-        <div className="bg-sb-card border border-sb-border rounded-2xl p-4">
-          <p className="text-xs text-sb-muted uppercase tracking-wider font-medium mb-3">Tax Year</p>
-          <div className="flex gap-2 flex-wrap">
+        {/* Year picker + inline summary */}
+        <div className="bg-sb-card border border-sb-border rounded-2xl p-4 space-y-3">
+          <p className="text-xs text-sb-muted uppercase tracking-wider font-medium">Tax Year</p>
+          <select
+            value={year}
+            onChange={e => handleYearChange(Number(e.target.value))}
+            className="w-full bg-sb-card2 border border-sb-border rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-sb-green transition appearance-none"
+          >
             {years.map(y => (
-              <button
-                key={y}
-                onClick={() => handleYearChange(y)}
-                className={`px-4 py-2 rounded-xl border text-sm font-medium transition ${
-                  y === year
-                    ? 'border-sb-green text-sb-green bg-green-950/30'
-                    : 'border-sb-border text-sb-muted hover:border-sb-muted'
-                }`}
-              >
-                {y}
-              </button>
+              <option key={y} value={y}>{y}</option>
             ))}
-          </div>
+          </select>
+
+          {/* Inline summary for selected year */}
+          {yearReceipts.length === 0 ? (
+            <p className="text-sb-muted text-xs">No receipts for {year}.</p>
+          ) : (
+            <div className="rounded-xl bg-sb-card2 border border-sb-border px-3 py-2.5 space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-sb-muted">Receipts</span>
+                <span className="text-white">{yearReceipts.length}</span>
+              </div>
+              <div className="flex justify-between text-sm font-semibold">
+                <span className="text-sb-muted">Total</span>
+                <span className="text-sb-green">${yearReceipts.reduce((s, r) => s + r.total, 0).toFixed(2)}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Client filter */}
@@ -264,26 +274,6 @@ export default function ExportPage() {
           </div>
         )}
 
-        {/* Summary */}
-        <div className="bg-sb-card border border-sb-border rounded-2xl p-4">
-          <p className="text-xs text-sb-muted uppercase tracking-wider font-medium mb-3">Export Summary</p>
-          {exportReceipts.length === 0 ? (
-            <p className="text-sb-muted text-sm">No receipts match your selection.</p>
-          ) : (
-            <div className="space-y-2">
-              <SummaryRow label="Year"     value={String(year)} />
-              <SummaryRow label="Receipts" value={String(exportReceipts.length)} />
-              {selectedClients.size > 0 && (
-                <SummaryRow
-                  label="Clients"
-                  value={Array.from(selectedClients).map(c => c || 'No Client').join(', ')}
-                />
-              )}
-              <SummaryRow label="Total" value={`$${exportTotal.toFixed(2)}`} highlight />
-            </div>
-          )}
-        </div>
-
         {/* Format */}
         <div className="flex items-start gap-3 bg-sb-card border border-sb-border rounded-2xl p-4">
           <FileSpreadsheet size={20} className="text-sb-green flex-shrink-0 mt-0.5" />
@@ -314,11 +304,3 @@ export default function ExportPage() {
   );
 }
 
-function SummaryRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <div className="flex justify-between text-sm">
-      <span className="text-sb-muted">{label}</span>
-      <span className={`${highlight ? 'text-sb-green font-bold' : 'text-white'} text-right max-w-[60%] truncate`}>{value}</span>
-    </div>
-  );
-}

@@ -31,7 +31,9 @@ export default function ReceiptLibrary() {
   const [search,       setSearch]       = useState('');
   const [searchMode,   setSearchMode]   = useState<SearchMode>('all');
   const [showModeMenu, setShowModeMenu] = useState(false);
+  const [showArchive,  setShowArchive]  = useState(false);
 
+  // Archive threshold: years strictly before current year are "archive"
   const thisYear = String(new Date().getFullYear());
 
   // current year months: collapsed set (month key → collapsed)
@@ -67,7 +69,10 @@ export default function ReceiptLibrary() {
 
   const grouped = useMemo(() => {
     const thisYearList = filtered.filter(r => yearOf(r.receiptDate) === thisYear);
-    const archiveList  = filtered.filter(r => yearOf(r.receiptDate) !== thisYear);
+    // Archive = any year before current year; only shown when toggle is on
+    const archiveList  = showArchive
+      ? filtered.filter(r => yearOf(r.receiptDate) !== thisYear)
+      : [];
 
     // Group by month, sort receipts within each month by date desc
     function byMonth(list: ReceiptType[]): [string, ReceiptType[]][] {
@@ -97,12 +102,15 @@ export default function ReceiptLibrary() {
       archiveYears.push([y, byMonth(yearReceipts)]);
     });
 
+    const archiveCount = filtered.filter(r => yearOf(r.receiptDate) !== thisYear).length;
+
     return {
       thisYearMonths: byMonth(thisYearList),
       thisYearTotal: thisYearList.reduce((s, r) => s + r.total, 0),
       archiveYears,
+      archiveCount,
     };
-  }, [filtered, thisYear]);
+  }, [filtered, thisYear, showArchive]);
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
@@ -184,10 +192,24 @@ export default function ReceiptLibrary() {
         ) : (
           <div className="space-y-0.5">
 
-            {/* ── Current year ── */}
+            {/* ── Current year header + archive toggle ── */}
             <div className="flex items-center justify-between px-2 pt-1 pb-3">
               <p className="text-white text-base font-bold" style={{ fontFamily: "'Poppins', sans-serif" }}>{thisYear}</p>
-              <span className="text-sb-green text-sm font-bold">${grouped.thisYearTotal.toFixed(2)}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-sb-green text-sm font-bold">${grouped.thisYearTotal.toFixed(2)}</span>
+                {grouped.archiveCount > 0 && (
+                  <button
+                    onClick={() => setShowArchive(p => !p)}
+                    className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border transition ${
+                      showArchive
+                        ? 'border-sb-purple text-sb-purple bg-purple-950/30'
+                        : 'border-sb-border text-sb-muted hover:border-sb-muted'
+                    }`}
+                  >
+                    Archive{!showArchive && ` (${grouped.archiveCount})`}
+                  </button>
+                )}
+              </div>
             </div>
 
             {grouped.thisYearMonths.length === 0 && (

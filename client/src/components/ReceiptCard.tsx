@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Trash2, Check, Pencil, Share2, Image as ImageIcon, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2, Check, Pencil, Share2, Image as ImageIcon, X, Plus } from 'lucide-react';
 import type { Receipt } from '../utils/types';
 import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
 import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
@@ -27,6 +27,8 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const [imgFullscreen, setImgFullscreen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [reEditOpen, setReEditOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
   const catPickerRef = useRef<HTMLDivElement>(null);
 
   const catColor = getCategoryColorDynamic(receipt.category);
@@ -53,6 +55,21 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   function pickCategory(name: string) {
     onUpdateCategory(receipt.id, name);
     setEditingCat(false);
+    setNewCatName('');
+  }
+
+  function addInlineCategory() {
+    const trimmed = newCatName.trim();
+    if (!trimmed) return;
+    const all = getAllCategories();
+    if (all.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
+      pickCategory(all.find(c => c.name.toLowerCase() === trimmed.toLowerCase())!.name);
+      return;
+    }
+    const existing = JSON.parse(localStorage.getItem('sb_custom_categories') || '[]');
+    const color = '#6B7280';
+    localStorage.setItem('sb_custom_categories', JSON.stringify([...existing, { name: trimmed, color }]));
+    pickCategory(trimmed);
   }
 
   return (
@@ -60,50 +77,72 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
       <div className="bg-sb-card rounded-xl border border-sb-border overflow-visible">
 
         {/* ── Collapsed row ── */}
-        <button
-          onClick={() => setExpanded(p => !p)}
-          className="w-full flex items-center gap-3 px-3 py-3 text-left active:bg-white/5 transition"
-        >
-          {/* Category color bar */}
-          <span
-            className="w-1 self-stretch rounded-full flex-shrink-0"
-            style={{ backgroundColor: catColor, minHeight: 36 }}
-          />
+        <div className="flex items-center gap-0">
+          <button
+            onClick={() => setExpanded(p => !p)}
+            className="flex-1 flex items-center gap-3 px-3 py-3 text-left active:bg-white/5 transition min-w-0"
+          >
+            {/* Category color bar */}
+            <span
+              className="w-1 self-stretch rounded-full flex-shrink-0"
+              style={{ backgroundColor: catColor, minHeight: 36 }}
+            />
 
-          {/* Store + date + category */}
-          <div className="flex-1 min-w-0">
-            <p className="text-white font-bold text-sm leading-tight truncate"
-               style={{ fontFamily: "'Poppins', sans-serif" }}>
-              {receipt.storeName || 'Unknown Store'}
-            </p>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
-              {receipt.clientName && (
-                <span className="text-[10px] px-1.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-snug">
-                  {receipt.clientName}
-                </span>
-              )}
-              {receipt.category && (
-                <span
-                  className="text-[10px] px-1.5 rounded-full leading-snug"
-                  style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
-                >
-                  {receipt.category}
-                </span>
-              )}
+            {/* Store + date + category */}
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-bold text-sm leading-tight truncate"
+                 style={{ fontFamily: "'Poppins', sans-serif" }}>
+                {receipt.storeName || 'Unknown Store'}
+              </p>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
+                {receipt.clientName && (
+                  <span className="text-[10px] px-1.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-snug">
+                    {receipt.clientName}
+                  </span>
+                )}
+                {receipt.category && (
+                  <span
+                    className="text-[10px] px-1.5 rounded-full leading-snug"
+                    style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
+                  >
+                    {receipt.category}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* Total + chevron */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <span className="text-sb-green font-bold text-base leading-tight">
-              ${receipt.total.toFixed(2)}
-            </span>
-            <span className="text-sb-muted">
-              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </span>
-          </div>
-        </button>
+            {/* Total + chevron */}
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-sb-green font-bold text-base leading-tight">
+                ${receipt.total.toFixed(2)}
+              </span>
+              <span className="text-sb-muted">
+                {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </span>
+            </div>
+          </button>
+
+          {/* Delete — tap once to arm (turns red), tap again to confirm */}
+          {confirmDelete ? (
+            <button
+              onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }}
+              onBlur={() => setConfirmDelete(false)}
+              className="flex-shrink-0 px-3 py-3 text-red-400 bg-red-950/40 border-l border-red-900/40 rounded-r-xl transition"
+              title="Confirm delete"
+            >
+              <Trash2 size={15} />
+            </button>
+          ) : (
+            <button
+              onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
+              className="flex-shrink-0 px-3 py-3 text-sb-muted hover:text-red-400 transition border-l border-transparent"
+              title="Delete receipt"
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
+        </div>
 
         {/* ── Expanded detail ── */}
         {expanded && (
@@ -199,20 +238,40 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                   {editingCat && (
                     <div
                       ref={catPickerRef}
-                      className="absolute bottom-full left-0 mb-1 w-52 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl"
+                      className="absolute bottom-full left-0 mb-1 w-56 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl"
                       style={{ animation: 'fadeIn 120ms ease-out' }}
                     >
-                      {getAllCategories().map(cat => (
+                      <div className="max-h-56 overflow-y-auto">
+                        {getAllCategories().map(cat => (
+                          <button
+                            key={cat.name}
+                            onClick={() => pickCategory(cat.name)}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-white/5 transition"
+                          >
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                            <span className="text-white flex-1">{cat.name}</span>
+                            {cat.name === receipt.category && <Check size={11} className="text-sb-green" />}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Inline new category */}
+                      <div className="border-t border-sb-border px-2 py-2 flex items-center gap-1.5">
+                        <input
+                          value={newCatName}
+                          onChange={e => setNewCatName(e.target.value)}
+                          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addInlineCategory(); }}
+                          onClick={e => e.stopPropagation()}
+                          placeholder="New category…"
+                          className="flex-1 bg-sb-card border border-sb-border rounded-lg px-2 py-1 text-xs text-white placeholder-white/30 focus:outline-none focus:border-sb-green transition"
+                        />
                         <button
-                          key={cat.name}
-                          onClick={() => pickCategory(cat.name)}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-white/5 transition"
+                          onClick={e => { e.stopPropagation(); addInlineCategory(); }}
+                          disabled={!newCatName.trim()}
+                          className="p-1 rounded-lg text-sb-green disabled:opacity-30 hover:bg-sb-green/10 transition"
                         >
-                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                          <span className="text-white flex-1">{cat.name}</span>
-                          {cat.name === receipt.category && <Check size={11} className="text-sb-green" />}
+                          <Plus size={13} />
                         </button>
-                      ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -234,13 +293,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                     title="Share"
                   >
                     <Share2 size={15} />
-                  </button>
-                  <button
-                    onClick={() => onDelete(receipt.id)}
-                    className="text-sb-red hover:brightness-125 transition"
-                    title="Delete"
-                  >
-                    <Trash2 size={15} />
                   </button>
                 </div>
               </div>

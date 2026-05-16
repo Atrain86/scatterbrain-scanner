@@ -71,9 +71,13 @@ export function getCategoryColor(name: string): string {
 
 export function getAllCategories(): { name: string; color: string }[] {
   const builtin = CATEGORIES.map(c => ({ name: c.name, color: c.color }));
+  const builtinNames = new Set(builtin.map(c => c.name.toLowerCase()));
   try {
     const custom = JSON.parse(localStorage.getItem('sb_custom_categories') || '[]');
-    return [...builtin, ...(Array.isArray(custom) ? custom : [])];
+    const unique = (Array.isArray(custom) ? custom : []).filter(
+      (c: { name: string }) => !builtinNames.has(c.name.toLowerCase())
+    );
+    return [...builtin, ...unique];
   } catch { return builtin; }
 }
 
