@@ -68,10 +68,12 @@ export default function ReceiptLibrary() {
   // ── Group receipts ──────────────────────────────────────────────────────────
 
   const grouped = useMemo(() => {
-    const thisYearList = filtered.filter(r => yearOf(r.receiptDate) === thisYear);
+    // Receipts with missing/bad dates get today's year so they're always visible
+    const safeYear = (r: ReceiptType) => yearOf(r.receiptDate) || thisYear;
+    const thisYearList = filtered.filter(r => safeYear(r) === thisYear);
     // Archive = any year before current year; only shown when toggle is on
     const archiveList  = showArchive
-      ? filtered.filter(r => yearOf(r.receiptDate) !== thisYear)
+      ? filtered.filter(r => safeYear(r) !== thisYear)
       : [];
 
     // Group by month, sort receipts within each month by date desc
@@ -89,20 +91,14 @@ export default function ReceiptLibrary() {
     }
 
     // Group archive by year → month
-    const archiveByYear = new Map<string, [string, ReceiptType[]][]>();
-    archiveList.forEach(r => {
-      const y = yearOf(r.receiptDate);
-      if (!archiveByYear.has(y)) archiveByYear.set(y, []);
-    });
-    // Build month groups per year
     const archiveYears: [string, [string, ReceiptType[]][]][] = [];
-    const archiveYearList = Array.from(new Set(archiveList.map(r => yearOf(r.receiptDate)))).sort((a, b) => b.localeCompare(a));
+    const archiveYearList = Array.from(new Set(archiveList.map(r => safeYear(r)))).sort((a, b) => b.localeCompare(a));
     archiveYearList.forEach(y => {
-      const yearReceipts = archiveList.filter(r => yearOf(r.receiptDate) === y);
+      const yearReceipts = archiveList.filter(r => safeYear(r) === y);
       archiveYears.push([y, byMonth(yearReceipts)]);
     });
 
-    const archiveCount = filtered.filter(r => yearOf(r.receiptDate) !== thisYear).length;
+    const archiveCount = filtered.filter(r => safeYear(r) !== thisYear).length;
 
     return {
       thisYearMonths: byMonth(thisYearList),
