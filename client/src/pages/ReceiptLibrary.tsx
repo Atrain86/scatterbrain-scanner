@@ -124,6 +124,7 @@ export default function ReceiptLibrary() {
   async function onReEdit(id: number, updates: {
     storeName: string; lineItems: string; taxLines: string;
     subtotal: number; taxAmount: number; total: number;
+    clientName: string | null; category: string;
   }) {
     await update(id, updates);
   }
@@ -364,7 +365,7 @@ interface MonthGroupProps {
   onToggle: () => void;
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, cat: string) => void;
-  onReEdit: (id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number }) => void;
+  onReEdit: (id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number; clientName: string | null; category: string }) => void;
 }
 
 function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit }: MonthGroupProps) {

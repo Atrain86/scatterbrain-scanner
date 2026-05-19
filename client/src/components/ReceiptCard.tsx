@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Trash2, Check, Pencil, Share2, Image as ImageIcon, X, Plus } from 'lucide-react';
+import { Trash2, Check, Pencil, Share2, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut } from 'lucide-react';
 import type { Receipt } from '../utils/types';
 import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
 import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
@@ -12,6 +12,8 @@ interface ReEditUpdates {
   subtotal: number;
   taxAmount: number;
   total: number;
+  clientName: string | null;
+  category: string;
 }
 
 interface Props {
@@ -77,71 +79,67 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
       <div className="bg-sb-card rounded-xl border border-sb-border overflow-visible">
 
         {/* ── Collapsed row ── */}
-        <div className="flex items-center gap-0">
-          <button
-            onClick={() => setExpanded(p => !p)}
-            className="flex-1 flex items-center gap-3 px-3 py-3 text-left active:bg-white/5 transition min-w-0"
+        <div
+          className="flex items-stretch gap-0 cursor-pointer active:bg-white/5 transition rounded-xl"
+          onClick={() => setExpanded(p => !p)}
+        >
+          {/* Category color bar */}
+          <span
+            className="w-1 rounded-l-xl flex-shrink-0 self-stretch"
+            style={{ backgroundColor: catColor, minHeight: 52 }}
+          />
+
+          {/* Store + date + tags */}
+          <div className="flex-1 min-w-0 px-3 py-3">
+            <p className="text-white font-bold text-sm leading-tight truncate"
+               style={{ fontFamily: "'Poppins', sans-serif" }}>
+              {receipt.storeName || 'Unknown Store'}
+            </p>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
+              {receipt.clientName && (
+                <span className="text-[10px] px-1.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-snug">
+                  {receipt.clientName}
+                </span>
+              )}
+              {receipt.category && (
+                <span
+                  className="text-[10px] px-1.5 rounded-full leading-snug"
+                  style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
+                >
+                  {receipt.category}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Trash (top-right) + price below */}
+          <div
+            className="flex flex-col items-center justify-between px-3 py-2 flex-shrink-0"
+            onClick={e => e.stopPropagation()}
           >
-            {/* Category color bar */}
-            <span
-              className="w-1 self-stretch rounded-full flex-shrink-0"
-              style={{ backgroundColor: catColor, minHeight: 36 }}
-            />
-
-            {/* Store + date + category */}
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-bold text-sm leading-tight truncate"
-                 style={{ fontFamily: "'Poppins', sans-serif" }}>
-                {receipt.storeName || 'Unknown Store'}
-              </p>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
-                {receipt.clientName && (
-                  <span className="text-[10px] px-1.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-snug">
-                    {receipt.clientName}
-                  </span>
-                )}
-                {receipt.category && (
-                  <span
-                    className="text-[10px] px-1.5 rounded-full leading-snug"
-                    style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
-                  >
-                    {receipt.category}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Total + chevron */}
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <span className="text-sb-green font-bold text-base leading-tight">
-                ${receipt.total.toFixed(2)}
-              </span>
-              <span className="text-sb-muted">
-                {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              </span>
-            </div>
-          </button>
-
-          {/* Delete — tap once to arm (turns red), tap again to confirm */}
-          {confirmDelete ? (
-            <button
-              onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }}
-              onBlur={() => setConfirmDelete(false)}
-              className="flex-shrink-0 px-3 py-3 text-red-400 bg-red-950/40 border-l border-red-900/40 rounded-r-xl transition"
-              title="Confirm delete"
-            >
-              <Trash2 size={15} />
-            </button>
-          ) : (
-            <button
-              onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
-              className="flex-shrink-0 px-3 py-3 text-sb-muted hover:text-red-400 transition border-l border-transparent"
-              title="Delete receipt"
-            >
-              <Trash2 size={15} />
-            </button>
-          )}
+            {confirmDelete ? (
+              <button
+                onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }}
+                onBlur={() => setConfirmDelete(false)}
+                className="text-red-400 bg-red-950/40 rounded-lg p-1 transition"
+                title="Confirm delete"
+              >
+                <Trash2 size={14} />
+              </button>
+            ) : (
+              <button
+                onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
+                className="text-sb-muted hover:text-red-400 transition p-1"
+                title="Delete receipt"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+            <span className="text-sb-green font-bold text-sm leading-tight mt-1">
+              ${receipt.total.toFixed(2)}
+            </span>
+          </div>
         </div>
 
         {/* ── Expanded detail ── */}
@@ -278,15 +276,14 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
 
                 {/* Right actions */}
                 <div className="flex items-center gap-4">
-                  {productItems.length > 0 && (
-                    <button
-                      onClick={() => setReEditOpen(true)}
-                      className="text-sb-muted hover:text-white transition"
-                      title="Edit items"
-                    >
-                      <Pencil size={15} />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setReEditOpen(true)}
+                    className="transition"
+                    style={{ color: '#eab308' }}
+                    title="Edit receipt"
+                  >
+                    <Pencil size={15} />
+                  </button>
                   <button
                     onClick={() => setShareOpen(true)}
                     className="text-sb-purple hover:brightness-125 transition"
@@ -309,16 +306,10 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
       )}
 
       {imgFullscreen && receipt.imageUrl && (
-        <div
-          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4"
-          onClick={() => setImgFullscreen(false)}
-        >
-          <img
-            src={receipt.imageUrl}
-            alt="Receipt"
-            className="max-w-full max-h-full object-contain rounded-xl"
-          />
-        </div>
+        <ZoomableImage
+          src={receipt.imageUrl}
+          onClose={() => setImgFullscreen(false)}
+        />
       )}
 
       {reEditOpen && (
@@ -332,6 +323,121 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
         />
       )}
     </>
+  );
+}
+
+/* ── Zoomable fullscreen image ── */
+function ZoomableImage({ src, onClose }: { src: string; onClose: () => void }) {
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const lastTouchDist = useRef<number | null>(null);
+  const lastTouchMid  = useRef<{ x: number; y: number } | null>(null);
+  const dragStart     = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+
+  function getTouchDist(touches: React.TouchList) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function onTouchStart(e: React.TouchEvent) {
+    if (e.touches.length === 2) {
+      lastTouchDist.current = getTouchDist(e.touches);
+      lastTouchMid.current = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+      };
+    } else if (e.touches.length === 1 && scale > 1) {
+      dragStart.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        ox: offset.x,
+        oy: offset.y,
+      };
+    }
+  }
+
+  function onTouchMove(e: React.TouchEvent) {
+    e.preventDefault();
+    if (e.touches.length === 2 && lastTouchDist.current !== null) {
+      const newDist = getTouchDist(e.touches);
+      const ratio = newDist / lastTouchDist.current;
+      setScale(s => Math.min(Math.max(s * ratio, 1), 5));
+      lastTouchDist.current = newDist;
+    } else if (e.touches.length === 1 && dragStart.current && scale > 1) {
+      const dx = e.touches[0].clientX - dragStart.current.x;
+      const dy = e.touches[0].clientY - dragStart.current.y;
+      setOffset({ x: dragStart.current.ox + dx, y: dragStart.current.oy + dy });
+    }
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    if (e.touches.length < 2) lastTouchDist.current = null;
+    if (e.touches.length === 0) dragStart.current = null;
+    if (scale <= 1) setOffset({ x: 0, y: 0 });
+  }
+
+  function handleTap() {
+    if (scale === 1) onClose();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center"
+      style={{ touchAction: 'none' }}
+    >
+      {/* Header */}
+      <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 safe-top z-10">
+        <button onClick={onClose} className="text-white/70 hover:text-white transition p-1">
+          <X size={22} />
+        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { setScale(s => Math.max(s - 0.5, 1)); if (scale - 0.5 <= 1) setOffset({ x: 0, y: 0 }); }}
+            className="text-white/70 hover:text-white transition p-1"
+            disabled={scale <= 1}
+          >
+            <ZoomOut size={20} />
+          </button>
+          <span className="text-white/50 text-xs tabular-nums">{Math.round(scale * 100)}%</span>
+          <button
+            onClick={() => setScale(s => Math.min(s + 0.5, 5))}
+            className="text-white/70 hover:text-white transition p-1"
+            disabled={scale >= 5}
+          >
+            <ZoomIn size={20} />
+          </button>
+        </div>
+      </div>
+
+      {/* Image */}
+      <div
+        className="w-full h-full flex items-center justify-center overflow-hidden"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onClick={handleTap}
+      >
+        <img
+          src={src}
+          alt="Receipt"
+          draggable={false}
+          style={{
+            transform: `scale(${scale}) translate(${offset.x / scale}px, ${offset.y / scale}px)`,
+            transformOrigin: 'center',
+            transition: lastTouchDist.current ? 'none' : 'transform 0.1s ease-out',
+            maxWidth: '100%',
+            maxHeight: '100%',
+            objectFit: 'contain',
+            userSelect: 'none',
+          }}
+        />
+      </div>
+
+      {scale === 1 && (
+        <p className="absolute bottom-8 text-white/30 text-xs">Tap to close · Pinch to zoom</p>
+      )}
+    </div>
   );
 }
 
@@ -358,7 +464,12 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
 
   const taxLineItems = allItems.filter(i => isTaxLine(i.description));
 
-  const [storeName, setStoreName] = useState(receipt.storeName);
+  const [storeName, setStoreName]   = useState(receipt.storeName);
+  const [clientName, setClientName] = useState(receipt.clientName ?? '');
+  const [category, setCategory]     = useState(receipt.category ?? '');
+  const [catPickerOpen, setCatPickerOpen] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const catRef = useRef<HTMLDivElement>(null);
 
   const [selected, setSelected] = useState<Set<number>>(() => {
     const s = new Set<number>();
@@ -367,6 +478,15 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
     });
     return s;
   });
+
+  useEffect(() => {
+    if (!catPickerOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (catRef.current && !catRef.current.contains(e.target as Node)) setCatPickerOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [catPickerOpen]);
 
   const lineItems = allItems;
 
@@ -380,6 +500,25 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
 
   const totals = computeReceiptTotals(lineItems, selected);
 
+  function pickCat(name: string) {
+    setCategory(name);
+    setCatPickerOpen(false);
+    setNewCatName('');
+  }
+
+  function addNewCat() {
+    const trimmed = newCatName.trim();
+    if (!trimmed) return;
+    const all = getAllCategories();
+    if (all.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
+      pickCat(all.find(c => c.name.toLowerCase() === trimmed.toLowerCase())!.name);
+      return;
+    }
+    const existing = JSON.parse(localStorage.getItem('sb_custom_categories') || '[]');
+    localStorage.setItem('sb_custom_categories', JSON.stringify([...existing, { name: trimmed, color: '#6B7280' }]));
+    pickCat(trimmed);
+  }
+
   function handleSave() {
     const selectedItems = lineItems.filter((item, i) =>
       isTaxLine(item.description) ? false : selected.has(i)
@@ -391,10 +530,13 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
       subtotal: totals.selectedSubtotal,
       taxAmount: totals.totalTax,
       total: totals.total,
+      clientName: clientName.trim() || null,
+      category,
     });
   }
 
   const productItems = allItems.filter(i => !isTaxLine(i.description));
+  const catColor = getCategoryColorDynamic(category);
 
   return (
     <div className="fixed inset-0 z-50 bg-sb-bg flex flex-col">
@@ -406,6 +548,8 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+
+        {/* Store name */}
         <div className="bg-sb-card border border-sb-border rounded-xl px-4 py-3">
           <label className="block text-xs text-sb-muted mb-1">Store Name</label>
           <input
@@ -415,6 +559,69 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
           />
         </div>
 
+        {/* Client + Category row */}
+        <div className="flex gap-3">
+          {/* Client name */}
+          <div className="flex-1 bg-sb-card border border-sb-border rounded-xl px-4 py-3">
+            <label className="block text-xs text-sb-muted mb-1">Client (optional)</label>
+            <input
+              value={clientName}
+              onChange={e => setClientName(e.target.value)}
+              placeholder="e.g. Acme Co"
+              className="w-full bg-transparent text-white text-sm border-b border-sb-border pb-1 focus:outline-none focus:border-sb-green transition placeholder-white/20"
+            />
+          </div>
+
+          {/* Category picker */}
+          <div className="flex-1 bg-sb-card border border-sb-border rounded-xl px-4 py-3 relative" ref={catRef}>
+            <label className="block text-xs text-sb-muted mb-1">Category</label>
+            <button
+              onClick={() => setCatPickerOpen(p => !p)}
+              className="w-full flex items-center justify-between text-sm pb-1 border-b border-sb-border focus:outline-none"
+              style={{ color: category ? catColor : '#666' }}
+            >
+              <span className="truncate">{category || 'Select…'}</span>
+              <Pencil size={10} style={{ color: '#eab308', flexShrink: 0 }} />
+            </button>
+
+            {catPickerOpen && (
+              <div className="absolute top-full left-0 mt-1 w-56 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl">
+                <div className="max-h-48 overflow-y-auto">
+                  {getAllCategories().map(cat => (
+                    <button
+                      key={cat.name}
+                      onClick={() => pickCat(cat.name)}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-white/5 transition"
+                    >
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                      <span className="text-white flex-1">{cat.name}</span>
+                      {cat.name === category && <Check size={11} className="text-sb-green" />}
+                    </button>
+                  ))}
+                </div>
+                <div className="border-t border-sb-border px-2 py-2 flex items-center gap-1.5">
+                  <input
+                    value={newCatName}
+                    onChange={e => setNewCatName(e.target.value)}
+                    onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewCat(); }}
+                    onClick={e => e.stopPropagation()}
+                    placeholder="New category…"
+                    className="flex-1 bg-sb-card border border-sb-border rounded-lg px-2 py-1 text-xs text-white placeholder-white/30 focus:outline-none focus:border-sb-green transition"
+                  />
+                  <button
+                    onClick={e => { e.stopPropagation(); addNewCat(); }}
+                    disabled={!newCatName.trim()}
+                    className="p-1 rounded-lg text-sb-green disabled:opacity-30 hover:bg-sb-green/10 transition"
+                  >
+                    <Plus size={13} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Line items */}
         {productItems.length === 0 ? (
           <p className="text-sb-muted text-sm text-center py-8">No line items to edit.</p>
         ) : (
