@@ -3,7 +3,7 @@ import { Receipt, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { useReceipts } from '../hooks/useReceipts';
 import ScanModal from '../components/ScanModal';
 import ReceiptCard from '../components/ReceiptCard';
-import VersionBanner from '../components/VersionBanner';
+import { APP_VERSION } from './SettingsPage';
 import type { Receipt as ReceiptType } from '../utils/types';
 
 type SearchMode = 'all' | 'store' | 'client' | 'item';
@@ -137,19 +137,17 @@ export default function ReceiptLibrary() {
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
 
-      <header className="flex flex-col items-center pt-12 pb-3 safe-top px-4">
+      <header className="flex items-center justify-between px-4 pt-12 pb-2 safe-top">
         <img
           src="/logo.png"
           alt="Scatterbrain"
-          className="h-48 w-auto"
+          className="h-10 w-auto"
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
         />
-        <div className="w-full max-w-xs mt-2">
-          <VersionBanner />
-        </div>
+        <span className="text-[10px] text-white/50 tracking-wider select-none">v{APP_VERSION} beta</span>
       </header>
 
-      <main className="flex-1 px-3 pt-2 pb-56 overflow-y-auto">
+      <main className="flex-1 px-3 pt-1 pb-56 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
@@ -189,24 +187,10 @@ export default function ReceiptLibrary() {
         ) : (
           <div className="space-y-0.5">
 
-            {/* ── Current year header + archive toggle ── */}
+            {/* ── Current year header ── */}
             <div className="flex items-center justify-between px-2 pt-1 pb-3">
               <p className="text-white text-base font-bold" style={{ fontFamily: "'Poppins', sans-serif" }}>{thisYear}</p>
-              <div className="flex items-center gap-3">
-                <span className="text-sb-green text-sm font-bold">${grouped.thisYearTotal.toFixed(2)}</span>
-                {grouped.archiveCount > 0 && (
-                  <button
-                    onClick={() => setShowArchive(p => !p)}
-                    className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border transition ${
-                      showArchive
-                        ? 'border-sb-purple text-sb-purple bg-purple-950/30'
-                        : 'border-sb-border text-sb-muted hover:border-sb-muted'
-                    }`}
-                  >
-                    Archive{!showArchive && ` (${grouped.archiveCount})`}
-                  </button>
-                )}
-              </div>
+              <span className="text-sb-green text-sm font-bold">${grouped.thisYearTotal.toFixed(2)}</span>
             </div>
 
             {grouped.thisYearMonths.length === 0 && (

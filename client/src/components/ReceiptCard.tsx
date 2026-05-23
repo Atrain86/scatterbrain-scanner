@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Trash2, Check, Pencil, Share2, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut } from 'lucide-react';
+import { Trash2, Check, Pencil, Share2, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut, ChevronDown } from 'lucide-react';
 import type { Receipt } from '../utils/types';
 import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
 import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
+import { loadClients, addClient, getLastClient, setLastClient } from '../utils/clients';
 import ShareModal from './ShareModal';
 
 interface ReEditUpdates {
@@ -461,14 +462,20 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
     try { return receipt.lineItems ? JSON.parse(receipt.lineItems) : []; } catch { return []; }
   })();
   const savedDescriptions = new Set(savedItems.filter(i => !isTaxLine(i.description)).map(i => i.description));
-
   const taxLineItems = allItems.filter(i => isTaxLine(i.description));
 
   const [storeName, setStoreName]   = useState(receipt.storeName);
   const [clientName, setClientName] = useState(receipt.clientName ?? '');
   const [category, setCategory]     = useState(receipt.category ?? '');
-  const [catPickerOpen, setCatPickerOpen] = useState(false);
-  const [newCatName, setNewCatName] = useState('');
+
+  // Client dropdown state
+  const [clients, setClients]             = useState<string[]>(loadClients);
+  const [showClientPicker, setShowClientPicker] = useState(false);
+  const [newClientInput, setNewClientInput]     = useState('');
+  const clientRef = useRef<HTMLDivElement>(null);
+
+  // Category dropdown state
+  const [showCatPicker, setShowCatPicker] = useState(false);
   const catRef = useRef<HTMLDivElement>(null);
 
   const [selected, setSelected] = useState<Set<number>>(() => {
@@ -480,13 +487,13 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
   });
 
   useEffect(() => {
-    if (!catPickerOpen) return;
     function handleClick(e: MouseEvent) {
-      if (catRef.current && !catRef.current.contains(e.target as Node)) setCatPickerOpen(false);
+      if (showClientPicker && clientRef.current && !clientRef.current.contains(e.target as Node)) setShowClientPicker(false);
+      if (showCatPicker   && catRef.current    && !catRef.current.contains(e.target as Node))    setShowCatPicker(false);
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [catPickerOpen]);
+  }, [showClientPicker, showCatPicker]);
 
   const lineItems = allItems;
 
@@ -500,23 +507,19 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
 
   const totals = computeReceiptTotals(lineItems, selected);
 
-  function pickCat(name: string) {
-    setCategory(name);
-    setCatPickerOpen(false);
-    setNewCatName('');
+  function pickClient(name: string) {
+    setClientName(name);
+    setLastClient(name);
+    setShowClientPicker(false);
+    setNewClientInput('');
   }
 
-  function addNewCat() {
-    const trimmed = newCatName.trim();
+  function handleAddNewClient() {
+    const trimmed = newClientInput.trim();
     if (!trimmed) return;
-    const all = getAllCategories();
-    if (all.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
-      pickCat(all.find(c => c.name.toLowerCase() === trimmed.toLowerCase())!.name);
-      return;
-    }
-    const existing = JSON.parse(localStorage.getItem('sb_custom_categories') || '[]');
-    localStorage.setItem('sb_custom_categories', JSON.stringify([...existing, { name: trimmed, color: '#6B7280' }]));
-    pickCat(trimmed);
+    const updated = addClient(trimmed);
+    setClients(updated);
+    pickClient(trimmed);
   }
 
   function handleSave() {
@@ -559,66 +562,91 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
           />
         </div>
 
-        {/* Client + Category row */}
-        <div className="flex gap-3">
-          {/* Client name */}
-          <div className="flex-1 bg-sb-card border border-sb-border rounded-xl px-4 py-3">
-            <label className="block text-xs text-sb-muted mb-1">Client (optional)</label>
-            <input
-              value={clientName}
-              onChange={e => setClientName(e.target.value)}
-              placeholder="e.g. Acme Co"
-              className="w-full bg-transparent text-white text-sm border-b border-sb-border pb-1 focus:outline-none focus:border-sb-green transition placeholder-white/20"
-            />
-          </div>
-
-          {/* Category picker */}
-          <div className="flex-1 bg-sb-card border border-sb-border rounded-xl px-4 py-3 relative" ref={catRef}>
-            <label className="block text-xs text-sb-muted mb-1">Category</label>
-            <button
-              onClick={() => setCatPickerOpen(p => !p)}
-              className="w-full flex items-center justify-between text-sm pb-1 border-b border-sb-border focus:outline-none"
-              style={{ color: category ? catColor : '#666' }}
-            >
-              <span className="truncate">{category || 'Select…'}</span>
-              <Pencil size={10} style={{ color: '#eab308', flexShrink: 0 }} />
-            </button>
-
-            {catPickerOpen && (
-              <div className="absolute top-full left-0 mt-1 w-56 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl">
-                <div className="max-h-48 overflow-y-auto">
-                  {getAllCategories().map(cat => (
-                    <button
-                      key={cat.name}
-                      onClick={() => pickCat(cat.name)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-white/5 transition"
-                    >
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                      <span className="text-white flex-1">{cat.name}</span>
-                      {cat.name === category && <Check size={11} className="text-sb-green" />}
-                    </button>
-                  ))}
-                </div>
-                <div className="border-t border-sb-border px-2 py-2 flex items-center gap-1.5">
-                  <input
-                    value={newCatName}
-                    onChange={e => setNewCatName(e.target.value)}
-                    onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewCat(); }}
-                    onClick={e => e.stopPropagation()}
-                    placeholder="New category…"
-                    className="flex-1 bg-sb-card border border-sb-border rounded-lg px-2 py-1 text-xs text-white placeholder-white/30 focus:outline-none focus:border-sb-green transition"
-                  />
-                  <button
-                    onClick={e => { e.stopPropagation(); addNewCat(); }}
-                    disabled={!newCatName.trim()}
-                    className="p-1 rounded-lg text-sb-green disabled:opacity-30 hover:bg-sb-green/10 transition"
+        {/* Client dropdown */}
+        <div className="relative" ref={clientRef}>
+          <button
+            onClick={() => setShowClientPicker(p => !p)}
+            className="w-full bg-sb-card border border-sb-border rounded-xl px-4 py-3 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs text-sb-muted flex-shrink-0">Client</span>
+              {clientName ? (
+                <span className="text-white text-sm font-medium truncate">{clientName}</span>
+              ) : (
+                <span className="text-white/30 text-sm">Select or add client…</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {clientName && (
+                <span onClick={e => { e.stopPropagation(); setClientName(''); }} className="text-sb-muted hover:text-white p-0.5">
+                  <X size={12} />
+                </span>
+              )}
+              <ChevronDown size={16} className="text-sb-muted" />
+            </div>
+          </button>
+          {showClientPicker && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-sb-card border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl">
+              <button
+                onClick={() => { setClientName(''); setShowClientPicker(false); }}
+                className="w-full px-4 py-2.5 text-sm text-left text-sb-muted hover:bg-white/5 transition"
+              >
+                No client
+              </button>
+              {clients.length > 0 && <div className="border-t border-sb-border" />}
+              <div className="max-h-36 overflow-y-auto">
+                {clients.map(c => (
+                  <button key={c} onClick={() => pickClient(c)}
+                    className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left hover:bg-white/5 transition ${c === clientName ? 'bg-white/5' : ''}`}
                   >
-                    <Plus size={13} />
+                    <span className="text-white">{c}</span>
+                    {c === clientName && <Check size={13} className="text-sb-green" />}
                   </button>
-                </div>
+                ))}
               </div>
-            )}
-          </div>
+              <div className="border-t border-sb-border px-3 py-2 flex items-center gap-2">
+                <input
+                  value={newClientInput}
+                  onChange={e => setNewClientInput(e.target.value)}
+                  onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') handleAddNewClient(); }}
+                  onClick={e => e.stopPropagation()}
+                  placeholder="New client…"
+                  className="flex-1 bg-sb-card2 border border-sb-border rounded-lg px-2 py-1 text-xs text-white placeholder-white/30 focus:outline-none focus:border-sb-green transition"
+                />
+                <button onClick={e => { e.stopPropagation(); handleAddNewClient(); }} disabled={!newClientInput.trim()}
+                  className="p-1 rounded-lg text-sb-green disabled:opacity-30 hover:bg-sb-green/10 transition">
+                  <Plus size={13} />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Category dropdown */}
+        <div className="relative" ref={catRef}>
+          <button
+            onClick={() => setShowCatPicker(p => !p)}
+            className="w-full bg-sb-card border border-sb-border rounded-xl px-4 py-3 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: catColor }} />
+              <span className="text-white text-sm font-medium">{category || 'Select category…'}</span>
+            </div>
+            <ChevronDown size={16} className="text-sb-muted" />
+          </button>
+          {showCatPicker && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-sb-card border border-sb-border rounded-xl overflow-y-auto z-30 shadow-2xl" style={{ maxHeight: '55vh' }}>
+              {getAllCategories().map(cat => (
+                <button key={cat.name} onClick={() => { setCategory(cat.name); setShowCatPicker(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-white/5 transition ${cat.name === category ? 'bg-white/5' : ''}`}
+                >
+                  <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                  <span className="text-white">{cat.name}</span>
+                  {cat.name === category && <Check size={13} className="ml-auto text-sb-green" />}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Line items */}

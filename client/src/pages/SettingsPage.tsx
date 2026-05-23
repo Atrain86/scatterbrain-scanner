@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, ChevronDown, DownloadCloud } from 'lucide-react';
+import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, ChevronDown, DownloadCloud, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
 import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue, restoreFromGoogleDrive, type RestoreResult } from '../lib/cloudSync';
+import { loadClients, addClient, removeClient } from '../utils/clients';
 import React from 'react';
 
 export const APP_VERSION = '0.4.6';
@@ -203,6 +204,10 @@ export default function SettingsPage() {
   const [newCatColor, setNewCatColor] = useState(PALETTE_COLORS[0]);
   const [catError, setCatError]       = useState('');
 
+  const [clients, setClients]         = useState<string[]>(loadClients);
+  const [newClientName, setNewClientName] = useState('');
+  const [clientError, setClientError] = useState('');
+
   const [taxRegion, setTaxRegion] = useState<TaxRegion>(loadTaxRegion);
   const [manualVat, setManualVat] = useState(taxRegion.vat > 0 ? String(taxRegion.vat) : '');
 
@@ -225,6 +230,21 @@ export default function SettingsPage() {
 
   function removeCategory(name: string) {
     saveCustomCategories(customCategories.filter(c => c.name !== name));
+  }
+
+  function handleAddClient() {
+    const trimmed = newClientName.trim();
+    if (!trimmed) { setClientError('Enter a client name'); return; }
+    if (clients.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
+      setClientError('That client already exists'); return;
+    }
+    setClientError('');
+    setClients(addClient(trimmed));
+    setNewClientName('');
+  }
+
+  function handleRemoveClient(name: string) {
+    setClients(removeClient(name));
   }
 
   function handleProvinceChange(provinceName: string) {
@@ -256,6 +276,41 @@ export default function SettingsPage() {
       </header>
 
       <main className="flex-1 px-4 py-4 pb-24 space-y-4 max-w-lg mx-auto w-full">
+
+        {/* Clients */}
+        <Section icon={<Users size={16} />} title="Clients" defaultOpen={false}>
+          <div className="space-y-1.5 mb-4">
+            {clients.length === 0 ? (
+              <p className="text-xs text-sb-muted italic">No clients yet. Add one below.</p>
+            ) : (
+              clients.map(client => (
+                <div key={client} className="flex items-center justify-between bg-sb-card2 border border-sb-border rounded-xl px-3 py-2">
+                  <span className="text-white text-sm">{client}</span>
+                  <button onClick={() => handleRemoveClient(client)} className="text-sb-muted hover:text-red-400 transition p-1">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="border border-sb-border rounded-xl p-3 space-y-2">
+            <p className="text-xs text-sb-muted font-medium">Add client</p>
+            <input
+              value={newClientName}
+              onChange={e => { setNewClientName(e.target.value); setClientError(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleAddClient()}
+              placeholder="Client name"
+              className="sb-input"
+            />
+            {clientError && <p className="text-red-400 text-xs">{clientError}</p>}
+            <button
+              onClick={handleAddClient}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted transition"
+            >
+              <Plus size={15} /> Add Client
+            </button>
+          </div>
+        </Section>
 
         {/* Categories */}
         <Section icon={<Tag size={16} />} title="Categories" defaultOpen={false}>
@@ -315,7 +370,7 @@ export default function SettingsPage() {
               onClick={addCategory}
               className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted transition"
             >
-              <Plus size={15} /> Add Category
+              <Plus size={15} /> {newCatName.trim() ? 'Save Category' : 'Add Category'}
             </button>
           </div>
         </Section>

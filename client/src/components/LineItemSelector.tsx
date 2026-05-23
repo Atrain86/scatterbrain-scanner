@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Check, ChevronDown, Plus, X } from 'lucide-react';
 import { computeReceiptTotals, isTaxLine, fmt } from '../utils/taxCalc';
 import type { ScannedReceiptData, ReceiptLineItem } from '../utils/types';
 import { getAllCategories } from '../utils/types';
+import { loadClients, addClient, getLastClient, setLastClient } from '../utils/clients';
 
 interface Props {
   scanned: ScannedReceiptData;
@@ -28,10 +29,8 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
 
   const [storeName, setStoreName] = useState(scanned.vendor || '');
   const [receiptDate, setReceiptDate] = useState(scanned.date || new Date().toISOString().split('T')[0]);
-  const [clientName, setClientName] = useState('');
   const [category, setCategory] = useState(scanned.suggestedCategory || 'Other');
   const [selected, setSelected] = useState<Set<number>>(() => {
-    // Default: all product items selected
     const s = new Set<number>();
     lineItems.forEach((item, i) => { if (!isTaxLine(item.description)) s.add(i); });
     return s;
@@ -39,7 +38,44 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
   const [fallbackTotal, setFallbackTotal] = useState(scanned.totalAmount.toFixed(2));
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
-  // Fallback mode: AI couldn't parse line items
+  // Client state
+  const [clients, setClients] = useState<string[]>(loadClients);
+  const [clientName, setClientName] = useState(getLastClient);
+  const [showClientPicker, setShowClientPicker] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const clientPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showClientPicker) return;
+    function handleClick(e: MouseEvent) {
+      if (clientPickerRef.current && !clientPickerRef.current.contains(e.target as Node)) {
+        setShowClientPicker(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showClientPicker]);
+
+  function pickClient(name: string) {
+    setClientName(name);
+    setLastClient(name);
+    setShowClientPicker(false);
+    setNewClientName('');
+  }
+
+  function clearClient() {
+    setClientName('');
+    setLastClient('');
+  }
+
+  function handleAddNewClient() {
+    const trimmed = newClientName.trim();
+    if (!trimmed) return;
+    const updated = addClient(trimmed);
+    setClients(updated);
+    pickClient(trimmed);
+  }
+
   const fallbackMode = lineItems.length === 0;
 
   function toggleItem(index: number) {
@@ -50,25 +86,17 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
     });
   }
 
-  function selectAll() {
-    setSelected(new Set(lineItems.map((_, i) => i).filter(i => !isTaxLine(lineItems[i].description))));
-  }
-
-  function selectNone() {
-    setSelected(new Set());
-  }
+  function selectAll()  { setSelected(new Set(lineItems.map((_, i) => i).filter(i => !isTaxLine(lineItems[i].description)))); }
+  function selectNone() { setSelected(new Set()); }
 
   const totals = fallbackMode
     ? { selectedSubtotal: parseFloat(fallbackTotal) || 0, proportionalTaxes: [], totalTax: 0, total: parseFloat(fallbackTotal) || 0 }
     : computeReceiptTotals(lineItems, selected);
 
   function handleSave() {
-    // Only save the items the user selected (plus tax lines)
-    const selectedItems = lineItems.filter((item, i) =>
-      isTaxLine(item.description) ? false : selected.has(i)
-    );
+    if (clientName) setLastClient(clientName);
+    const selectedItems = lineItems.filter((item, i) => isTaxLine(item.description) ? false : selected.has(i));
     const taxLines = lineItems.filter(i => isTaxLine(i.description));
-
     onSave({
       storeName,
       receiptDate,
@@ -78,17 +106,16 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
       category,
       clientName,
       lineItems: JSON.stringify([...selectedItems, ...taxLines]),
-      rawLineItems: JSON.stringify(lineItems), // full original scan
+      rawLineItems: JSON.stringify(lineItems),
       taxLines: JSON.stringify(totals.proportionalTaxes),
     });
   }
 
   const allCategories = getAllCategories();
-  const selectedCategory = allCategories.find(c => c.name === category) ?? allCategories[allCategories.length - 1];
+  const selectedCategory = allCategories.find(c => c.name === category) ?? allCategories[0];
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Scrollable item list */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
 
         {/* Store name + date */}
@@ -110,15 +137,77 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
               className="w-full bg-transparent text-white border-b border-sb-border pb-1 focus:outline-none focus:border-sb-green transition"
             />
           </div>
-          <div>
-            <label className="block text-xs text-sb-muted mb-1">Client <span className="opacity-50">(optional)</span></label>
-            <input
-              value={clientName}
-              onChange={e => setClientName(e.target.value)}
-              placeholder="e.g. Smith Renovation"
-              className="w-full bg-transparent text-white border-b border-sb-border pb-1 focus:outline-none focus:border-sb-green transition placeholder-white/30"
-            />
-          </div>
+        </div>
+
+        {/* Client dropdown */}
+        <div className="relative" ref={clientPickerRef}>
+          <button
+            onClick={() => setShowClientPicker(p => !p)}
+            className="w-full bg-sb-card border border-sb-border rounded-xl px-4 py-3 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs text-sb-muted flex-shrink-0">Client</span>
+              {clientName ? (
+                <span className="text-white text-sm font-medium truncate">{clientName}</span>
+              ) : (
+                <span className="text-white/30 text-sm">Select or add client…</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {clientName && (
+                <span
+                  onClick={e => { e.stopPropagation(); clearClient(); }}
+                  className="text-sb-muted hover:text-white transition p-0.5"
+                >
+                  <X size={12} />
+                </span>
+              )}
+              <ChevronDown size={16} className="text-sb-muted" />
+            </div>
+          </button>
+
+          {showClientPicker && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-sb-card border border-sb-border rounded-xl overflow-hidden z-20 shadow-xl">
+              {/* None option */}
+              <button
+                onClick={() => { clearClient(); setShowClientPicker(false); }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left hover:bg-white/5 transition text-sb-muted"
+              >
+                No client
+              </button>
+              {clients.length > 0 && <div className="border-t border-sb-border" />}
+              <div className="max-h-40 overflow-y-auto">
+                {clients.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => pickClient(c)}
+                    className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left hover:bg-white/5 transition ${c === clientName ? 'bg-white/5' : ''}`}
+                  >
+                    <span className="text-white">{c}</span>
+                    {c === clientName && <Check size={14} className="text-sb-green" />}
+                  </button>
+                ))}
+              </div>
+              {/* Add new client inline */}
+              <div className="border-t border-sb-border px-3 py-2 flex items-center gap-2">
+                <input
+                  value={newClientName}
+                  onChange={e => setNewClientName(e.target.value)}
+                  onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') handleAddNewClient(); }}
+                  onClick={e => e.stopPropagation()}
+                  placeholder="New client…"
+                  className="flex-1 bg-sb-card2 border border-sb-border rounded-lg px-2 py-1 text-xs text-white placeholder-white/30 focus:outline-none focus:border-sb-green transition"
+                />
+                <button
+                  onClick={e => { e.stopPropagation(); handleAddNewClient(); }}
+                  disabled={!newClientName.trim()}
+                  className="p-1 rounded-lg text-sb-green disabled:opacity-30 hover:bg-sb-green/10 transition"
+                >
+                  <Plus size={13} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Category */}
@@ -128,10 +217,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
             className="w-full bg-sb-card border border-sb-border rounded-xl px-4 py-3 flex items-center justify-between"
           >
             <div className="flex items-center gap-2">
-              <span
-                className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: selectedCategory.color }}
-              />
+              <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: selectedCategory.color }} />
               <span className="text-white text-sm font-medium">{category}</span>
             </div>
             <ChevronDown size={16} className="text-sb-muted" />
@@ -157,9 +243,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
         {/* Line items or fallback */}
         {fallbackMode ? (
           <div className="bg-sb-card border border-sb-border rounded-xl p-4">
-            <p className="text-sb-muted text-xs mb-3">
-              Couldn't read individual items. Enter the total manually.
-            </p>
+            <p className="text-sb-muted text-xs mb-3">Couldn't read individual items. Enter the total manually.</p>
             <label className="block text-xs text-sb-muted mb-1">Total Amount</label>
             <div className="flex items-center gap-2">
               <span className="text-sb-muted">$</span>
@@ -174,7 +258,6 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
           </div>
         ) : (
           <div className="bg-sb-card border border-sb-border rounded-xl overflow-hidden">
-            {/* Select all / none */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-sb-border">
               <span className="text-xs text-sb-muted">
                 {selected.size} of {productItems.length} items selected
@@ -184,36 +267,24 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
                 <button onClick={selectNone} className="text-xs text-sb-muted hover:underline">None</button>
               </div>
             </div>
-
-            {/* Items */}
             <div className="divide-y divide-sb-border">
               {lineItems.map((item, index) => {
-                const isT = isTaxLine(item.description);
-                if (isT) return null; // tax lines shown in summary, not selectable
-
+                if (isTaxLine(item.description)) return null;
                 const checked = selected.has(index);
                 return (
                   <button
                     key={index}
                     onClick={() => toggleItem(index)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-left transition ${
-                      checked ? 'bg-green-950/20' : 'hover:bg-white/5'
-                    }`}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-left transition ${checked ? 'bg-green-950/20' : 'hover:bg-white/5'}`}
                   >
-                    {/* Checkbox */}
                     <div
                       className="w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition"
                       style={{ borderColor: checked ? '#4ade80' : '#555', backgroundColor: checked ? 'rgba(74,222,128,0.15)' : 'transparent' }}
                     >
                       {checked && <Check size={11} color="#4ade80" strokeWidth={3} />}
                     </div>
-
-                    <span className={`flex-1 text-sm ${checked ? 'text-white' : 'text-sb-muted line-through'}`}>
-                      {item.description}
-                    </span>
-                    <span className={`text-sm font-medium ${checked ? 'text-sb-green' : 'text-sb-muted'}`}>
-                      {fmt(item.amount)}
-                    </span>
+                    <span className={`flex-1 text-sm ${checked ? 'text-white' : 'text-sb-muted line-through'}`}>{item.description}</span>
+                    <span className={`text-sm font-medium ${checked ? 'text-sb-green' : 'text-sb-muted'}`}>{fmt(item.amount)}</span>
                   </button>
                 );
               })}
@@ -235,13 +306,11 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
         )}
 
         {error && (
-          <p className="text-sb-red text-sm bg-red-950/30 border border-red-900/50 rounded-lg px-4 py-3">
-            {error}
-          </p>
+          <p className="text-sb-red text-sm bg-red-950/30 border border-red-900/50 rounded-lg px-4 py-3">{error}</p>
         )}
       </div>
 
-      {/* Footer — total + save */}
+      {/* Footer */}
       <div className="border-t border-sb-border px-4 py-4 safe-bottom space-y-3">
         <div className="flex items-center justify-between">
           <div>
