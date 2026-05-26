@@ -3,7 +3,8 @@ import { Trash2, Check, Pencil, Share2, Image as ImageIcon, X, Plus, ZoomIn, Zoo
 import type { Receipt } from '../utils/types';
 import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
 import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
-import { loadClients, addClient, getLastClient, setLastClient } from '../utils/clients';
+import { loadClients, addClient, setLastClient } from '../utils/clients';
+import { useAuth } from '../contexts/AuthContext';
 import ShareModal from './ShareModal';
 
 interface ReEditUpdates {
@@ -25,6 +26,9 @@ interface Props {
 }
 
 export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReEdit }: Props) {
+  const { user } = useAuth();
+  const userId = user!.id;
+
   const [expanded, setExpanded] = useState(false);
   const [editingCat, setEditingCat] = useState(false);
   const [imgFullscreen, setImgFullscreen] = useState(false);
@@ -34,7 +38,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const [newCatName, setNewCatName] = useState('');
   const catPickerRef = useRef<HTMLDivElement>(null);
 
-  const catColor = getCategoryColorDynamic(receipt.category);
+  const catColor = getCategoryColorDynamic(receipt.category, userId);
   const lineItems: { description: string; amount: number }[] = receipt.lineItems
     ? JSON.parse(receipt.lineItems) : [];
   const productItems = lineItems.filter(i => !isTaxLine(i.description));
@@ -64,14 +68,14 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   function addInlineCategory() {
     const trimmed = newCatName.trim();
     if (!trimmed) return;
-    const all = getAllCategories();
+    const all = getAllCategories(userId);
     if (all.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
       pickCategory(all.find(c => c.name.toLowerCase() === trimmed.toLowerCase())!.name);
       return;
     }
-    const existing = JSON.parse(localStorage.getItem('sb_custom_categories') || '[]');
-    const color = '#6B7280';
-    localStorage.setItem('sb_custom_categories', JSON.stringify([...existing, { name: trimmed, color }]));
+    const storageKey = `sb_u${userId}_custom_categories`;
+    const existing = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    localStorage.setItem(storageKey, JSON.stringify([...existing, { name: trimmed, color: '#6B7280' }]));
     pickCategory(trimmed);
   }
 
@@ -241,7 +245,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                       style={{ animation: 'fadeIn 120ms ease-out' }}
                     >
                       <div className="max-h-56 overflow-y-auto">
-                        {getAllCategories().map(cat => (
+                        {getAllCategories(userId).map(cat => (
                           <button
                             key={cat.name}
                             onClick={() => pickCategory(cat.name)}
@@ -316,6 +320,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
       {reEditOpen && (
         <ReEditModal
           receipt={receipt}
+          userId={userId}
           onClose={() => setReEditOpen(false)}
           onSave={(updates) => {
             onReEdit(receipt.id, updates);
@@ -445,11 +450,12 @@ function ZoomableImage({ src, onClose }: { src: string; onClose: () => void }) {
 /* ── Inline re-edit modal ── */
 interface ReEditModalProps {
   receipt: Receipt;
+  userId: string;
   onClose: () => void;
   onSave: (updates: ReEditUpdates) => void;
 }
 
-function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
+function ReEditModal({ receipt, userId, onClose, onSave }: ReEditModalProps) {
   const allItems: { description: string; amount: number }[] = (() => {
     try {
       if (receipt.rawLineItems) return JSON.parse(receipt.rawLineItems);
@@ -469,7 +475,7 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
   const [category, setCategory]     = useState(receipt.category ?? '');
 
   // Client dropdown state
-  const [clients, setClients]             = useState<string[]>(loadClients);
+  const [clients, setClients]             = useState<string[]>(() => loadClients(userId));
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [newClientInput, setNewClientInput]     = useState('');
   const clientRef = useRef<HTMLDivElement>(null);
@@ -509,7 +515,7 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
 
   function pickClient(name: string) {
     setClientName(name);
-    setLastClient(name);
+    setLastClient(userId, name);
     setShowClientPicker(false);
     setNewClientInput('');
   }
@@ -517,7 +523,7 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
   function handleAddNewClient() {
     const trimmed = newClientInput.trim();
     if (!trimmed) return;
-    const updated = addClient(trimmed);
+    const updated = addClient(userId, trimmed);
     setClients(updated);
     pickClient(trimmed);
   }
@@ -539,7 +545,7 @@ function ReEditModal({ receipt, onClose, onSave }: ReEditModalProps) {
   }
 
   const productItems = allItems.filter(i => !isTaxLine(i.description));
-  const catColor = getCategoryColorDynamic(category);
+  const catColor = getCategoryColorDynamic(category, userId);
 
   return (
     <div className="fixed inset-0 z-50 bg-sb-bg flex flex-col">

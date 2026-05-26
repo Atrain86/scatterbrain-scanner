@@ -4,6 +4,7 @@ import { compressReceiptImage } from '../lib/imageCompression';
 import { enqueueReceiptSync, processCloudSyncQueue } from '../lib/cloudSync';
 import { loadCloudSettings } from '../hooks/useCloudAuth';
 import { addReceipt } from '../lib/db';
+import { useAuth } from '../contexts/AuthContext';
 import LineItemSelector from './LineItemSelector';
 import type { ScannedReceiptData } from '../utils/types';
 
@@ -19,6 +20,9 @@ const isDesktop = !('ontouchstart' in window) && window.innerWidth > 768;
 const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
 export default function ScanModal({ onClose, onSaved }: Props) {
+  const { user } = useAuth();
+  const userId = user!.id;
+
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const pasteZoneRef   = useRef<HTMLDivElement>(null);
@@ -127,7 +131,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     const now = new Date().toISOString();
 
     try {
-      const receipt = await addReceipt({
+      const receipt = await addReceipt(userId, {
         storeName:    payload.storeName,
         receiptDate:  payload.receiptDate,
         subtotal:     payload.subtotal,
@@ -146,10 +150,10 @@ export default function ScanModal({ onClose, onSaved }: Props) {
       });
 
       try {
-        const cloudSettings = loadCloudSettings();
+        const cloudSettings = loadCloudSettings(userId);
         if (cloudSettings.autoSync && cloudSettings.primaryProvider) {
-          await enqueueReceiptSync(receipt, cloudSettings.primaryProvider);
-          void processCloudSyncQueue();
+          await enqueueReceiptSync(receipt, cloudSettings.primaryProvider, userId);
+          void processCloudSyncQueue(userId);
         }
       } catch (syncError) {
         console.warn('Cloud sync enqueue failed:', (syncError as Error).message);

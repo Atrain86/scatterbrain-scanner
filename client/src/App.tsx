@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ReceiptLibrary from './pages/ReceiptLibrary';
 import DashboardPage from './pages/DashboardPage';
 import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
+import LoginPage from './pages/LoginPage';
 import BottomNav from './components/BottomNav';
 import { processCloudSyncQueue } from './lib/cloudSync';
 import { loadCloudSettings, saveCloudSettings } from './hooks/useCloudAuth';
@@ -41,36 +42,47 @@ function CloudAuthHandler() {
       primaryProvider: settings.primaryProvider || provider,
     });
 
-    // Strip params and navigate to settings
     navigate('/settings', { replace: true });
   }, [navigate]);
 
   return null;
 }
 
-export default function App() {
+function AuthenticatedApp() {
+  const { user, isLoading } = useAuth();
+
   useEffect(() => {
-    void processCloudSyncQueue();
-    const handleFocus = () => {
-      void processCloudSyncQueue();
-    };
+    if (!user) return;
+    void processCloudSyncQueue(user.id);
+    const handleFocus = () => { void processCloudSyncQueue(user.id); };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, []);
+  }, [user]);
 
+  if (isLoading) return null;
+  if (!user) return <LoginPage />;
+
+  return (
+    <>
+      <CloudAuthHandler />
+      <Routes>
+        <Route path="/"          element={<Navigate to="/receipts" replace />} />
+        <Route path="/receipts"  element={<ReceiptLibrary />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/export"    element={<ExportPage />} />
+        <Route path="/settings"  element={<SettingsPage />} />
+        <Route path="*"          element={<Navigate to="/receipts" replace />} />
+      </Routes>
+      <BottomNav />
+    </>
+  );
+}
+
+export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <CloudAuthHandler />
-        <Routes>
-          <Route path="/"          element={<Navigate to="/receipts" replace />} />
-          <Route path="/receipts"  element={<ReceiptLibrary />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/export"    element={<ExportPage />} />
-          <Route path="/settings"  element={<SettingsPage />} />
-          <Route path="*"          element={<Navigate to="/receipts" replace />} />
-        </Routes>
-        <BottomNav />
+        <AuthenticatedApp />
       </AuthProvider>
     </BrowserRouter>
   );

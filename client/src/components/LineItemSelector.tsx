@@ -4,6 +4,7 @@ import { computeReceiptTotals, isTaxLine, fmt } from '../utils/taxCalc';
 import type { ScannedReceiptData, ReceiptLineItem } from '../utils/types';
 import { getAllCategories } from '../utils/types';
 import { loadClients, addClient, getLastClient, setLastClient } from '../utils/clients';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Props {
   scanned: ScannedReceiptData;
@@ -24,6 +25,9 @@ interface Props {
 }
 
 export default function LineItemSelector({ scanned, onSave, onBack, error }: Props) {
+  const { user } = useAuth();
+  const userId = user!.id;
+
   const lineItems: ReceiptLineItem[] = scanned.lineItems || [];
   const productItems = lineItems.filter(item => !isTaxLine(item.description));
 
@@ -39,8 +43,8 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
   // Client state
-  const [clients, setClients] = useState<string[]>(loadClients);
-  const [clientName, setClientName] = useState(getLastClient);
+  const [clients, setClients] = useState<string[]>(() => loadClients(userId));
+  const [clientName, setClientName] = useState(() => getLastClient(userId));
   const [showClientPicker, setShowClientPicker] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const clientPickerRef = useRef<HTMLDivElement>(null);
@@ -58,20 +62,20 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
 
   function pickClient(name: string) {
     setClientName(name);
-    setLastClient(name);
+    setLastClient(userId, name);
     setShowClientPicker(false);
     setNewClientName('');
   }
 
   function clearClient() {
     setClientName('');
-    setLastClient('');
+    setLastClient(userId, '');
   }
 
   function handleAddNewClient() {
     const trimmed = newClientName.trim();
     if (!trimmed) return;
-    const updated = addClient(trimmed);
+    const updated = addClient(userId, trimmed);
     setClients(updated);
     pickClient(trimmed);
   }
@@ -94,7 +98,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
     : computeReceiptTotals(lineItems, selected);
 
   function handleSave() {
-    if (clientName) setLastClient(clientName);
+    if (clientName) setLastClient(userId, clientName);
     const selectedItems = lineItems.filter((item, i) => isTaxLine(item.description) ? false : selected.has(i));
     const taxLines = lineItems.filter(i => isTaxLine(i.description));
     onSave({

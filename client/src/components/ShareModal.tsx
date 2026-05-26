@@ -2,20 +2,22 @@ import { useState } from 'react';
 import { X, Mail, Share2, Send, Clock } from 'lucide-react';
 import { track } from '../lib/analytics';
 import type { Receipt } from '../utils/types';
+import { useAuth } from '../contexts/AuthContext';
 
-const RECIPIENTS_KEY = 'sb_recent_recipients';
 const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
-function loadRecentRecipients(): string[] {
+function recipientsKey(userId: string) { return `sb_u${userId}_recent_recipients`; }
+
+function loadRecentRecipients(userId: string): string[] {
   try {
-    return JSON.parse(localStorage.getItem(RECIPIENTS_KEY) || '[]');
+    return JSON.parse(localStorage.getItem(recipientsKey(userId)) || '[]');
   } catch { return []; }
 }
 
-function saveRecentRecipient(email: string) {
-  const list = loadRecentRecipients().filter(e => e !== email);
+function saveRecentRecipient(userId: string, email: string) {
+  const list = loadRecentRecipients(userId).filter(e => e !== email);
   list.unshift(email);
-  localStorage.setItem(RECIPIENTS_KEY, JSON.stringify(list.slice(0, 10)));
+  localStorage.setItem(recipientsKey(userId), JSON.stringify(list.slice(0, 10)));
 }
 
 interface Props {
@@ -24,11 +26,13 @@ interface Props {
 }
 
 export default function ShareModal({ receipt, onClose }: Props) {
+  const { user } = useAuth();
+  const userId = user!.id;
   const [email,            setEmail]            = useState('');
   const [sending,          setSending]          = useState(false);
   const [sent,             setSent]             = useState(false);
   const [error,            setError]            = useState('');
-  const [recentRecipients] = useState<string[]>(loadRecentRecipients);
+  const [recentRecipients] = useState<string[]>(() => loadRecentRecipients(userId));
 
   async function handleEmailShare() {
     if (!email.trim()) { setError('Enter a recipient email'); return; }
@@ -61,7 +65,7 @@ export default function ShareModal({ receipt, onClose }: Props) {
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to send');
-      saveRecentRecipient(email.trim());
+      saveRecentRecipient(userId, email.trim());
       track('receipt_shared', { method: 'email' });
       setSent(true);
     } catch (err) {

@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, ChevronDown, DownloadCloud, Users } from 'lucide-react';
+import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, ChevronDown, DownloadCloud, Users, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
 import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue, restoreFromGoogleDrive, type RestoreResult } from '../lib/cloudSync';
 import { loadClients, addClient, removeClient } from '../utils/clients';
+import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.4.6';
+export const APP_VERSION = '0.5.2';
 
 interface CustomCategory {
   name: string;
@@ -55,23 +56,22 @@ const DEFAULT_CATEGORIES: CustomCategory[] = [
   { name: 'Subscriptions',       color: '#f472b6' },
 ];
 
-const STORAGE_KEY = 'sb_custom_categories';
-const CATEGORY_VERSION_KEY = 'sb_category_version';
+function catStorageKey(userId: string)        { return `sb_u${userId}_custom_categories`; }
+function catVersionKey(userId: string)        { return `sb_u${userId}_category_version`; }
+function taxStorageKey(userId: string)        { return `sb_u${userId}_tax_region`; }
 const CURRENT_CATEGORY_VERSION = '2';
-const TAX_STORAGE_KEY = 'sb_tax_region';
 
-function loadCustomCategories(): CustomCategory[] {
+function loadCustomCategories(userId: string): CustomCategory[] {
   try {
-    // Version stamp — if version doesn't match, reset to current defaults
-    const storedVersion = localStorage.getItem(CATEGORY_VERSION_KEY);
+    const storedVersion = localStorage.getItem(catVersionKey(userId));
     if (storedVersion !== CURRENT_CATEGORY_VERSION) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_CATEGORIES));
-      localStorage.setItem(CATEGORY_VERSION_KEY, CURRENT_CATEGORY_VERSION);
+      localStorage.setItem(catStorageKey(userId), JSON.stringify(DEFAULT_CATEGORIES));
+      localStorage.setItem(catVersionKey(userId), CURRENT_CATEGORY_VERSION);
       return DEFAULT_CATEGORIES;
     }
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(catStorageKey(userId));
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_CATEGORIES));
+      localStorage.setItem(catStorageKey(userId), JSON.stringify(DEFAULT_CATEGORIES));
       return DEFAULT_CATEGORIES;
     }
     return JSON.parse(raw) as CustomCategory[];
@@ -104,9 +104,9 @@ const PROVINCES: { name: string; gst: number; pst: number; hst: number; qst: num
   { name: 'Other/International',  gst: 0,    pst: 0,     hst: 0,  qst: 0      },
 ];
 
-function loadTaxRegion(): TaxRegion {
+function loadTaxRegion(userId: string): TaxRegion {
   try {
-    const raw = localStorage.getItem(TAX_STORAGE_KEY);
+    const raw = localStorage.getItem(taxStorageKey(userId));
     return raw ? JSON.parse(raw) : { province: '', gst: 0, pst: 0, hst: 0, qst: 0, vat: 0 };
   } catch { return { province: '', gst: 0, pst: 0, hst: 0, qst: 0, vat: 0 }; }
 }
@@ -124,10 +124,12 @@ interface ScanStats {
 
 export default function SettingsPage() {
   const navigate = useNavigate();
-  const { settings: cloudSettings, connectToProvider, disconnectProvider, setPrimaryProvider, toggleAutoSync } = useCloudAuth();
+  const { user, logout } = useAuth();
+  const userId = user!.id;
+  const { settings: cloudSettings, connectToProvider, disconnectProvider, setPrimaryProvider, toggleAutoSync } = useCloudAuth(userId);
 
-  const [syncStatus, setSyncStatus] = useState(() => getCloudSyncSummary(cloudSettings.primaryProvider));
-  const [syncQueue, setSyncQueue] = useState(() => getCloudSyncQueue());
+  const [syncStatus, setSyncStatus] = useState(() => getCloudSyncSummary(cloudSettings.primaryProvider, userId));
+  const [syncQueue, setSyncQueue] = useState(() => getCloudSyncQueue(userId));
   const [isSyncing, setIsSyncing] = useState(false);
   const [scanStats, setScanStats] = useState<ScanStats | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
@@ -135,7 +137,7 @@ export default function SettingsPage() {
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
   useEffect(() => {
-    getAllReceipts().then(rows => {
+    getAllReceipts(userId).then(rows => {
       setScanStats({
         totalScans: rows.length,
         successScans: rows.length,
@@ -149,25 +151,25 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    setSyncStatus(getCloudSyncSummary(cloudSettings.primaryProvider));
-    setSyncQueue(getCloudSyncQueue());
+    setSyncStatus(getCloudSyncSummary(cloudSettings.primaryProvider, userId));
+    setSyncQueue(getCloudSyncQueue(userId));
 
     if (!cloudSettings.autoSync || !cloudSettings.primaryProvider) return;
     if (cloudSettings.primaryProvider === 'google-drive' && !cloudSettings.googleDrive.connected) return;
     if (cloudSettings.primaryProvider === 'dropbox' && !cloudSettings.dropbox.connected) return;
 
-    void processCloudSyncQueue().then(status => {
+    void processCloudSyncQueue(userId).then(status => {
       setSyncStatus(status);
-      setSyncQueue(getCloudSyncQueue());
+      setSyncQueue(getCloudSyncQueue(userId));
     });
   }, [cloudSettings]);
 
   async function handleSyncNow() {
     setIsSyncing(true);
     try {
-      const status = await processCloudSyncQueue();
+      const status = await processCloudSyncQueue(userId);
       setSyncStatus(status);
-      setSyncQueue(getCloudSyncQueue());
+      setSyncQueue(getCloudSyncQueue(userId));
     } catch (error) {
       setSyncStatus(prev => ({
         ...prev,
@@ -184,13 +186,13 @@ export default function SettingsPage() {
     setRestoreResult(null);
     setRestoreError(null);
     try {
-      const existing = await getAllReceipts();
+      const existing = await getAllReceipts(userId);
       const result = await restoreFromGoogleDrive(
-        existing.map(r => ({ storeName: r.storeName, receiptDate: r.receiptDate, total: r.total }))
+        existing.map(r => ({ storeName: r.storeName, receiptDate: r.receiptDate, total: r.total })),
+        userId
       );
       setRestoreResult(result);
-      // Refresh receipt count
-      const rows = await getAllReceipts();
+      const rows = await getAllReceipts(userId);
       setScanStats(prev => prev ? { ...prev, receiptCount: rows.length, totalScans: rows.length, successScans: rows.length } : prev);
     } catch (err) {
       setRestoreError((err as Error).message);
@@ -199,21 +201,21 @@ export default function SettingsPage() {
     }
   }
 
-  const [customCategories, setCustomCategories] = useState<CustomCategory[]>(loadCustomCategories);
+  const [customCategories, setCustomCategories] = useState<CustomCategory[]>(() => loadCustomCategories(userId));
   const [newCatName, setNewCatName]   = useState('');
   const [newCatColor, setNewCatColor] = useState(PALETTE_COLORS[0]);
   const [catError, setCatError]       = useState('');
 
-  const [clients, setClients]         = useState<string[]>(loadClients);
+  const [clients, setClients]         = useState<string[]>(() => loadClients(userId));
   const [newClientName, setNewClientName] = useState('');
   const [clientError, setClientError] = useState('');
 
-  const [taxRegion, setTaxRegion] = useState<TaxRegion>(loadTaxRegion);
-  const [manualVat, setManualVat] = useState(taxRegion.vat > 0 ? String(taxRegion.vat) : '');
+  const [taxRegion, setTaxRegion] = useState<TaxRegion>(() => loadTaxRegion(userId));
+  const [manualVat, setManualVat] = useState(() => { const t = loadTaxRegion(userId); return t.vat > 0 ? String(t.vat) : ''; });
 
   function saveCustomCategories(cats: CustomCategory[]) {
     setCustomCategories(cats);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cats));
+    localStorage.setItem(catStorageKey(userId), JSON.stringify(cats));
   }
 
   function addCategory() {
@@ -239,12 +241,12 @@ export default function SettingsPage() {
       setClientError('That client already exists'); return;
     }
     setClientError('');
-    setClients(addClient(trimmed));
+    setClients(addClient(userId, trimmed));
     setNewClientName('');
   }
 
   function handleRemoveClient(name: string) {
-    setClients(removeClient(name));
+    setClients(removeClient(userId, name));
   }
 
   function handleProvinceChange(provinceName: string) {
@@ -259,14 +261,14 @@ export default function SettingsPage() {
       vat: provinceName === 'Other/International' ? (parseFloat(manualVat) || 0) : 0,
     };
     setTaxRegion(updated);
-    localStorage.setItem(TAX_STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(taxStorageKey(userId), JSON.stringify(updated));
   }
 
   function handleVatChange(value: string) {
     setManualVat(value);
     const updated: TaxRegion = { ...taxRegion, vat: parseFloat(value) || 0 };
     setTaxRegion(updated);
-    localStorage.setItem(TAX_STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(taxStorageKey(userId), JSON.stringify(updated));
   }
 
   return (
@@ -627,8 +629,21 @@ export default function SettingsPage() {
               <span className="text-sb-muted">Version</span>
               <span className="text-white">{APP_VERSION}</span>
             </div>
+            <div className="flex justify-between">
+              <span className="text-sb-muted">Account</span>
+              <span className="text-white text-xs truncate max-w-[180px]">{user?.email}</span>
+            </div>
           </div>
         </Section>
+
+        {/* Sign out */}
+        <button
+          onClick={logout}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-sb-border text-sb-muted hover:text-red-400 hover:border-red-900/50 transition text-sm"
+        >
+          <LogOut size={15} />
+          Sign Out
+        </button>
 
       </main>
     </div>

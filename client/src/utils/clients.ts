@@ -1,37 +1,36 @@
-const STORAGE_KEY = 'sb_clients';
-const LAST_CLIENT_KEY = 'sb_last_client';
+function key(userId: string, suffix: string) { return `sb_u${userId}_${suffix}`; }
 
-export function loadClients(): string[] {
+export function loadClients(userId: string): string[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key(userId, 'clients'));
     return raw ? (JSON.parse(raw) as string[]) : [];
   } catch { return []; }
 }
 
-export function saveClients(clients: string[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(clients));
+export function saveClients(userId: string, clients: string[]): void {
+  localStorage.setItem(key(userId, 'clients'), JSON.stringify(clients));
 }
 
-export function addClient(name: string): string[] {
+export function addClient(userId: string, name: string): string[] {
   const trimmed = name.trim();
-  if (!trimmed) return loadClients();
-  const existing = loadClients();
+  if (!trimmed) return loadClients(userId);
+  const existing = loadClients(userId);
   if (existing.some(c => c.toLowerCase() === trimmed.toLowerCase())) return existing;
   const updated = [...existing, trimmed];
-  saveClients(updated);
+  saveClients(userId, updated);
   return updated;
 }
 
-export function removeClient(name: string): string[] {
-  const updated = loadClients().filter(c => c !== name);
-  saveClients(updated);
+export function removeClient(userId: string, name: string): string[] {
+  const updated = loadClients(userId).filter(c => c !== name);
+  saveClients(userId, updated);
   return updated;
 }
 
-export function getLastClient(): string {
-  return localStorage.getItem(LAST_CLIENT_KEY) ?? '';
+export function getLastClient(userId: string): string {
+  return localStorage.getItem(key(userId, 'last_client')) ?? '';
 }
 
-export function setLastClient(name: string): void {
-  localStorage.setItem(LAST_CLIENT_KEY, name);
+export function setLastClient(userId: string, name: string): void {
+  localStorage.setItem(key(userId, 'last_client'), name);
 }

@@ -2,8 +2,8 @@ import type { CloudProvider, CloudProviderState, CloudSettings, CloudSyncQueueIt
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
 import { addReceipt } from './db';
 
-const SYNC_QUEUE_KEY = 'sb_cloud_sync_queue';
-const SYNC_STATUS_KEY = 'sb_cloud_sync_status';
+function syncQueueKey(userId?: string)  { return userId ? `sb_u${userId}_cloud_sync_queue`  : 'sb_cloud_sync_queue'; }
+function syncStatusKey(userId?: string) { return userId ? `sb_u${userId}_cloud_sync_status` : 'sb_cloud_sync_status'; }
 
 interface CloudSyncStatus {
   lastRunAt: number | null;
@@ -21,21 +21,21 @@ export interface CloudSyncSummary {
   processedCount: number;
 }
 
-function loadSyncQueue(): CloudSyncQueueItem[] {
+function loadSyncQueue(userId?: string): CloudSyncQueueItem[] {
   try {
-    const raw = localStorage.getItem(SYNC_QUEUE_KEY);
+    const raw = localStorage.getItem(syncQueueKey(userId));
     if (!raw) return [];
     return JSON.parse(raw) as CloudSyncQueueItem[];
   } catch { return []; }
 }
 
-function saveSyncQueue(queue: CloudSyncQueueItem[]) {
-  localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(queue));
+function saveSyncQueue(queue: CloudSyncQueueItem[], userId?: string) {
+  localStorage.setItem(syncQueueKey(userId), JSON.stringify(queue));
 }
 
-function loadSyncStatus(): CloudSyncStatus {
+function loadSyncStatus(userId?: string): CloudSyncStatus {
   try {
-    const raw = localStorage.getItem(SYNC_STATUS_KEY);
+    const raw = localStorage.getItem(syncStatusKey(userId));
     if (!raw) return { lastRunAt: null, lastResult: null, errorMessage: null, processedCount: 0 };
     return JSON.parse(raw) as CloudSyncStatus;
   } catch {
@@ -43,8 +43,8 @@ function loadSyncStatus(): CloudSyncStatus {
   }
 }
 
-function saveSyncStatus(status: CloudSyncStatus) {
-  localStorage.setItem(SYNC_STATUS_KEY, JSON.stringify(status));
+function saveSyncStatus(status: CloudSyncStatus, userId?: string) {
+  localStorage.setItem(syncStatusKey(userId), JSON.stringify(status));
 }
 
 function makeSafeFileName(value: string) {
@@ -335,9 +335,10 @@ export interface RestoreResult {
 }
 
 export async function restoreFromGoogleDrive(
-  existingReceipts: { storeName: string; receiptDate: string; total: number }[]
+  existingReceipts: { storeName: string; receiptDate: string; total: number }[],
+  userId?: string
 ): Promise<RestoreResult> {
-  const settings = loadCloudSettings();
+  const settings = loadCloudSettings(userId);
   const providerState = settings.googleDrive;
 
   if (!providerState.connected) throw new Error('Google Drive is not connected.');
@@ -366,7 +367,7 @@ export async function restoreFromGoogleDrive(
       }
 
       const now = new Date().toISOString();
-      await addReceipt({
+      await addReceipt(userId ?? 'anon', {
         storeName:    meta.storeName    ?? '',
         receiptDate:  meta.receiptDate  ?? now.slice(0, 10),
         subtotal:     Number(meta.subtotal  ?? 0),
@@ -397,16 +398,16 @@ export async function restoreFromGoogleDrive(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export function getCloudSyncQueue() {
-  return loadSyncQueue();
+export function getCloudSyncQueue(userId?: string) {
+  return loadSyncQueue(userId);
 }
 
-export function getCloudSyncSummary(provider?: CloudProvider | null): CloudSyncSummary {
-  const settings = loadCloudSettings();
+export function getCloudSyncSummary(provider?: CloudProvider | null, userId?: string): CloudSyncSummary {
+  const settings = loadCloudSettings(userId);
   const activeProvider = provider || settings.primaryProvider;
-  const queue = loadSyncQueue();
+  const queue = loadSyncQueue(userId);
   const relevantQueue = activeProvider ? queue.filter(item => item.provider === activeProvider) : queue;
-  const status = loadSyncStatus();
+  const status = loadSyncStatus(userId);
   return {
     pendingCount: relevantQueue.length,
     failedCount: relevantQueue.filter(item => !!item.lastError).length,
@@ -417,7 +418,7 @@ export function getCloudSyncSummary(provider?: CloudProvider | null): CloudSyncS
   };
 }
 
-export async function enqueueReceiptSync(receipt: Receipt, provider: CloudProvider) {
+export async function enqueueReceiptSync(receipt: Receipt, provider: CloudProvider, userId?: string) {
   const year = (receipt.receiptDate || '').slice(0, 4) || String(new Date().getFullYear());
   const safeStore = makeSafeFileName(receipt.storeName || 'receipt');
   const safeDate = receipt.receiptDate || new Date().toISOString().slice(0, 10);
@@ -437,15 +438,15 @@ export async function enqueueReceiptSync(receipt: Receipt, provider: CloudProvid
     lastError: null,
   };
 
-  const queue = loadSyncQueue();
+  const queue = loadSyncQueue(userId);
   queue.push(newItem);
-  saveSyncQueue(queue);
+  saveSyncQueue(queue, userId);
   return newItem;
 }
 
-export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
-  const settings = loadCloudSettings();
-  const queue = loadSyncQueue();
+export async function processCloudSyncQueue(userId?: string): Promise<CloudSyncSummary> {
+  const settings = loadCloudSettings(userId);
+  const queue = loadSyncQueue(userId);
   const activeProvider = settings.primaryProvider;
   const status: CloudSyncStatus = {
     lastRunAt: Date.now(),
@@ -455,7 +456,7 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
   };
 
   if (!activeProvider) {
-    saveSyncStatus(status);
+    saveSyncStatus(status, userId);
     return {
       pendingCount: queue.length,
       failedCount: queue.filter(item => !!item.lastError).length,
@@ -470,7 +471,7 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
   const relevantQueue = queue.filter(item => item.provider === activeProvider);
 
   if (!providerState.connected) {
-    saveSyncStatus(status);
+    saveSyncStatus(status, userId);
     return {
       pendingCount: relevantQueue.length,
       failedCount: relevantQueue.filter(item => !!item.lastError).length,
@@ -483,7 +484,7 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
 
   const accessToken = await ensureValidAccessToken(providerState, activeProvider);
   if (!accessToken) {
-    saveSyncStatus(status);
+    saveSyncStatus(status, userId);
     return {
       pendingCount: relevantQueue.length,
       failedCount: relevantQueue.filter(item => !!item.lastError).length,
@@ -552,7 +553,7 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
     }
   }
 
-  saveSyncQueue(nextQueue);
+  saveSyncQueue(nextQueue, userId);
 
   const result: CloudSyncSummary = {
     pendingCount: nextQueue.filter(item => item.provider === activeProvider).length,
@@ -563,6 +564,6 @@ export async function processCloudSyncQueue(): Promise<CloudSyncSummary> {
     processedCount,
   };
 
-  saveSyncStatus(result);
+  saveSyncStatus(result, userId);
   return result;
 }

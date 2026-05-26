@@ -69,11 +69,12 @@ export function getCategoryColor(name: string): string {
   return CATEGORIES.find(c => c.name === name)?.color ?? '#6B7280';
 }
 
-export function getAllCategories(): { name: string; color: string }[] {
+export function getAllCategories(userId?: string): { name: string; color: string }[] {
   const builtin = CATEGORIES.map(c => ({ name: c.name, color: c.color }));
   const builtinNames = new Set(builtin.map(c => c.name.toLowerCase()));
   try {
-    const custom = JSON.parse(localStorage.getItem('sb_custom_categories') || '[]');
+    const storageKey = userId ? `sb_u${userId}_custom_categories` : 'sb_custom_categories';
+    const custom = JSON.parse(localStorage.getItem(storageKey) || '[]');
     const unique = (Array.isArray(custom) ? custom : []).filter(
       (c: { name: string }) => !builtinNames.has(c.name.toLowerCase())
     );
@@ -81,8 +82,8 @@ export function getAllCategories(): { name: string; color: string }[] {
   } catch { return builtin; }
 }
 
-export function getCategoryColorDynamic(name: string): string {
-  return getAllCategories().find(c => c.name === name)?.color ?? '#6B7280';
+export function getCategoryColorDynamic(name: string, userId?: string): string {
+  return getAllCategories(userId).find(c => c.name === name)?.color ?? '#6B7280';
 }
 
 export type CloudProvider = 'google-drive' | 'dropbox';

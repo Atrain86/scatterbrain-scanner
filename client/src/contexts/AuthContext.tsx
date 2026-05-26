@@ -1,21 +1,96 @@
-import React, { createContext, useContext, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { migrateUnnamedDb } from '../lib/db';
+
+interface AuthUser {
+  id: string;
+  email: string;
+}
 
 interface AuthContextValue {
-  user: { id: number; email: string; fullName: string } | null;
+  user: AuthUser | null;
   isLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  error: string;
+  clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue>({
-  user: { id: 1, email: '', fullName: '' },
-  isLoading: false,
+  user: null,
+  isLoading: true,
+  login: async () => {},
+  signup: async () => {},
   logout: () => {},
+  error: '',
+  clearError: () => {},
 });
 
+const TOKEN_KEY = 'sb_auth_token';
+const API_BASE  = import.meta.env.VITE_API_URL ?? '';
+
+async function apiFetch(path: string, body: object): Promise<{ token: string; user: AuthUser }> {
+  const res = await fetch(`${API_BASE}/api/user${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data as { token: string; user: AuthUser };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const logout = useCallback(() => {}, []);
+  const [user, setUser]         = useState<AuthUser | null>(null);
+  const [isLoading, setLoading] = useState(true);
+  const [error, setError]       = useState('');
+
+  // On mount: verify stored token
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) { setLoading(false); return; }
+
+    fetch(`${API_BASE}/api/user/verify`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(async data => {
+        if (data.user) {
+          await migrateUnnamedDb(data.user.id);
+          setUser(data.user);
+        } else {
+          localStorage.removeItem(TOKEN_KEY);
+        }
+      })
+      .catch(() => localStorage.removeItem(TOKEN_KEY))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const login = useCallback(async (email: string, password: string) => {
+    setError('');
+    const { token, user: u } = await apiFetch('/login', { email, password });
+    localStorage.setItem(TOKEN_KEY, token);
+    await migrateUnnamedDb(u.id);
+    setUser(u);
+  }, []);
+
+  const signup = useCallback(async (email: string, password: string) => {
+    setError('');
+    const { token, user: u } = await apiFetch('/signup', { email, password });
+    localStorage.setItem(TOKEN_KEY, token);
+    // New account — no migration needed, fresh DB
+    setUser(u);
+  }, []);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem(TOKEN_KEY);
+    setUser(null);
+  }, []);
+
+  const clearError = useCallback(() => setError(''), []);
+
   return (
-    <AuthContext.Provider value={{ user: { id: 1, email: '', fullName: '' }, isLoading: false, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, signup, logout, error, clearError }}>
       {children}
     </AuthContext.Provider>
   );
@@ -25,11 +100,6 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-const API_BASE = import.meta.env.VITE_API_URL ?? '';
-
-export function useAuthFetch() {
-  return useCallback(
-    (url: string, options: RequestInit = {}) => fetch(`${API_BASE}${url}`, options),
-    []
-  );
+export function useAuthToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
 }

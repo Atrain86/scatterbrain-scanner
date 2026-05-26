@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { extractReceiptLineItems } from './visionHandler.js';
 import { sendReceiptEmail } from './email.js';
+import authRouter from './auth.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -23,6 +24,9 @@ function buildAuthRedirectUrl(clientOrigin: string, provider: string, payload: R
   if (payload.email)         params.set('email',         payload.email);
   return `${base}?${params.toString()}`;
 }
+
+// ── User auth ────────────────────────────────────────────────────────────────
+router.use('/user', authRouter);
 
 // ── OCR (Vision API proxy) ────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CloudProvider, CloudProviderState, CloudSettings } from '../utils/types';
 
-const STORAGE_KEY = 'sb_cloud_settings';
+const CLOUD_KEY = 'cloud_settings';
 
 const DEFAULT_PROVIDER_STATE: CloudProviderState = {
   connected: false,
@@ -20,9 +20,13 @@ const DEFAULT_SETTINGS: CloudSettings = {
   autoSync: true,
 };
 
-export function loadCloudSettings(): CloudSettings {
+function cloudStorageKey(userId?: string): string {
+  return userId ? `sb_u${userId}_${CLOUD_KEY}` : `sb_${CLOUD_KEY}`;
+}
+
+export function loadCloudSettings(userId?: string): CloudSettings {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(cloudStorageKey(userId));
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw) as CloudSettings;
     return {
@@ -36,30 +40,20 @@ export function loadCloudSettings(): CloudSettings {
   }
 }
 
-export function saveCloudSettings(settings: CloudSettings) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+export function saveCloudSettings(settings: CloudSettings, userId?: string) {
+  localStorage.setItem(cloudStorageKey(userId), JSON.stringify(settings));
 }
 
-function normalizeProviderState(payload: Record<string, any>): CloudProviderState {
-  const expiresIn = payload.expires_in ?? payload.expiresIn;
-  return {
-    connected: true,
-    email: payload.email ?? null,
-    accessToken: payload.access_token ?? payload.accessToken ?? null,
-    refreshToken: payload.refresh_token ?? payload.refreshToken ?? null,
-    expiresAt: expiresIn ? Date.now() + Number(expiresIn) * 1000 : null,
-    scope: payload.scope ?? null,
-    tokenType: payload.token_type ?? payload.tokenType ?? null,
-  };
-}
-
-export function useCloudAuth() {
-  const [settings, setSettings] = useState<CloudSettings>(() => loadCloudSettings());
+export function useCloudAuth(userId?: string) {
+  const [settings, setSettings] = useState<CloudSettings>(() => loadCloudSettings(userId));
 
   useEffect(() => {
-    saveCloudSettings(settings);
-  }, [settings]);
+    setSettings(loadCloudSettings(userId));
+  }, [userId]);
 
+  useEffect(() => {
+    saveCloudSettings(settings, userId);
+  }, [settings, userId]);
 
   const connectToProvider = useCallback((provider: CloudProvider) => {
     const base = 'https://scatterbrain-scanner.onrender.com';
@@ -75,9 +69,7 @@ export function useCloudAuth() {
         ...current,
         [provider === 'google-drive' ? 'googleDrive' : 'dropbox']: { ...DEFAULT_PROVIDER_STATE },
       } as CloudSettings;
-      if (current.primaryProvider === provider) {
-        next.primaryProvider = null;
-      }
+      if (current.primaryProvider === provider) next.primaryProvider = null;
       return next;
     });
   }, []);
@@ -90,11 +82,5 @@ export function useCloudAuth() {
     setSettings(current => ({ ...current, autoSync: !current.autoSync }));
   }, []);
 
-  return {
-    settings,
-    connectToProvider,
-    disconnectProvider,
-    setPrimaryProvider,
-    toggleAutoSync,
-  };
+  return { settings, connectToProvider, disconnectProvider, setPrimaryProvider, toggleAutoSync };
 }
