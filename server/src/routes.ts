@@ -28,6 +28,65 @@ function buildAuthRedirectUrl(clientOrigin: string, provider: string, payload: R
 // ── User auth ────────────────────────────────────────────────────────────────
 router.use('/user', authRouter);
 
+// ── One-time admin: get Google refresh token for server-side Drive backup ─────
+// Visit /api/admin/google-setup in a browser to start the OAuth flow.
+// After authorizing, you'll see the refresh token — paste it into Render as
+// GOOGLE_USERS_REFRESH_TOKEN, then this route becomes a no-op.
+
+router.get('/admin/google-setup', (req: Request, res: Response) => {
+  if (process.env.GOOGLE_USERS_REFRESH_TOKEN) {
+    res.send('<h2>Already configured.</h2><p>GOOGLE_USERS_REFRESH_TOKEN is set. Nothing to do.</p>');
+    return;
+  }
+  const clientId   = process.env.GOOGLE_CLIENT_ID;
+  const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/google-setup/callback`;
+  if (!clientId) { res.status(500).send('GOOGLE_CLIENT_ID not set'); return; }
+
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  url.searchParams.set('client_id',     clientId);
+  url.searchParams.set('redirect_uri',  redirectUri);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope',         'https://www.googleapis.com/auth/drive.file');
+  url.searchParams.set('access_type',   'offline');
+  url.searchParams.set('prompt',        'consent');
+  res.redirect(url.toString());
+});
+
+router.get('/admin/google-setup/callback', async (req: Request, res: Response) => {
+  const code        = req.query.code?.toString();
+  const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/google-setup/callback`;
+  if (!code) { res.status(400).send('Missing code'); return; }
+
+  try {
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    new URLSearchParams({
+        code,
+        client_id:     process.env.GOOGLE_CLIENT_ID || '',
+        client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
+        redirect_uri:  redirectUri,
+        grant_type:    'authorization_code',
+      }),
+    });
+    const data = await tokenRes.json() as any;
+    const rt   = data.refresh_token;
+    if (!rt) {
+      res.status(500).send(`<h2>Error</h2><pre>${JSON.stringify(data, null, 2)}</pre>`);
+      return;
+    }
+    res.send(`
+      <h2>Success! Copy this value into Render:</h2>
+      <p><strong>Key:</strong> GOOGLE_USERS_REFRESH_TOKEN</p>
+      <p><strong>Value:</strong></p>
+      <textarea rows="4" cols="80" onclick="this.select()">${rt}</textarea>
+      <p>After saving in Render, your server will auto-restore user accounts after every redeploy.</p>
+    `);
+  } catch (err) {
+    res.status(500).send(`OAuth callback failed: ${(err as Error).message}`);
+  }
+});
+
 // ── OCR (Vision API proxy) ────────────────────────────────────────────────────
 
 router.post('/ocr/receipt', upload.single('receipt'), async (req: Request, res: Response) => {
