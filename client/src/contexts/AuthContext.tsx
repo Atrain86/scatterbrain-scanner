@@ -78,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError('');
     const { token, user: u } = await apiFetch('/signup', { email, password });
     localStorage.setItem(TOKEN_KEY, token);
-    // New account — no migration needed, fresh DB
+    await migrateUnnamedDb(u.id);
     setUser(u);
   }, []);
 

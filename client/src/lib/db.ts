@@ -28,7 +28,12 @@ export function getDb(userId: string): ScatterbrainDB {
 // user's namespaced DB, then mark migration done so it never runs again.
 export async function migrateUnnamedDb(userId: string): Promise<void> {
   const MIGRATION_KEY = `sb_u${userId}_migrated_v1`;
-  if (localStorage.getItem(MIGRATION_KEY)) return;
+
+  // Skip only if already migrated AND the user's DB has data
+  if (localStorage.getItem(MIGRATION_KEY)) {
+    const existingCount = await getDb(userId).receipts.count();
+    if (existingCount > 0) return;
+  }
 
   try {
     const oldDb = new Dexie('scatterbrain');
