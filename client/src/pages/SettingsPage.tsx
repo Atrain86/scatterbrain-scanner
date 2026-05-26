@@ -633,6 +633,8 @@ export default function SettingsPage() {
               <span className="text-sb-muted">Account</span>
               <span className="text-white text-xs truncate max-w-[180px]">{user?.email}</span>
             </div>
+            {/* Temp: copy Google refresh token for Render GOOGLE_USERS_REFRESH_TOKEN setup */}
+            <ServerTokenCopier userId={userId} />
           </div>
         </Section>
 
@@ -646,6 +648,30 @@ export default function SettingsPage() {
         </button>
 
       </main>
+    </div>
+  );
+}
+
+function ServerTokenCopier({ userId }: { userId: string }) {
+  const [copied, setCopied] = useState(false);
+  const key = `sb_u${userId}_cloud_settings`;
+  const settings = (() => { try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; } })();
+  const token = settings?.googleDrive?.refreshToken;
+  if (!token) return null;
+
+  function copy() {
+    navigator.clipboard.writeText(token).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); });
+  }
+
+  return (
+    <div className="pt-2 border-t border-sb-border mt-2">
+      <p className="text-xs text-sb-muted mb-2">Render setup — copy server backup token:</p>
+      <button
+        onClick={copy}
+        className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition"
+      >
+        {copied ? '✓ Copied to clipboard' : 'Copy GOOGLE_USERS_REFRESH_TOKEN'}
+      </button>
     </div>
   );
 }
