@@ -13,6 +13,7 @@ import type { CloudProvider } from './utils/types';
 
 function CloudAuthHandler() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -26,7 +27,9 @@ function CloudAuthHandler() {
     }
 
     const expiresIn = payload.expires_in;
-    const settings = loadCloudSettings();
+    // Save under the current user's key if logged in, else unnamespaced (migrated on next login)
+    const userId = user?.id;
+    const settings = loadCloudSettings(userId);
     const providerKey = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
     saveCloudSettings({
       ...settings,
@@ -40,10 +43,10 @@ function CloudAuthHandler() {
         tokenType: payload.token_type ?? null,
       },
       primaryProvider: settings.primaryProvider || provider,
-    });
+    }, userId);
 
     navigate('/settings', { replace: true });
-  }, [navigate]);
+  }, [navigate, user]);
 
   return null;
 }
@@ -64,7 +67,6 @@ function AuthenticatedApp() {
 
   return (
     <>
-      <CloudAuthHandler />
       <Routes>
         <Route path="/"          element={<Navigate to="/receipts" replace />} />
         <Route path="/receipts"  element={<ReceiptLibrary />} />
@@ -82,6 +84,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <CloudAuthHandler />
         <AuthenticatedApp />
       </AuthProvider>
     </BrowserRouter>
