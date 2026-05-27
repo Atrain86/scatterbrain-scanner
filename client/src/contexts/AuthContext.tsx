@@ -1,5 +1,20 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { migrateUnnamedDb } from '../lib/db';
+import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
+
+function migrateCloudSettings(userId: string) {
+  const unnamespaced = loadCloudSettings(undefined);
+  const hasData = unnamespaced.googleDrive?.connected || unnamespaced.dropbox?.connected;
+  if (!hasData) return;
+  const userSettings = loadCloudSettings(userId);
+  const merged = {
+    googleDrive: unnamespaced.googleDrive?.connected ? unnamespaced.googleDrive : userSettings.googleDrive,
+    dropbox:     unnamespaced.dropbox?.connected     ? unnamespaced.dropbox     : userSettings.dropbox,
+    primaryProvider: unnamespaced.primaryProvider || userSettings.primaryProvider,
+    autoSync: userSettings.autoSync,
+  };
+  saveCloudSettings(merged, userId);
+}
 
 interface AuthUser {
   id: string;
@@ -71,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { token, user: u } = await apiFetch('/login', { email, password });
     localStorage.setItem(TOKEN_KEY, token);
     await migrateUnnamedDb(u.id);
+    migrateCloudSettings(u.id);
     setUser(u);
   }, []);
 
@@ -79,6 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { token, user: u } = await apiFetch('/signup', { email, password });
     localStorage.setItem(TOKEN_KEY, token);
     await migrateUnnamedDb(u.id);
+    migrateCloudSettings(u.id);
     setUser(u);
   }, []);
 

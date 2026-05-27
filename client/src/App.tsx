@@ -31,21 +31,34 @@ function CloudAuthHandler() {
 
     const expiresIn = payload.expires_in;
     const userId = user?.id;
-    const settings = loadCloudSettings(userId);
     const providerKey = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
+    const providerData = {
+      connected: true,
+      email: payload.email ?? null,
+      accessToken: payload.access_token ?? null,
+      refreshToken: payload.refresh_token ?? null,
+      expiresAt: expiresIn ? Date.now() + Number(expiresIn) * 1000 : null,
+      scope: payload.scope ?? null,
+      tokenType: payload.token_type ?? null,
+    };
+
+    // Always save to unnamespaced key as fallback (iOS PWA loses userId on redirect)
+    const fallbackSettings = loadCloudSettings(undefined);
     saveCloudSettings({
-      ...settings,
-      [providerKey]: {
-        connected: true,
-        email: payload.email ?? null,
-        accessToken: payload.access_token ?? null,
-        refreshToken: payload.refresh_token ?? null,
-        expiresAt: expiresIn ? Date.now() + Number(expiresIn) * 1000 : null,
-        scope: payload.scope ?? null,
-        tokenType: payload.token_type ?? null,
-      },
-      primaryProvider: settings.primaryProvider || provider,
-    }, userId);
+      ...fallbackSettings,
+      [providerKey]: providerData,
+      primaryProvider: fallbackSettings.primaryProvider || provider,
+    }, undefined);
+
+    // Also save to user-namespaced key if we have a userId
+    if (userId) {
+      const userSettings = loadCloudSettings(userId);
+      saveCloudSettings({
+        ...userSettings,
+        [providerKey]: providerData,
+        primaryProvider: userSettings.primaryProvider || provider,
+      }, userId);
+    }
 
     navigate('/settings', { replace: true });
   }, [navigate, user, isLoading]);
