@@ -13,12 +13,15 @@ import type { CloudProvider } from './utils/types';
 
 function CloudAuthHandler() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const provider = params.get('cloud_auth') as CloudProvider | null;
     if (!provider) return;
+
+    // Wait until auth state is resolved before saving and navigating
+    if (isLoading) return;
 
     const payload: Record<string, string> = {};
     for (const key of ['access_token', 'refresh_token', 'expires_in', 'token_type', 'scope', 'email']) {
@@ -27,7 +30,6 @@ function CloudAuthHandler() {
     }
 
     const expiresIn = payload.expires_in;
-    // Save under the current user's key if logged in, else unnamespaced (migrated on next login)
     const userId = user?.id;
     const settings = loadCloudSettings(userId);
     const providerKey = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
@@ -46,7 +48,7 @@ function CloudAuthHandler() {
     }, userId);
 
     navigate('/settings', { replace: true });
-  }, [navigate, user]);
+  }, [navigate, user, isLoading]);
 
   return null;
 }
