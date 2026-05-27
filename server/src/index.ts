@@ -4,7 +4,7 @@ import cors from 'cors';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import routes from './routes.js';
-import { restoreUsersIfNeeded } from './auth.js';
+import { initDb } from './auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3002');
@@ -24,12 +24,11 @@ app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 // All API routes
 app.use('/api', routes);
 
-restoreUsersIfNeeded().then(() => {
+initDb().then(() => {
   app.listen(PORT, () => {
     console.log(`Scatterbrain Scanner API running on http://localhost:${PORT}`);
     console.log(`  OpenAI: ${process.env.OPENAI_API_KEY ? '✓' : '✗ (set OPENAI_API_KEY)'}`);
-    console.log(`  R2: ${process.env.R2_ACCOUNT_ID ? '✓' : '✗ (local file fallback active)'}`);
+    console.log(`  Turso:  ${process.env.TURSO_URL ? '✓' : '✗ (set TURSO_URL + TURSO_TOKEN)'}`);
     console.log(`  Resend: ${process.env.RESEND_API_KEY ? '✓' : '✗'}`);
-    console.log(`  Drive backup: ${process.env.GOOGLE_USERS_REFRESH_TOKEN ? '✓' : '✗ (set GOOGLE_USERS_REFRESH_TOKEN)'}`);
   });
 });
