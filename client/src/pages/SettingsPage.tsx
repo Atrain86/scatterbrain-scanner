@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, ChevronDown, DownloadCloud, Users, LogOut } from 'lucide-react';
+import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, ChevronDown, DownloadCloud, Users, LogOut, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
@@ -638,6 +638,11 @@ export default function SettingsPage() {
           </div>
         </Section>
 
+        {/* Admin — only visible to admin account */}
+        {user?.email?.toLowerCase() === 'cortespainter@gmail.com' && (
+          <AdminPanel />
+        )}
+
         {/* Sign out */}
         <button
           onClick={logout}
@@ -649,6 +654,59 @@ export default function SettingsPage() {
 
       </main>
     </div>
+  );
+}
+
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
+
+function AdminPanel() {
+  const [users, setUsers] = useState<{ id: string; email: string; createdAt: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const token = localStorage.getItem('sb_auth_token');
+
+  async function loadUsers() {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/user/admin/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setUsers(data.users || []);
+      setLoaded(true);
+    } catch {
+      // silent
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Section icon={<Shield size={16} />} title="Admin" defaultOpen={false}>
+      <div className="space-y-3">
+        {!loaded ? (
+          <button
+            onClick={loadUsers}
+            disabled={loading}
+            className="w-full py-2 rounded-lg bg-sb-card2 border border-sb-border text-sm text-sb-muted hover:text-white transition disabled:opacity-40"
+          >
+            {loading ? 'Loading…' : 'Load Beta Users'}
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-sb-muted">{users.length} user{users.length !== 1 ? 's' : ''} registered</p>
+            <div className="divide-y divide-sb-border rounded-xl overflow-hidden border border-sb-border">
+              {users.map(u => (
+                <div key={u.id} className="px-3 py-2.5 bg-sb-card2">
+                  <p className="text-white text-sm">{u.email}</p>
+                  <p className="text-sb-muted text-xs">{new Date(u.createdAt).toLocaleDateString()}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </Section>
   );
 }
 

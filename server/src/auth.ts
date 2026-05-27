@@ -103,4 +103,22 @@ router.post('/verify', (req: Request, res: Response) => {
   }
 });
 
+const ADMIN_EMAILS = ['cortespainter@gmail.com'];
+
+router.get('/admin/users', async (req: Request, res: Response) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  try {
+    const payload = jwt.verify(auth.slice(7), JWT_SECRET) as { id: string; email: string };
+    if (!ADMIN_EMAILS.includes(payload.email.toLowerCase())) {
+      res.status(403).json({ error: 'Forbidden' }); return;
+    }
+    const db = getDb();
+    const result = await db.execute('SELECT id, email, createdAt FROM users ORDER BY createdAt DESC');
+    res.json({ users: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 export default router;
