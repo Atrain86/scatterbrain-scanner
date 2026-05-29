@@ -68,16 +68,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     fetch(`${API_BASE}/api/user/verify`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then(r => r.json())
-      .then(async data => {
+      .then(async r => {
+        if (!r.ok) {
+          if (r.status === 401) {
+            // Explicit rejection — token is invalid, clear it
+            localStorage.removeItem(TOKEN_KEY);
+          } else {
+            // Server/network error — decode token locally to keep user logged in
+            try {
+              const payload = JSON.parse(atob(token.split('.')[1]));
+              if (payload.id && payload.email) {
+                await migrateUnnamedDb(payload.id);
+                migrateCloudSettings(payload.id);
+                setUser({ id: payload.id, email: payload.email });
+              }
+            } catch { /* malformed token */ }
+          }
+          return;
+        }
+        const data = await r.json();
         if (data.user) {
           await migrateUnnamedDb(data.user.id);
+          migrateCloudSettings(data.user.id);
           setUser(data.user);
         } else {
           localStorage.removeItem(TOKEN_KEY);
         }
       })
-      .catch(() => localStorage.removeItem(TOKEN_KEY))
+      .catch(async () => {
+        // Network error (Render cold start etc.) — decode token locally
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          if (payload.id && payload.email) {
+            await migrateUnnamedDb(payload.id);
+            migrateCloudSettings(payload.id);
+            setUser({ id: payload.id, email: payload.email });
+          }
+        } catch { /* malformed token — stay logged out */ }
+      })
       .finally(() => setLoading(false));
   }, []);
 
