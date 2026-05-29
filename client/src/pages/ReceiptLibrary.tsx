@@ -112,8 +112,8 @@ export default function ReceiptLibrary() {
 
   function onSaved() {
     setScanOpen(false);
-    // Small delay ensures IndexedDB write is fully committed before reading
-    setTimeout(() => { void reload(); }, 300);
+    void reload();
+    setTimeout(() => { void reload(); }, 800);
   }
 
   async function onDelete(id: number) {
