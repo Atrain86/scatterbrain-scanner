@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Camera, Image as ImageIcon, Clipboard } from 'lucide-react';
-import { compressReceiptImage } from '../lib/imageCompression';
+import { compressReceiptImage, compressForStorage } from '../lib/imageCompression';
 import { enqueueReceiptSync, processCloudSyncQueue } from '../lib/cloudSync';
 import { loadCloudSettings } from '../hooks/useCloudAuth';
 import { addReceipt } from '../lib/db';
@@ -114,14 +114,16 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     setStep('saving');
 
     // Convert image to base64 data URL for IndexedDB storage
+    // Use extra compression for storage to avoid IndexedDB size limits on long receipts
     let imageUrl: string | null = null;
     if (imageFile) {
       try {
+        const storageFile = await compressForStorage(imageFile);
         imageUrl = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result as string);
           reader.onerror = reject;
-          reader.readAsDataURL(imageFile);
+          reader.readAsDataURL(storageFile);
         });
       } catch {
         // non-fatal — save without image
@@ -161,7 +163,9 @@ export default function ScanModal({ onClose, onSaved }: Props) {
 
       onSaved();
     } catch (err) {
-      setError((err as Error).message || 'Could not save receipt.');
+      const msg = (err as Error).message || 'Could not save receipt.';
+      console.error('[ScanModal] save failed:', err);
+      setError(`Save failed: ${msg}`);
       setStep('select');
     }
   }
