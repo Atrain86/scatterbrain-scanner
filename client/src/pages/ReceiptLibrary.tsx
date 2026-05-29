@@ -110,7 +110,11 @@ export default function ReceiptLibrary() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
-  function onSaved() { setScanOpen(false); void reload(); }
+  function onSaved() {
+    setScanOpen(false);
+    // Small delay ensures IndexedDB write is fully committed before reading
+    setTimeout(() => { void reload(); }, 300);
+  }
 
   async function onDelete(id: number) {
     if (!confirm('Delete this receipt?')) return;
