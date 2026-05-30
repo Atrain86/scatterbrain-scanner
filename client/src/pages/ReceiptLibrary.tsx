@@ -25,13 +25,13 @@ function monthLabel(key: string) {
 }
 
 export default function ReceiptLibrary() {
-  const { receipts, isLoading, reload, remove, update } = useReceipts();
+  const { receipts, isLoading, reload, remove, update, add } = useReceipts();
 
   const [scanOpen,     setScanOpen]     = useState(false);
   const [search,       setSearch]       = useState('');
   const [searchMode,   setSearchMode]   = useState<SearchMode>('all');
   const [showModeMenu, setShowModeMenu] = useState(false);
-  const [showArchive,  setShowArchive]  = useState(false);
+  const [showArchive,  setShowArchive]  = useState(true);
 
   // Archive threshold: years strictly before current year are "archive"
   const thisYear = String(new Date().getFullYear());
@@ -110,10 +110,9 @@ export default function ReceiptLibrary() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
-  function onSaved() {
+  function onSaved(receipt: import('../utils/types').Receipt) {
     setScanOpen(false);
-    void reload();
-    setTimeout(() => { void reload(); }, 800);
+    add(receipt);
   }
 
   async function onDelete(id: number) {

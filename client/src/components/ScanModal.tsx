@@ -10,7 +10,7 @@ import type { ScannedReceiptData } from '../utils/types';
 
 interface Props {
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (receipt: import('../utils/types').Receipt) => void;
 }
 
 type Step = 'pick' | 'scanning' | 'select' | 'saving';
@@ -162,7 +162,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
         console.warn('Cloud sync enqueue failed:', (syncError as Error).message);
       }
 
-      onSaved();
+      onSaved(receipt);
     } catch (err) {
       const msg = (err as Error).message || 'Could not save receipt.';
       console.error('[ScanModal] save failed:', err);

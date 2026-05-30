@@ -55,7 +55,7 @@ export default function DashboardPage() {
         <h1 className="text-base font-bold text-white">Dashboard</h1>
       </header>
 
-      <main className="flex-1 px-4 py-5 space-y-4 pb-10">
+      <main className="flex-1 px-4 py-5 space-y-4 pb-32">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />

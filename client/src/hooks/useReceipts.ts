@@ -33,5 +33,9 @@ export function useReceipts() {
     return updated;
   }, [userId]);
 
-  return { receipts, isLoading, reload: load, remove, update };
+  const add = useCallback((receipt: Receipt) => {
+    setReceipts(prev => [receipt, ...prev]);
+  }, []);
+
+  return { receipts, isLoading, reload: load, remove, update, add };
 }
