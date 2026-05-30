@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getAllReceipts, deleteReceipt, updateReceipt } from '../lib/db';
 import { useAuth } from '../contexts/AuthContext';
 import type { Receipt } from '../utils/types';
@@ -9,14 +9,19 @@ export function useReceipts() {
 
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const initialized = useRef(false);
 
   const load = useCallback(async () => {
-    setIsLoading(true);
+    // Only show spinner on first load — subsequent reloads update silently
+    if (!initialized.current) {
+      setIsLoading(true);
+    }
     try {
       const rows = await getAllReceipts(userId);
       setReceipts(rows);
     } finally {
       setIsLoading(false);
+      initialized.current = true;
     }
   }, [userId]);
 
