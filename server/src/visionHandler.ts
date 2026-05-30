@@ -72,9 +72,9 @@ export async function extractReceiptLineItems(
 
   const imageBase64 = finalBuffer.toString('base64');
 
-  const prompt = `You are a receipt parser. Extract every individual line item from this receipt.
+  const prompt = `You are a receipt parser. Extract every individual line item from this receipt image.
 
-Return ONLY this JSON — no markdown, no explanation:
+Return ONLY this JSON — no markdown, no explanation, no code fences:
 {
   "vendor": "Store name",
   "date": "YYYY-MM-DD or null",
@@ -88,10 +88,13 @@ Return ONLY this JSON — no markdown, no explanation:
 }
 
 Rules:
-- Include EVERY line item with a price (products, services, fees, AND taxes like GST/PST/HST)
-- Do NOT include subtotal, total, or grand total rows
-- totalAmount = the final total on the receipt (including tax)
-- suggestedCategory: match store/items to best category. Restaurants/cafes → Meals. Hardware/tools → Supplies & Hardware. Phone/internet bills → Comm. Hotels/flights → Travel. OpenAI/Claude/software → AI Services. Doctor/pharmacy → Medical. Office rent → Rent. Netflix/SaaS → Subscriptions. Stamps/shipping → Postage. Car loans/credit → Loan/Interest.
+- Include EVERY line item with a dollar amount (products, services, fees, AND taxes like GST/PST/HST/QST)
+- For thrift/discount stores (Value Village, Goodwill, etc): items often have short codes like "HW-KITCHEN STO 2.99" or "CLO-WOMENS 4.99" — include all of them with their price
+- Some receipts show each item on two lines (code + price on separate lines) — match them correctly
+- Do NOT include subtotal, total, or grand total rows in lineItems
+- totalAmount = the FINAL TOTAL printed at the bottom of the receipt (after all taxes). This is the number labeled "TOTAL", "GRAND TOTAL", or "AMOUNT DUE" — NOT the subtotal. Look for the largest labeled total at the bottom.
+- If the receipt shows subtotal + GST + PST separately, totalAmount = subtotal + GST + PST combined
+- suggestedCategory: Thrift/consignment stores → Supplies & Hardware. Restaurants/cafes → Meals. Hardware/tools → Supplies & Hardware. Phone/internet → Comm. Hotels/flights → Travel. OpenAI/Claude/software → AI Services. Doctor/pharmacy → Medical. Office rent → Rent. Netflix/SaaS → Subscriptions. Stamps/shipping → Postage. Car loans/credit → Loan/Interest.
 - If you cannot read individual line items but can read the total, set lineItems to null and set totalAmount
 - If completely unreadable, set confidence below 0.4 and lineItems to null, totalAmount to 0
 - date must be YYYY-MM-DD or null`;
@@ -115,7 +118,7 @@ Rules:
             ],
           },
         ],
-        max_tokens: 1200,
+        max_tokens: 2500,
         temperature: 0.1,
       }),
     });

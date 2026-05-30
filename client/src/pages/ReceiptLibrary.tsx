@@ -31,7 +31,7 @@ export default function ReceiptLibrary() {
   const [search,       setSearch]       = useState('');
   const [searchMode,   setSearchMode]   = useState<SearchMode>('all');
   const [showModeMenu, setShowModeMenu] = useState(false);
-  const [showArchive,  setShowArchive]  = useState(true);
+  const [showArchive,  setShowArchive]  = useState(false);
 
   // Archive threshold: years strictly before current year are "archive"
   const thisYear = String(new Date().getFullYear());
