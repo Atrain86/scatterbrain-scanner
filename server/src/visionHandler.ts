@@ -74,9 +74,9 @@ export async function extractReceiptLineItems(
 
   const imageBase64 = finalBuffer.toString('base64');
 
-  const prompt = `You are a receipt parser. Extract every individual line item from this receipt image.
+  const prompt = `You are a receipt parser. Your job is to extract EVERY SINGLE line item — do not summarize, do not skip, do not group items together.
 
-Return ONLY this JSON — no markdown, no explanation, no code fences:
+Return ONLY valid JSON — no markdown, no explanation, no code fences:
 {
   "vendor": "Store name",
   "date": "YYYY-MM-DD or null",
@@ -89,18 +89,19 @@ Return ONLY this JSON — no markdown, no explanation, no code fences:
   "confidence": 0.9
 }
 
-Rules:
-- Include EVERY line item with a dollar amount (products, services, fees, AND taxes like GST/PST/HST/QST)
-- For Value Village / thrift stores: each item spans TWO lines. Line 1 has the item code (e.g. "SP-28778") and columns for Qty/Price/Total. Line 2 has the description (e.g. "MEN-S/S CASUAL") and "Net Price: $X.XX". Use the description from line 2 and the price from line 1. Do NOT skip items — count every SP-/HW-/ELE-/CLO- code as one item.
-- Every "Net Price:" line on a Value Village receipt corresponds to exactly one item — count them to verify you have all items.
-- Do NOT include subtotal, total, or grand total rows in lineItems
-- totalAmount = the FINAL TOTAL printed at the bottom of the receipt (after all taxes). This is the number labeled "TOTAL", "GRAND TOTAL", or "AMOUNT DUE" — NOT the subtotal. Look for the largest labeled total at the bottom.
-- If the receipt shows subtotal + GST + PST separately, totalAmount = subtotal + GST + PST combined
-- suggestedCategory: Thrift/consignment stores → Supplies & Hardware. Restaurants/cafes → Meals. Hardware/tools → Supplies & Hardware. Phone/internet → Comm. Hotels/flights → Travel. OpenAI/Claude/software → AI Services. Doctor/pharmacy → Medical. Office rent → Rent. Netflix/SaaS → Subscriptions. Stamps/shipping → Postage. Car loans/credit → Loan/Interest.
-- If you cannot read individual line items but can read the total, set lineItems to null and set totalAmount
-- If completely unreadable, set confidence below 0.4 and lineItems to null, totalAmount to 0
-- date must be YYYY-MM-DD or null. Read the year carefully — 2026 and 2023 look similar in thermal receipt fonts. If the receipt is recent, bias toward the current year (2026).
-- IMPORTANT: always close the JSON properly with } at the end`;
+CRITICAL RULES — follow exactly:
+1. List EVERY item with a price. A 20-item receipt must have 20 entries. Do not stop early.
+2. For Value Village receipts: each purchase spans two lines:
+   - Line 1: item code (SP-28778), Qty, Price, Total
+   - Line 2: description (MEN-S/S CASUAL) + "Net Price: $X.XX"
+   Count every "Net Price:" occurrence — that is exactly one item. If you see 20 "Net Price:" lines, output 20 items.
+3. Include GST, PST, HST as separate lineItems entries.
+4. Do NOT include Subtotal, Total, or Grand Total in lineItems.
+5. totalAmount = the number next to "Total" at the bottom of the receipt (after all taxes). NOT the subtotal.
+6. If receipt shows "Subtotal: $85.82 / GST: $4.28 / PST: $5.13 / Total: $95.23" — totalAmount is 95.23.
+7. suggestedCategory: Value Village/thrift → Supplies & Hardware. Restaurants → Meals. Gas stations → Auto/gas. Hardware stores → Supplies & Hardware. Hotels/flights → Travel.
+8. date: YYYY-MM-DD. Year 2026 and 2023 look similar on thermal paper — default to 2026 if ambiguous.
+9. Close the JSON properly with } at the end.`;
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -145,6 +146,7 @@ Rules:
     const finishReason = data.choices?.[0]?.finish_reason;
     const content = data.choices?.[0]?.message?.content;
     console.log(`OpenAI response: ${usage.completionTokens} completion tokens, finish_reason: ${finishReason}, content length: ${content?.length ?? 0}`);
+    console.log('OpenAI raw response:', content);
     if (!content) {
       console.error('OpenAI returned no content:', JSON.stringify(data));
       return fallback();
