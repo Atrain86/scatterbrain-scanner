@@ -91,8 +91,8 @@ Return ONLY this JSON — no markdown, no explanation, no code fences:
 
 Rules:
 - Include EVERY line item with a dollar amount (products, services, fees, AND taxes like GST/PST/HST/QST)
-- For thrift/discount stores (Value Village, Goodwill, etc): items often have short codes like "HW-KITCHEN STO 2.99" or "CLO-WOMENS 4.99" — include all of them with their price
-- Some receipts show each item on two lines (code + price on separate lines) — match them correctly
+- For Value Village / thrift stores: each item spans TWO lines. Line 1 has the item code (e.g. "SP-28778") and columns for Qty/Price/Total. Line 2 has the description (e.g. "MEN-S/S CASUAL") and "Net Price: $X.XX". Use the description from line 2 and the price from line 1. Do NOT skip items — count every SP-/HW-/ELE-/CLO- code as one item.
+- Every "Net Price:" line on a Value Village receipt corresponds to exactly one item — count them to verify you have all items.
 - Do NOT include subtotal, total, or grand total rows in lineItems
 - totalAmount = the FINAL TOTAL printed at the bottom of the receipt (after all taxes). This is the number labeled "TOTAL", "GRAND TOTAL", or "AMOUNT DUE" — NOT the subtotal. Look for the largest labeled total at the bottom.
 - If the receipt shows subtotal + GST + PST separately, totalAmount = subtotal + GST + PST combined
