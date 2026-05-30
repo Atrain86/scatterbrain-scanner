@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Receipt, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useReceipts } from '../hooks/useReceipts';
 import ScanModal from '../components/ScanModal';
 import ReceiptCard from '../components/ReceiptCard';
@@ -25,7 +26,8 @@ function monthLabel(key: string) {
 }
 
 export default function ReceiptLibrary() {
-  const { receipts, isLoading, reload, remove, update, add } = useReceipts();
+  const navigate = useNavigate();
+  const { receipts, isLoading, reload, remove, update } = useReceipts();
 
   const [scanOpen,     setScanOpen]     = useState(false);
   const [search,       setSearch]       = useState('');
@@ -111,12 +113,13 @@ export default function ReceiptLibrary() {
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   function onSaved(receipt: import('../utils/types').Receipt) {
-    if (receipt.receiptDate.slice(0, 4) !== thisYear) {
-      setShowArchive(true);
-    }
-    add(receipt);
     setScanOpen(false);
-    setTimeout(() => { void reload(); }, 300);
+    // Navigate away and back to force a fresh load from IndexedDB
+    // This is the only reliable way to trigger re-render on iOS PWA
+    navigate('/dashboard', { replace: true });
+    setTimeout(() => {
+      navigate('/receipts', { replace: true });
+    }, 50);
   }
 
   async function onDelete(id: number) {
