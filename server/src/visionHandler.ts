@@ -46,16 +46,18 @@ export async function extractReceiptLineItems(
 
   try {
     const compressed = await sharp(imageBuffer)
-      .resize(800, null, { withoutEnlargement: true, fit: 'inside' })
+      .rotate()                                                   // auto-rotate from EXIF
+      .resize(1600, null, { withoutEnlargement: true, fit: 'inside' })
       .greyscale()
-      .jpeg({ quality: 65, progressive: true })
+      .jpeg({ quality: 70, progressive: true })
       .toBuffer();
 
-    finalBuffer = compressed.length > 250_000
+    finalBuffer = compressed.length > 600_000
       ? await sharp(imageBuffer)
-          .resize(500, null, { withoutEnlargement: true, fit: 'inside' })
+          .rotate()
+          .resize(1000, null, { withoutEnlargement: true, fit: 'inside' })
           .greyscale()
-          .jpeg({ quality: 50 })
+          .jpeg({ quality: 60 })
           .toBuffer()
       : compressed;
 
