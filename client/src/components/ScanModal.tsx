@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Camera, Image as ImageIcon, Clipboard } from 'lucide-react';
 import { compressReceiptImage, compressForStorage } from '../lib/imageCompression';
-import { processReceiptImage, canvasToFile, isScannerAvailable } from '../lib/receiptScanner';
 import { enqueueReceiptSync, processCloudSyncQueue } from '../lib/cloudSync';
 import { loadCloudSettings } from '../hooks/useCloudAuth';
 import { addReceipt } from '../lib/db';
@@ -19,15 +18,6 @@ type Step = 'pick' | 'scanning' | 'select' | 'saving';
 const isDesktop = !('ontouchstart' in window) && window.innerWidth > 768;
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '';
-
-function loadImage(file: File): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = URL.createObjectURL(file);
-  });
-}
 
 export default function ScanModal({ onClose, onSaved }: Props) {
   const { user } = useAuth();
@@ -73,15 +63,6 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     let compressed = file;
     if (file.type.startsWith('image/')) {
       try { compressed = await compressReceiptImage(file); } catch { /* use original */ }
-    }
-
-    // Auto-crop and perspective-correct if OpenCV is ready
-    if (isScannerAvailable()) {
-      try {
-        const img = await loadImage(compressed);
-        const cropped = await processReceiptImage(img);
-        compressed = await canvasToFile(cropped, compressed.name, 0.85);
-      } catch { /* fall back to compressed original */ }
     }
 
     setImageFile(compressed);
