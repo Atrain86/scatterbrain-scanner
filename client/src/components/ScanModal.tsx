@@ -113,9 +113,8 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     taxLines: string;
   }) {
     setStep('saving');
+    console.log('[Save] step 1: compressing image');
 
-    // Convert image to base64 data URL for IndexedDB storage
-    // Use extra compression for storage to avoid IndexedDB size limits on long receipts
     let imageUrl: string | null = null;
     if (imageFile) {
       try {
@@ -126,12 +125,14 @@ export default function ScanModal({ onClose, onSaved }: Props) {
           reader.onerror = reject;
           reader.readAsDataURL(storageFile);
         });
-      } catch {
-        // non-fatal — save without image
+        console.log('[Save] step 2: image compressed, size:', imageUrl.length);
+      } catch (imgErr) {
+        console.warn('[Save] image compression failed (non-fatal):', imgErr);
       }
     }
 
     const now = new Date().toISOString();
+    console.log('[Save] step 3: writing to IndexedDB, userId:', userId);
 
     try {
       const receipt = await addReceipt(userId, {
@@ -151,6 +152,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
         createdAt:    now,
         updatedAt:    now,
       });
+      console.log('[Save] step 4: saved to IndexedDB, id:', receipt.id);
 
       try {
         const cloudSettings = loadCloudSettings(userId);
@@ -159,13 +161,14 @@ export default function ScanModal({ onClose, onSaved }: Props) {
           void processCloudSyncQueue(userId);
         }
       } catch (syncError) {
-        console.warn('Cloud sync enqueue failed:', (syncError as Error).message);
+        console.warn('[Save] cloud sync enqueue failed:', (syncError as Error).message);
       }
 
+      console.log('[Save] step 5: calling onSaved');
       onSaved(receipt);
     } catch (err) {
       const msg = (err as Error).message || 'Could not save receipt.';
-      console.error('[ScanModal] save failed:', err);
+      console.error('[Save] FAILED at IndexedDB write:', err);
       setError(`Save failed: ${msg}`);
       setStep('select');
     }
