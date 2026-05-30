@@ -117,6 +117,9 @@ export default function ReceiptLibrary() {
     if (receipt.receiptDate.slice(0, 4) !== thisYear) {
       setShowArchive(true);
     }
+    // Reload from IndexedDB after a short delay to ensure the receipt appears
+    // even if the optimistic add() doesn't trigger a re-render on iOS
+    setTimeout(() => { void reload(); }, 400);
   }
 
   async function onDelete(id: number) {
