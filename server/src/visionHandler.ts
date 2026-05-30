@@ -131,7 +131,7 @@ Rules:
     }
 
     const data = await response.json() as {
-      choices?: { message?: { content?: string } }[];
+      choices?: { message?: { content?: string }; finish_reason?: string }[];
       usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       model?: string;
     };
@@ -140,7 +140,9 @@ Rules:
       completionTokens: data.usage?.completion_tokens ?? 0,
       totalTokens: data.usage?.total_tokens ?? 0,
     };
+    const finishReason = data.choices?.[0]?.finish_reason;
     const content = data.choices?.[0]?.message?.content;
+    console.log(`OpenAI response: ${usage.completionTokens} completion tokens, finish_reason: ${finishReason}, content length: ${content?.length ?? 0}`);
     if (!content) {
       console.error('OpenAI returned no content:', JSON.stringify(data));
       return fallback();

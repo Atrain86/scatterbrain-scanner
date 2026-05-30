@@ -111,15 +111,11 @@ export default function ReceiptLibrary() {
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   function onSaved(receipt: import('../utils/types').Receipt) {
-    setScanOpen(false);
-    add(receipt);
-    // If the receipt date is from a prior year, reveal archive so it's visible
     if (receipt.receiptDate.slice(0, 4) !== thisYear) {
       setShowArchive(true);
     }
-    // Reload from IndexedDB after a short delay to ensure the receipt appears
-    // even if the optimistic add() doesn't trigger a re-render on iOS
-    setTimeout(() => { void reload(); }, 400);
+    setScanOpen(false);
+    void reload();
   }
 
   async function onDelete(id: number) {
