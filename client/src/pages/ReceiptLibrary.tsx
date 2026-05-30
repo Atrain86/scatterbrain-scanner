@@ -114,8 +114,9 @@ export default function ReceiptLibrary() {
     if (receipt.receiptDate.slice(0, 4) !== thisYear) {
       setShowArchive(true);
     }
+    add(receipt);
     setScanOpen(false);
-    void reload();
+    setTimeout(() => { void reload(); }, 300);
   }
 
   async function onDelete(id: number) {
