@@ -97,7 +97,8 @@ Rules:
 - suggestedCategory: Thrift/consignment stores → Supplies & Hardware. Restaurants/cafes → Meals. Hardware/tools → Supplies & Hardware. Phone/internet → Comm. Hotels/flights → Travel. OpenAI/Claude/software → AI Services. Doctor/pharmacy → Medical. Office rent → Rent. Netflix/SaaS → Subscriptions. Stamps/shipping → Postage. Car loans/credit → Loan/Interest.
 - If you cannot read individual line items but can read the total, set lineItems to null and set totalAmount
 - If completely unreadable, set confidence below 0.4 and lineItems to null, totalAmount to 0
-- date must be YYYY-MM-DD or null`;
+- date must be YYYY-MM-DD or null. Read the year carefully — 2026 and 2023 look similar in thermal receipt fonts. If the receipt is recent, bias toward the current year (2026).
+- IMPORTANT: always close the JSON properly with } at the end`;
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -118,7 +119,7 @@ Rules:
             ],
           },
         ],
-        max_tokens: 2500,
+        max_tokens: 4000,
         temperature: 0.1,
       }),
     });
