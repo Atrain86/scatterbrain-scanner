@@ -113,6 +113,10 @@ export default function ReceiptLibrary() {
   function onSaved(receipt: import('../utils/types').Receipt) {
     setScanOpen(false);
     add(receipt);
+    // If the receipt date is from a prior year, reveal archive so it's visible
+    if (receipt.receiptDate.slice(0, 4) !== thisYear) {
+      setShowArchive(true);
+    }
   }
 
   async function onDelete(id: number) {
