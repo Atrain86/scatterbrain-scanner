@@ -91,7 +91,8 @@ Return ONLY valid JSON — no markdown, no explanation, no code fences:
 
 CRITICAL RULES — follow exactly:
 1. List EVERY item with a price. A 20-item receipt must have 20 entries. Do not stop early.
-2. For Value Village receipts: each purchase spans two lines:
+2. DUPLICATE DESCRIPTIONS ARE VALID. A thrift store can have 4 entries all called "HK-KITCHEN STO" at different prices — list every single one separately. Never skip an item because you already listed something with the same name.
+3. For Value Village receipts: each purchase spans two lines:
    - Line 1: item code (SP-28778), Qty, Price, Total
    - Line 2: description (MEN-S/S CASUAL) + "Net Price: $X.XX"
    Count every "Net Price:" occurrence — that is exactly one item. If you see 20 "Net Price:" lines, output 20 items.
