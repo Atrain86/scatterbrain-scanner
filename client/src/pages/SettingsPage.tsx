@@ -8,7 +8,7 @@ import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.6.14';
+export const APP_VERSION = '0.6.15';
 
 interface CustomCategory {
   name: string;

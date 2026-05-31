@@ -82,6 +82,14 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
 
   const fallbackMode = lineItems.length === 0;
 
+  // All product items selected = use AI's totalAmount as the authoritative total
+  // This handles receipts where tax isn't returned as a line item
+  const allSelected = productItems.every((_, pi) => {
+    const originalIndex = lineItems.indexOf(productItems[pi]);
+    return selected.has(originalIndex);
+  });
+  const aiTotal = scanned.totalAmount;
+
   function toggleItem(index: number) {
     setSelected(prev => {
       const next = new Set(prev);
@@ -93,9 +101,15 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
   function selectAll()  { setSelected(new Set(lineItems.map((_, i) => i).filter(i => !isTaxLine(lineItems[i].description)))); }
   function selectNone() { setSelected(new Set()); }
 
-  const totals = fallbackMode
+  const computedTotals = fallbackMode
     ? { selectedSubtotal: parseFloat(fallbackTotal) || 0, proportionalTaxes: [], totalTax: 0, total: parseFloat(fallbackTotal) || 0 }
     : computeReceiptTotals(lineItems, selected);
+
+  // When all items are selected and AI gave us a total, trust it over our sum
+  // This handles receipts where taxes aren't returned as separate line items
+  const totals = (!fallbackMode && allSelected && aiTotal > computedTotals.selectedSubtotal)
+    ? { ...computedTotals, totalTax: parseFloat((aiTotal - computedTotals.selectedSubtotal).toFixed(2)), total: aiTotal }
+    : computedTotals;
 
   function handleSave() {
     if (clientName) setLastClient(userId, clientName);
