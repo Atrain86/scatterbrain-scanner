@@ -89,7 +89,26 @@ export async function updateReceipt(userId: string, id: number, changes: Partial
 }
 
 export async function deleteReceipt(userId: string, id: number): Promise<void> {
+  const receipt = await getDb(userId).receipts.get(id);
+  if (receipt?.uuid) {
+    const key = `sb_u${userId}_deleted_uuids`;
+    const existing: string[] = JSON.parse(localStorage.getItem(key) || '[]');
+    if (!existing.includes(receipt.uuid)) {
+      existing.push(receipt.uuid);
+      localStorage.setItem(key, JSON.stringify(existing));
+    }
+  }
   await getDb(userId).receipts.delete(id);
+}
+
+export function getDeletedUuids(userId: string): string[] {
+  return JSON.parse(localStorage.getItem(`sb_u${userId}_deleted_uuids`) || '[]');
+}
+
+export function clearDeletedUuid(userId: string, uuid: string): void {
+  const key = `sb_u${userId}_deleted_uuids`;
+  const existing: string[] = JSON.parse(localStorage.getItem(key) || '[]');
+  localStorage.setItem(key, JSON.stringify(existing.filter(u => u !== uuid)));
 }
 
 export async function getReceiptsByYear(userId: string, year: number): Promise<Receipt[]> {

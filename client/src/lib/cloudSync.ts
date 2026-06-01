@@ -1,6 +1,6 @@
 import type { CloudProvider, CloudProviderState, CloudSettings, Receipt } from '../utils/types';
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
-import { addReceipt, getAllReceipts } from './db';
+import { addReceipt, getAllReceipts, getDeletedUuids, clearDeletedUuid } from './db';
 
 // ── Token management ──────────────────────────────────────────────────────────
 
@@ -147,6 +147,27 @@ async function uploadFileToDrive(
   if (!res.ok) throw new Error(`Drive upload failed: ${await res.text()}`);
 }
 
+async function deleteDriveFileById(accessToken: string, fileId: string): Promise<void> {
+  await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+}
+
+async function deleteDriveFilesByUuid(accessToken: string, uuid: string, folderId: string): Promise<void> {
+  // Delete both the .json and .jpg for this UUID
+  const query = `'${folderId}' in parents and (name='${uuid}.json' or name='${uuid}.jpg') and trashed=false`;
+  const url = new URL('https://www.googleapis.com/drive/v3/files');
+  url.searchParams.set('q', query);
+  url.searchParams.set('fields', 'files(id,name)');
+  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return;
+  const data = await res.json() as { files: { id: string }[] };
+  for (const f of data.files) {
+    await deleteDriveFileById(accessToken, f.id);
+  }
+}
+
 async function listDriveJsonFiles(accessToken: string, folderId: string): Promise<{ id: string; name: string }[]> {
   let files: { id: string; name: string }[] = [];
   let pageToken: string | undefined;
@@ -260,9 +281,25 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
     // ONE Drive list call — builds set of all UUIDs already on Drive
     const driveFiles = await listDriveJsonFiles(accessToken, folderId);
     const driveUuids = new Set<string>();
+    const driveFileMap = new Map<string, string>(); // uuid → file.id
     for (const f of driveFiles) {
       const m = f.name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i);
-      if (m) driveUuids.add(m[1].toLowerCase());
+      if (m) {
+        driveUuids.add(m[1].toLowerCase());
+        driveFileMap.set(m[1].toLowerCase(), f.id);
+      }
+    }
+
+    // Process tombstones: delete from Drive any UUIDs the user deleted locally
+    const deletedUuids = getDeletedUuids(userId);
+    for (const uuid of deletedUuids) {
+      if (driveUuids.has(uuid.toLowerCase())) {
+        try {
+          await deleteDriveFilesByUuid(accessToken, uuid, folderId);
+          driveUuids.delete(uuid.toLowerCase()); // won't be pulled back
+        } catch { /* non-fatal — will retry next sync */ }
+      }
+      clearDeletedUuid(userId, uuid); // clear tombstone after Drive delete (or if not on Drive)
     }
 
     const allReceipts = await getAllReceipts(userId);
@@ -280,12 +317,14 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
       }
     }
 
-    // Pull: Drive UUIDs not in local DB
+    // Pull: Drive UUIDs not in local DB (skip tombstoned UUIDs)
+    const tombstoneSet = new Set(getDeletedUuids(userId).map(u => u.toLowerCase()));
     for (const file of driveFiles) {
       const m = file.name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i);
       if (!m) continue;
       const uuid = m[1].toLowerCase();
       if (localUuids.has(uuid)) continue;
+      if (tombstoneSet.has(uuid)) continue; // user deleted this — don't re-pull
 
       try {
         const text = await downloadDriveFile(accessToken, file.id);
@@ -324,6 +363,24 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
   }
 
   return result;
+}
+
+// Delete a receipt from Drive immediately — called fire-and-forget from useReceipts.remove
+export async function deleteReceiptFromDrive(uuid: string, userId: string): Promise<void> {
+  const settings = loadCloudSettings(userId);
+  const provider = settings.primaryProvider;
+  if (!provider) return;
+
+  const providerState = settings[provider === 'google-drive' ? 'googleDrive' : 'dropbox'];
+  if (!providerState.connected) return;
+
+  const accessToken = await ensureValidAccessToken(providerState, provider, userId);
+  if (!accessToken) return;
+
+  if (provider === 'google-drive') {
+    const folderId = await getReceiptsFolderId(accessToken);
+    await deleteDriveFilesByUuid(accessToken, uuid, folderId);
+  }
 }
 
 // Push a single receipt immediately after save — fast path, called from ScanModal
