@@ -23,14 +23,27 @@ interface Props {
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, category: string) => void;
   onReEdit: (id: number, updates: ReEditUpdates) => void;
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: number) => void;
+  onLongPress?: (id: number) => void;
 }
 
-export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReEdit }: Props) {
+export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReEdit, selectMode, selected, onToggleSelect, onLongPress }: Props) {
   const { user } = useAuth();
   const userId = user!.id;
 
   const [expanded, setExpanded] = useState(false);
   const [editingCat, setEditingCat] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handlePointerDown() {
+    if (!onLongPress) return;
+    longPressTimer.current = setTimeout(() => { onLongPress(receipt.id); }, 500);
+  }
+  function handlePointerUp() {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  }
   const [imgFullscreen, setImgFullscreen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [reEditOpen, setReEditOpen] = useState(false);
@@ -81,13 +94,23 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
 
   return (
     <>
-      <div className="bg-sb-card rounded-xl border border-sb-border overflow-visible">
+      <div className={`bg-sb-card rounded-xl border transition-colors ${selected ? 'border-sb-green' : 'border-sb-border'} overflow-visible`}>
 
         {/* ── Collapsed row ── */}
         <div
           className="flex items-stretch gap-0 cursor-pointer active:bg-white/5 transition rounded-xl"
-          onClick={() => setExpanded(p => !p)}
+          onClick={() => selectMode ? onToggleSelect?.(receipt.id) : setExpanded(p => !p)}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
         >
+          {/* Checkbox — slides in from left in select mode */}
+          <div className={`flex items-center justify-center transition-all duration-200 overflow-hidden ${selectMode ? 'w-10 opacity-100' : 'w-0 opacity-0'}`}>
+            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${selected ? 'bg-sb-green border-sb-green' : 'border-sb-muted bg-transparent'}`}>
+              {selected && <Check size={11} className="text-black" strokeWidth={3} />}
+            </div>
+          </div>
+
           {/* Category color bar */}
           <span
             className="w-1 rounded-l-xl flex-shrink-0 self-stretch"

@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Receipt, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { useState, useMemo, useCallback } from 'react';
+import { Receipt, Search, X, ChevronDown, ChevronRight, Trash2, CheckSquare } from 'lucide-react';
 import { useReceipts } from '../hooks/useReceipts';
 import ScanModal from '../components/ScanModal';
 import ReceiptCard from '../components/ReceiptCard';
@@ -32,6 +32,8 @@ export default function ReceiptLibrary() {
   const [searchMode,   setSearchMode]   = useState<SearchMode>('all');
   const [showModeMenu, setShowModeMenu] = useState(false);
   const [showArchive,  setShowArchive]  = useState(false);
+  const [selectMode,   setSelectMode]   = useState(false);
+  const [selectedIds,  setSelectedIds]  = useState<Set<number>>(new Set());
 
   // Archive threshold: years strictly before current year are "archive"
   const thisYear = String(new Date().getFullYear());
@@ -136,6 +138,37 @@ export default function ReceiptLibrary() {
     await update(id, updates);
   }
 
+  const enterSelectMode = useCallback((id: number) => {
+    setSelectMode(true);
+    setSelectedIds(new Set([id]));
+  }, []);
+
+  const toggleSelect = useCallback((id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelectedIds(new Set(filtered.map(r => r.id)));
+  }, [filtered]);
+
+  async function deleteSelected() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} receipt${selectedIds.size !== 1 ? 's' : ''}?`)) return;
+    for (const id of selectedIds) {
+      await remove(id);
+    }
+    exitSelectMode();
+  }
+
   const isSearching   = search.trim() !== '';
   const filteredTotal = filtered.reduce((s, r) => s + r.total, 0);
 
@@ -186,7 +219,8 @@ export default function ReceiptLibrary() {
               </div>
             ) : (
               filtered.map(r => (
-                <ReceiptCard key={r.id} receipt={r} onDelete={onDelete} onUpdateCategory={onUpdateCategory} onReEdit={onReEdit} />
+                <ReceiptCard key={r.id} receipt={r} onDelete={onDelete} onUpdateCategory={onUpdateCategory} onReEdit={onReEdit}
+                  selectMode={selectMode} selected={selectedIds.has(r.id)} onToggleSelect={toggleSelect} onLongPress={enterSelectMode} />
               ))
             )}
           </div>
@@ -220,6 +254,10 @@ export default function ReceiptLibrary() {
                 onDelete={onDelete}
                 onUpdateCategory={onUpdateCategory}
                 onReEdit={onReEdit}
+                selectMode={selectMode}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onLongPress={enterSelectMode}
               />
             ))}
 
@@ -340,6 +378,36 @@ export default function ReceiptLibrary() {
         </div>
       </div>
 
+      {/* ── Select mode action bar ── */}
+      {selectMode && (
+        <div
+          className="fixed left-0 right-0 z-30 bg-sb-card2 border-t border-sb-border px-4 py-3 flex items-center gap-3 animate-fade-in"
+          style={{ bottom: 'calc(56px + env(safe-area-inset-bottom))' }}
+        >
+          <button onClick={exitSelectMode} className="p-2 text-sb-muted hover:text-white transition">
+            <X size={18} />
+          </button>
+          <span className="flex-1 text-white text-sm font-semibold">
+            {selectedIds.size} selected
+          </span>
+          <button
+            onClick={selectAll}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-sb-border text-xs text-white hover:bg-white/5 transition"
+          >
+            <CheckSquare size={13} />
+            All
+          </button>
+          <button
+            onClick={deleteSelected}
+            disabled={selectedIds.size === 0}
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition ${selectedIds.size === 0 ? 'bg-sb-border text-sb-muted cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500'}`}
+          >
+            <Trash2 size={13} />
+            Delete
+          </button>
+        </div>
+      )}
+
       {scanOpen && (
         <ScanModal onClose={() => setScanOpen(false)} onSaved={onSaved} />
       )}
@@ -357,9 +425,13 @@ interface MonthGroupProps {
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, cat: string) => void;
   onReEdit: (id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number; clientName: string | null; category: string }) => void;
+  selectMode?: boolean;
+  selectedIds?: Set<number>;
+  onToggleSelect?: (id: number) => void;
+  onLongPress?: (id: number) => void;
 }
 
-function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit }: MonthGroupProps) {
+function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit, selectMode, selectedIds, onToggleSelect, onLongPress }: MonthGroupProps) {
   const total = receipts.reduce((s, r) => s + r.total, 0);
   return (
     <div className="mb-1">
@@ -385,6 +457,10 @@ function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCa
               onDelete={onDelete}
               onUpdateCategory={onUpdateCategory}
               onReEdit={onReEdit}
+              selectMode={selectMode}
+              selected={selectedIds?.has(r.id)}
+              onToggleSelect={onToggleSelect}
+              onLongPress={onLongPress}
             />
           ))}
         </div>
