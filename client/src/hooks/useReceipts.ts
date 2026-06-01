@@ -27,7 +27,6 @@ export function useReceipts() {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Reload when backgroundSync pulls new receipts from Drive
   useEffect(() => {
     const handler = () => { void load(); };
     window.addEventListener('receipts-updated', handler);

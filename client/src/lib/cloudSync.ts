@@ -305,23 +305,27 @@ async function listDriveJsonFiles(accessToken: string, folderId: string): Promis
 }
 
 async function listAllDriveReceiptJsons(accessToken: string): Promise<{ id: string; name: string }[]> {
-  // Walk: root → Scatterbrain Scanner → receipts → each year → each category
-  const rootId    = await findOrCreateDriveFolder(accessToken, 'Scatterbrain Scanner', null);
-  const rcptId    = await findOrCreateDriveFolder(accessToken, 'receipts', rootId);
+  // Single search query — avoids walking year/category folders (would be 20+ API calls).
+  // fullText search finds all .json files anywhere under the Scatterbrain Scanner folder.
+  let files: { id: string; name: string }[] = [];
+  let pageToken: string | undefined;
 
-  // List year folders
-  const yearFolders = await listDriveFolders(accessToken, rcptId);
-  const allFiles: { id: string; name: string }[] = [];
+  do {
+    const query = `mimeType='application/json' and fullText contains 'storeName' and trashed=false`;
+    const url = new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', query);
+    url.searchParams.set('fields', 'nextPageToken,files(id,name)');
+    url.searchParams.set('pageSize', '100');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
 
-  for (const yearFolder of yearFolders) {
-    const catFolders = await listDriveFolders(accessToken, yearFolder.id);
-    for (const catFolder of catFolders) {
-      const jsons = await listDriveJsonFiles(accessToken, catFolder.id);
-      allFiles.push(...jsons);
-    }
-  }
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) throw new Error(`Drive search failed: ${await res.text()}`);
+    const data = await res.json() as { nextPageToken?: string; files: { id: string; name: string }[] };
+    files = files.concat(data.files);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
 
-  return allFiles;
+  return files;
 }
 
 async function listDriveFolders(accessToken: string, parentId: string): Promise<{ id: string; name: string }[]> {
@@ -369,18 +373,27 @@ export async function restoreFromGoogleDrive(
 
   const result: RestoreResult = { imported: 0, skipped: 0, failed: 0, errors: [] };
 
-  // Build a dedup set: "storeName|receiptDate|total"
+  // Build a dedup set from filenames — format is YYYY-MM-DD_StoreName_$total.json
+  // This lets us skip downloads for receipts we already have locally.
   const existingKeys = new Set(
-    existingReceipts.map(r => `${r.storeName}|${r.receiptDate}|${r.total.toFixed(2)}`)
+    existingReceipts.map(r => `${r.receiptDate}_${makeSafeFileName(r.storeName)}_$${r.total.toFixed(2)}`)
   );
 
   for (const file of jsonFiles) {
     try {
+      // Strip .json extension and check against local receipts by filename
+      const fileKey = file.name.replace(/\.json$/i, '');
+      if (existingKeys.has(fileKey)) {
+        result.skipped += 1;
+        continue;
+      }
+
       const text = await downloadDriveFile(accessToken, file.id);
       const meta = JSON.parse(text) as Record<string, any>;
 
-      const key = `${meta.storeName ?? ''}|${meta.receiptDate ?? ''}|${Number(meta.total ?? 0).toFixed(2)}`;
-      if (existingKeys.has(key)) {
+      // Double-check by content in case filename format differs
+      const contentKey = `${meta.receiptDate ?? ''}_${makeSafeFileName(meta.storeName ?? '')}_$${Number(meta.total ?? 0).toFixed(2)}`;
+      if (existingKeys.has(contentKey)) {
         result.skipped += 1;
         continue;
       }
@@ -404,7 +417,7 @@ export async function restoreFromGoogleDrive(
         updatedAt:    meta.updatedAt    ?? now,
       });
 
-      existingKeys.add(key);
+      existingKeys.add(contentKey);
       result.imported += 1;
     } catch (err) {
       result.failed += 1;
@@ -467,6 +480,9 @@ export async function enqueueReceiptSync(receipt: Receipt, provider: CloudProvid
 // Called silently on app load and on window focus. Pushes all local receipts
 // to Drive then pulls any Drive receipts not yet in local DB.
 
+// Two-way background sync — runs silently on app load and window focus.
+// Push: uploads any local receipts not yet on Drive.
+// Pull: checks Drive for receipts missing locally (filename dedup — no bulk downloads).
 export async function backgroundSync(userId: string): Promise<void> {
   const settings = loadCloudSettings(userId);
   const provider = settings.primaryProvider;
@@ -476,8 +492,9 @@ export async function backgroundSync(userId: string): Promise<void> {
   if (!providerState.connected) return;
 
   try {
-    // Push: queue all local receipts not yet uploaded or queued
     const allReceipts = await getAllReceipts(userId);
+
+    // Push: queue any local receipts not yet uploaded
     const existingQueue = loadSyncQueue(userId);
     const queuedReceiptIds = new Set(existingQueue.map(q => q.receiptId));
     const uploadedIds = loadUploadedIds(userId);
@@ -489,7 +506,7 @@ export async function backgroundSync(userId: string): Promise<void> {
     }
     await processCloudSyncQueue(userId);
 
-    // Pull: restore from Drive any receipts not already local
+    // Pull: check Drive for receipts missing locally (Google Drive only)
     if (provider === 'google-drive') {
       const existing = allReceipts.map(r => ({
         storeName: r.storeName,
