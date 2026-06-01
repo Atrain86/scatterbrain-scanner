@@ -10,6 +10,7 @@ export interface TaxLine {
 
 export interface Receipt {
   id: number;
+  uuid: string;
   storeName: string;
   receiptDate: string;
   subtotal: number;
@@ -52,16 +53,6 @@ export const CATEGORIES = [
 ] as const;
 
 export type CategoryName = typeof CATEGORIES[number]['name'];
-
-export interface CloudSyncQueueItem {
-  id: string;
-  provider: CloudProvider;
-  receiptId: number;
-  imageName: string;
-  createdAt: number;
-  attemptCount: number;
-  lastError: string | null;
-}
 
 export function getCategoryColor(name: string): string {
   return CATEGORIES.find(c => c.name === name)?.color ?? '#6B7280';

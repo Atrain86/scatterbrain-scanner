@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Camera, Image as ImageIcon, Clipboard } from 'lucide-react';
 import { compressReceiptImage, compressForStorage } from '../lib/imageCompression';
-import { enqueueReceiptSync, processCloudSyncQueue } from '../lib/cloudSync';
-import { loadCloudSettings } from '../hooks/useCloudAuth';
+import { pushReceiptNow } from '../lib/cloudSync';
 import { addReceipt } from '../lib/db';
 import { useAuth } from '../contexts/AuthContext';
 import LineItemSelector from './LineItemSelector';
@@ -136,6 +135,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
 
     try {
       const receipt = await addReceipt(userId, {
+        uuid:         crypto.randomUUID(),
         storeName:    payload.storeName,
         receiptDate:  payload.receiptDate,
         subtotal:     payload.subtotal,
@@ -152,19 +152,10 @@ export default function ScanModal({ onClose, onSaved }: Props) {
         createdAt:    now,
         updatedAt:    now,
       });
-      console.log('[Save] step 4: saved to IndexedDB, id:', receipt.id);
 
-      try {
-        const cloudSettings = loadCloudSettings(userId);
-        if (cloudSettings.autoSync && cloudSettings.primaryProvider) {
-          await enqueueReceiptSync(receipt, cloudSettings.primaryProvider, userId);
-          void processCloudSyncQueue(userId);
-        }
-      } catch (syncError) {
-        console.warn('[Save] cloud sync enqueue failed:', (syncError as Error).message);
-      }
+      // Push to Drive immediately — fire and forget, don't block the UI
+      void pushReceiptNow(receipt, userId);
 
-      console.log('[Save] step 5: calling onSaved');
       onSaved(receipt);
     } catch (err) {
       const msg = (err as Error).message || 'Could not save receipt.';

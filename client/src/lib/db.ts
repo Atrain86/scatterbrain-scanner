@@ -11,10 +11,22 @@ class ScatterbrainDB extends Dexie {
     this.version(1).stores({
       receipts: '++id, receiptDate, category, storeName, clientName',
     });
+    this.version(2).stores({
+      receipts: '++id, uuid, receiptDate, category, storeName, clientName',
+    }).upgrade(async tx => {
+      // Backfill uuid for all existing receipts that don't have one
+      const all = await tx.table('receipts').toArray();
+      for (const r of all) {
+        if (!r.uuid) {
+          await tx.table('receipts').update(r.id, {
+            uuid: crypto.randomUUID(),
+          });
+        }
+      }
+    });
   }
 }
 
-// Cache one DB instance per userId — avoids reopening on every call
 const dbCache = new Map<string, ScatterbrainDB>();
 
 export function getDb(userId: string): ScatterbrainDB {
@@ -24,17 +36,12 @@ export function getDb(userId: string): ScatterbrainDB {
   return dbCache.get(userId)!;
 }
 
-// One-time migration: copy existing unnamespaced 'scatterbrain' DB into the
-// user's namespaced DB, then mark migration done so it never runs again.
 export async function migrateUnnamedDb(userId: string): Promise<void> {
   const MIGRATION_KEY = `sb_u${userId}_migrated_v1`;
-
-  // Skip only if already migrated AND the user's DB has data
   if (localStorage.getItem(MIGRATION_KEY)) {
     const existingCount = await getDb(userId).receipts.count();
     if (existingCount > 0) return;
   }
-
   try {
     const oldDb = new Dexie('scatterbrain');
     oldDb.version(1).stores({ receipts: '++id, receiptDate, category, storeName, clientName' });
@@ -43,22 +50,22 @@ export async function migrateUnnamedDb(userId: string): Promise<void> {
       const newDb = getDb(userId);
       await newDb.receipts.bulkAdd(rows.map(r => {
         const { id: _id, ...rest } = r as StoredReceipt & { id: number };
-        return rest;
+        return { ...rest, uuid: crypto.randomUUID() };
       }));
     }
     oldDb.close();
   } catch {
-    // Old DB doesn't exist or is empty — that's fine, nothing to migrate
+    // Old DB doesn't exist — fine
   }
-
   localStorage.setItem(MIGRATION_KEY, '1');
 }
 
-// ── CRUD helpers — all require userId ────────────────────────────────────────
+// ── CRUD ──────────────────────────────────────────────────────────────────────
 
 export async function addReceipt(userId: string, data: StoredReceipt): Promise<Receipt> {
-  const id = await getDb(userId).receipts.add(data);
-  return { ...data, id } as Receipt;
+  const record = { ...data, uuid: data.uuid || crypto.randomUUID() };
+  const id = await getDb(userId).receipts.add(record);
+  return { ...record, id } as Receipt;
 }
 
 export async function getAllReceipts(userId: string): Promise<Receipt[]> {
@@ -68,6 +75,10 @@ export async function getAllReceipts(userId: string): Promise<Receipt[]> {
 
 export async function getReceiptById(userId: string, id: number): Promise<Receipt | undefined> {
   return getDb(userId).receipts.get(id) as Promise<Receipt | undefined>;
+}
+
+export async function getReceiptByUuid(userId: string, uuid: string): Promise<Receipt | undefined> {
+  return getDb(userId).receipts.where('uuid').equals(uuid).first() as Promise<Receipt | undefined>;
 }
 
 export async function updateReceipt(userId: string, id: number, changes: Partial<StoredReceipt>): Promise<Receipt> {

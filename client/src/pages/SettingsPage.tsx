@@ -3,12 +3,12 @@ import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, Chev
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
-import { getCloudSyncQueue, getCloudSyncSummary, backgroundSync, restoreFromGoogleDrive, type RestoreResult } from '../lib/cloudSync';
+import { backgroundSync, restoreFromGoogleDrive, cleanupDriveDuplicates, type RestoreResult, type SyncResult, type CleanupResult } from '../lib/cloudSync';
 import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.7.8';
+export const APP_VERSION = '0.8.0';
 
 interface CustomCategory {
   name: string;
@@ -128,13 +128,14 @@ export default function SettingsPage() {
   const userId = user!.id;
   const { settings: cloudSettings, connectToProvider, disconnectProvider, setPrimaryProvider, toggleAutoSync } = useCloudAuth(userId);
 
-  const [syncStatus, setSyncStatus] = useState(() => getCloudSyncSummary(cloudSettings.primaryProvider, userId));
-  const [syncQueue, setSyncQueue] = useState(() => getCloudSyncQueue(userId));
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [scanStats, setScanStats] = useState<ScanStats | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
 
   useEffect(() => {
     getAllReceipts(userId).then(rows => {
@@ -150,33 +151,17 @@ export default function SettingsPage() {
     });
   }, []);
 
-  useEffect(() => {
-    setSyncStatus(getCloudSyncSummary(cloudSettings.primaryProvider, userId));
-    setSyncQueue(getCloudSyncQueue(userId));
-
-    if (!cloudSettings.autoSync || !cloudSettings.primaryProvider) return;
-    if (cloudSettings.primaryProvider === 'google-drive' && !cloudSettings.googleDrive.connected) return;
-    if (cloudSettings.primaryProvider === 'dropbox' && !cloudSettings.dropbox.connected) return;
-
-    void backgroundSync(userId).then(() => {
-      setSyncStatus(getCloudSyncSummary(cloudSettings.primaryProvider, userId));
-      setSyncQueue(getCloudSyncQueue(userId));
-    });
-  }, [cloudSettings]);
-
   async function handleSyncNow() {
     if (!cloudSettings.primaryProvider) return;
     setIsSyncing(true);
+    setSyncResult(null);
     try {
-      await backgroundSync(userId);
-      setSyncStatus(getCloudSyncSummary(cloudSettings.primaryProvider, userId));
-      setSyncQueue(getCloudSyncQueue(userId));
+      const result = await backgroundSync(userId);
+      setSyncResult(result);
+      const rows = await getAllReceipts(userId);
+      setScanStats(prev => prev ? { ...prev, receiptCount: rows.length, totalScans: rows.length, successScans: rows.length } : prev);
     } catch (error) {
-      setSyncStatus(prev => ({
-        ...prev,
-        lastResult: 'Sync failed',
-        errorMessage: (error as Error).message,
-      }));
+      setSyncResult({ pushed: 0, pulled: 0, errors: [(error as Error).message] });
     } finally {
       setIsSyncing(false);
     }
@@ -187,11 +172,7 @@ export default function SettingsPage() {
     setRestoreResult(null);
     setRestoreError(null);
     try {
-      const existing = await getAllReceipts(userId);
-      const result = await restoreFromGoogleDrive(
-        existing.map(r => ({ storeName: r.storeName, receiptDate: r.receiptDate, total: r.total })),
-        userId
-      );
+      const result = await restoreFromGoogleDrive(null, userId);
       setRestoreResult(result);
       const rows = await getAllReceipts(userId);
       setScanStats(prev => prev ? { ...prev, receiptCount: rows.length, totalScans: rows.length, successScans: rows.length } : prev);
@@ -199,6 +180,19 @@ export default function SettingsPage() {
       setRestoreError((err as Error).message);
     } finally {
       setIsRestoring(false);
+    }
+  }
+
+  async function handleCleanupDuplicates() {
+    setIsCleaningUp(true);
+    setCleanupResult(null);
+    try {
+      const result = await cleanupDriveDuplicates(userId);
+      setCleanupResult(result);
+    } catch (err) {
+      setCleanupResult({ scanned: 0, deleted: 0, errors: [(err as Error).message] });
+    } finally {
+      setIsCleaningUp(false);
     }
   }
 
@@ -515,6 +509,31 @@ export default function SettingsPage() {
                     {restoreError}
                   </p>
                 )}
+
+                {/* One-time cleanup for legacy duplicate files */}
+                <div className="rounded-2xl border border-sb-border bg-sb-card p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-white text-sm">Clean up Drive duplicates</p>
+                      <p className="text-xs text-sb-muted">Remove duplicate receipt files created by earlier sync bugs. Run once.</p>
+                    </div>
+                    <button
+                      onClick={handleCleanupDuplicates}
+                      disabled={isCleaningUp}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition ${isCleaningUp ? 'bg-sb-border text-white cursor-not-allowed' : 'bg-sb-purple text-white'}`}
+                    >
+                      {isCleaningUp ? 'Cleaning…' : 'Clean up'}
+                    </button>
+                  </div>
+                  {cleanupResult && !isCleaningUp && (
+                    <p className="text-xs text-sb-green">
+                      {cleanupResult.deleted === 0
+                        ? `Scanned ${cleanupResult.scanned} files — no duplicates found.`
+                        : `Deleted ${cleanupResult.deleted} duplicate${cleanupResult.deleted !== 1 ? 's' : ''} from ${cleanupResult.scanned} files.`}
+                      {cleanupResult.errors.length > 0 && ` (${cleanupResult.errors.length} errors)`}
+                    </p>
+                  )}
+                </div>
               </div>
             )}
             <CloudRow
@@ -528,8 +547,8 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-sb-border bg-sb-card2 p-3 space-y-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-white text-sm">Sync status</p>
-                  <p className="text-xs text-sb-muted">Pending uploads and retry state for your selected cloud provider.</p>
+                  <p className="text-white text-sm">Sync</p>
+                  <p className="text-xs text-sb-muted">Push new receipts to Drive and pull any missing ones down.</p>
                 </div>
                 <button
                   onClick={handleSyncNow}
@@ -540,45 +559,20 @@ export default function SettingsPage() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="rounded-xl bg-sb-card px-3 py-2">
-                  <p className="text-sb-muted">Pending</p>
-                  <p className="text-white font-semibold">{syncStatus.pendingCount}</p>
-                </div>
-                <div className="rounded-xl bg-sb-card px-3 py-2">
-                  <p className="text-sb-muted">Failed</p>
-                  <p className="text-white font-semibold">{syncStatus.failedCount}</p>
-                </div>
-                <div className="rounded-xl bg-sb-card px-3 py-2">
-                  <p className="text-sb-muted">Last synced</p>
-                  <p className="text-white font-semibold">
-                    {syncStatus.lastRunAt ? new Date(syncStatus.lastRunAt).toLocaleString() : 'Never'}
-                  </p>
-                </div>
-              </div>
-
-              {syncStatus.lastResult && (
-                <p className="text-xs text-sb-muted">{syncStatus.lastResult}</p>
-              )}
-
-              {syncStatus.errorMessage && (
-                <p className="text-xs text-red-400">Error: {syncStatus.errorMessage}</p>
-              )}
-
-              {syncQueue.length > 0 && (
-                <div className="rounded-xl bg-sb-card px-3 py-3 text-xs space-y-2">
-                  <p className="text-sb-muted">Queued receipts ({syncQueue.length})</p>
-                  <div className="space-y-1">
-                    {syncQueue.slice(0, 3).map(item => (
-                      <div key={item.id} className="flex items-center justify-between gap-2">
-                        <span>{item.imageName.replace(/\.jpg$/i, '').replace(/_/g, ' ') || 'Receipt'}</span>
-                        <span className="text-sb-green">{item.provider === 'google-drive' ? 'Drive' : 'Dropbox'}</span>
-                      </div>
-                    ))}
-                    {syncQueue.length > 3 && (
-                      <p className="text-sb-muted">and {syncQueue.length - 3} more...</p>
-                    )}
-                  </div>
+              {syncResult && (
+                <div className="rounded-xl bg-sb-card px-3 py-2.5 text-xs space-y-1">
+                  {syncResult.errors.length === 0 ? (
+                    <p className="text-sb-green font-semibold">
+                      {syncResult.pushed === 0 && syncResult.pulled === 0
+                        ? 'Already up to date.'
+                        : `↑ ${syncResult.pushed} uploaded · ↓ ${syncResult.pulled} downloaded`}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-sb-green font-semibold">↑ {syncResult.pushed} uploaded · ↓ {syncResult.pulled} downloaded</p>
+                      <p className="text-red-400">{syncResult.errors[0]}</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>
