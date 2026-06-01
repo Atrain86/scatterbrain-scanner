@@ -1,6 +1,6 @@
 import type { CloudProvider, CloudProviderState, CloudSettings, CloudSyncQueueItem, Receipt } from '../utils/types';
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
-import { addReceipt } from './db';
+import { addReceipt, getAllReceipts } from './db';
 
 function syncQueueKey(userId?: string)  { return userId ? `sb_u${userId}_cloud_sync_queue`  : 'sb_cloud_sync_queue'; }
 function syncStatusKey(userId?: string) { return userId ? `sb_u${userId}_cloud_sync_status` : 'sb_cloud_sync_status'; }
@@ -442,6 +442,48 @@ export async function enqueueReceiptSync(receipt: Receipt, provider: CloudProvid
   queue.push(newItem);
   saveSyncQueue(queue, userId);
   return newItem;
+}
+
+// ── Background two-way sync ───────────────────────────────────────────────────
+// Called silently on app load and on window focus. Pushes all local receipts
+// to Drive then pulls any Drive receipts not yet in local DB.
+
+export async function backgroundSync(userId: string): Promise<void> {
+  const settings = loadCloudSettings(userId);
+  const provider = settings.primaryProvider;
+  if (!provider) return;
+
+  const providerState = settings[provider === 'google-drive' ? 'googleDrive' : 'dropbox'];
+  if (!providerState.connected) return;
+
+  try {
+    // Push: queue all local receipts, then upload
+    const allReceipts = await getAllReceipts(userId);
+    const existingQueue = loadSyncQueue(userId);
+    const queuedReceiptIds = new Set(existingQueue.map(q => q.receiptId));
+
+    for (const receipt of allReceipts) {
+      if (!queuedReceiptIds.has(receipt.id)) {
+        await enqueueReceiptSync(receipt, provider, userId);
+      }
+    }
+    await processCloudSyncQueue(userId);
+
+    // Pull: restore from Drive any receipts not already local
+    if (provider === 'google-drive') {
+      const existing = allReceipts.map(r => ({
+        storeName: r.storeName,
+        receiptDate: r.receiptDate,
+        total: r.total,
+      }));
+      const restoreResult = await restoreFromGoogleDrive(existing, userId);
+      if (restoreResult.imported > 0) {
+        window.dispatchEvent(new CustomEvent('receipts-updated'));
+      }
+    }
+  } catch (err) {
+    console.warn('[backgroundSync] error:', (err as Error).message);
+  }
 }
 
 export async function processCloudSyncQueue(userId?: string): Promise<CloudSyncSummary> {

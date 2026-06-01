@@ -27,6 +27,13 @@ export function useReceipts() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Reload when backgroundSync pulls new receipts from Drive
+  useEffect(() => {
+    const handler = () => { void load(); };
+    window.addEventListener('receipts-updated', handler);
+    return () => window.removeEventListener('receipts-updated', handler);
+  }, [load]);
+
   const remove = useCallback(async (id: number) => {
     await deleteReceipt(userId, id);
     setReceipts(prev => prev.filter(r => r.id !== id));

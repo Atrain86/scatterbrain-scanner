@@ -7,7 +7,7 @@ import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 import BottomNav from './components/BottomNav';
-import { processCloudSyncQueue } from './lib/cloudSync';
+import { backgroundSync } from './lib/cloudSync';
 import { loadCloudSettings, saveCloudSettings } from './hooks/useCloudAuth';
 import type { CloudProvider } from './utils/types';
 
@@ -71,8 +71,8 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     if (!user) return;
-    void processCloudSyncQueue(user.id);
-    const handleFocus = () => { void processCloudSyncQueue(user.id); };
+    void backgroundSync(user.id);
+    const handleFocus = () => { void backgroundSync(user.id); };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, [user]);
