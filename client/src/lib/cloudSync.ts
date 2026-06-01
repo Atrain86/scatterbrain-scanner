@@ -183,6 +183,18 @@ function buildDriveMultipartBody(fileBlob: Blob, fileName: string, description: 
   ]);
 }
 
+async function driveFileExists(accessToken: string, fileName: string, folderId: string): Promise<boolean> {
+  const query = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
+  const url = new URL('https://www.googleapis.com/drive/v3/files');
+  url.searchParams.set('q', query);
+  url.searchParams.set('fields', 'files(id)');
+  url.searchParams.set('pageSize', '1');
+  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return false;
+  const data = await res.json() as { files: { id: string }[] };
+  return data.files.length > 0;
+}
+
 async function uploadToGoogleDrive(
   accessToken: string,
   fileBlob: Blob,
@@ -190,6 +202,9 @@ async function uploadToGoogleDrive(
   description: string,
   folderId: string
 ) {
+  // Skip if already exists — prevents duplicates from retried syncs
+  if (await driveFileExists(accessToken, fileName, folderId)) return null;
+
   const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink';
   const body = buildDriveMultipartBody(fileBlob, fileName, description, folderId);
   const response = await fetch(uploadUrl, {
@@ -376,12 +391,19 @@ export async function restoreFromGoogleDrive(
   const accessToken = await ensureValidAccessToken(providerState, 'google-drive', userId);
   if (!accessToken) throw new Error('Unable to get a valid Google Drive access token. Try reconnecting.');
 
-  const jsonFiles = await listAllDriveReceiptJsons(accessToken);
+  const allJsonFiles = await listAllDriveReceiptJsons(accessToken);
+
+  // Deduplicate Drive results by filename — keep only the first occurrence of each name
+  const seenDriveNames = new Set<string>();
+  const jsonFiles = allJsonFiles.filter(f => {
+    if (seenDriveNames.has(f.name)) return false;
+    seenDriveNames.add(f.name);
+    return true;
+  });
 
   const result: RestoreResult = { imported: 0, skipped: 0, failed: 0, errors: [] };
 
   // Build a dedup set from filenames — format is YYYY-MM-DD_StoreName_$total.json
-  // This lets us skip downloads for receipts we already have locally.
   const existingKeys = new Set(
     existingReceipts.map(r => `${r.receiptDate}_${makeSafeFileName(r.storeName)}_$${r.total.toFixed(2)}`)
   );
