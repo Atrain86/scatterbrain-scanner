@@ -57,9 +57,7 @@ export interface CloudSyncQueueItem {
   id: string;
   provider: CloudProvider;
   receiptId: number;
-  imageUrl: string | null;
   imageName: string;
-  metadata: Record<string, any>;
   createdAt: number;
   attemptCount: number;
   lastError: string | null;

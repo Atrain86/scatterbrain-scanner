@@ -1,6 +1,6 @@
 import type { CloudProvider, CloudProviderState, CloudSettings, CloudSyncQueueItem, Receipt } from '../utils/types';
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
-import { addReceipt, getAllReceipts } from './db';
+import { addReceipt, getAllReceipts, getReceiptById } from './db';
 
 function syncQueueKey(userId?: string)    { return userId ? `sb_u${userId}_cloud_sync_queue`    : 'sb_cloud_sync_queue'; }
 function syncStatusKey(userId?: string)   { return userId ? `sb_u${userId}_cloud_sync_status`   : 'sb_cloud_sync_status'; }
@@ -40,7 +40,10 @@ function loadSyncQueue(userId?: string): CloudSyncQueueItem[] {
   try {
     const raw = localStorage.getItem(syncQueueKey(userId));
     if (!raw) return [];
-    return JSON.parse(raw) as CloudSyncQueueItem[];
+    const items = JSON.parse(raw) as (CloudSyncQueueItem & { imageUrl?: unknown; metadata?: unknown })[];
+    // Strip legacy heavy fields (imageUrl, metadata) that bloated localStorage
+    const cleaned = items.map(({ imageUrl: _i, metadata: _m, ...rest }) => rest as CloudSyncQueueItem);
+    return cleaned;
   } catch { return []; }
 }
 
@@ -451,20 +454,17 @@ export function getCloudSyncSummary(provider?: CloudProvider | null, userId?: st
 }
 
 export async function enqueueReceiptSync(receipt: Receipt, provider: CloudProvider, userId?: string) {
-  const year = (receipt.receiptDate || '').slice(0, 4) || String(new Date().getFullYear());
   const safeStore = makeSafeFileName(receipt.storeName || 'receipt');
   const safeDate = receipt.receiptDate || new Date().toISOString().slice(0, 10);
   const safeTotal = receipt.total.toFixed(2);
-  const baseName = `${safeDate}_${safeStore}_$${safeTotal}`;
-  const imageName = makeSafeFileName(`${baseName}.jpg`);
+  const imageName = makeSafeFileName(`${safeDate}_${safeStore}_$${safeTotal}.jpg`);
 
+  // Only store lightweight identifiers — image and metadata fetched from IndexedDB at upload time
   const newItem: CloudSyncQueueItem = {
     id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     provider,
     receiptId: receipt.id,
-    imageUrl: receipt.imageUrl,
     imageName,
-    metadata: getReceiptMetadata(receipt),
     createdAt: Date.now(),
     attemptCount: 0,
     lastError: null,
@@ -580,30 +580,36 @@ export async function processCloudSyncQueue(userId?: string): Promise<CloudSyncS
   let lastError: string | null = null;
 
   for (const item of relevantQueue) {
-    const meta = item.metadata;
-    const year = (meta.receiptDate || '').slice(0, 4) || String(new Date().getFullYear());
-    const category = meta.category || 'Other';
-    const fileDescription = `Receipt from ${meta.storeName} on ${meta.receiptDate}`;
-
     try {
+      // Fetch receipt fresh from IndexedDB — don't store heavy data in localStorage queue
+      const receipt = userId ? await getReceiptById(userId, item.receiptId) : undefined;
+      if (!receipt) {
+        // Receipt was deleted — remove from queue silently
+        const index = nextQueue.findIndex(q => q.id === item.id);
+        if (index >= 0) nextQueue.splice(index, 1);
+        markUploaded(item.receiptId, userId);
+        continue;
+      }
+
+      const meta = getReceiptMetadata(receipt);
+      const year = (receipt.receiptDate || '').slice(0, 4) || String(new Date().getFullYear());
+      const category = receipt.category || 'Other';
+      const fileDescription = `Receipt from ${receipt.storeName} on ${receipt.receiptDate}`;
+
       if (activeProvider === 'google-drive') {
-        // Ensure the folder structure exists, get the target folder ID
         const folderId = await ensureReceiptFolder(accessToken, year, category);
 
-        // Upload image
-        const fileBlob = await loadImageBlob(item.imageUrl);
+        const fileBlob = await loadImageBlob(receipt.imageUrl);
         if (fileBlob) {
           await uploadToGoogleDrive(accessToken, fileBlob, item.imageName, fileDescription, folderId);
         }
 
-        // Upload JSON metadata sidecar (needed for restore)
         const metadataBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
         const metadataName = item.imageName.replace(/\.[^.]+$/, '') + '.json';
         await uploadToGoogleDrive(accessToken, metadataBlob, metadataName, fileDescription, folderId);
 
       } else {
-        // Dropbox — folder path is built into the upload path
-        const fileBlob = await loadImageBlob(item.imageUrl);
+        const fileBlob = await loadImageBlob(receipt.imageUrl);
         if (fileBlob) {
           await uploadToDropbox(accessToken, fileBlob, item.imageName, year, category);
         }

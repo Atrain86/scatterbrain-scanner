@@ -8,7 +8,7 @@ import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.7.4';
+export const APP_VERSION = '0.7.5';
 
 interface CustomCategory {
   name: string;
@@ -576,7 +576,7 @@ export default function SettingsPage() {
                   <div className="space-y-1">
                     {syncQueue.slice(0, 3).map(item => (
                       <div key={item.id} className="flex items-center justify-between gap-2">
-                        <span>{item.metadata.storeName || 'Receipt'} </span>
+                        <span>{item.imageName.replace(/\.jpg$/i, '').replace(/_/g, ' ') || 'Receipt'}</span>
                         <span className="text-sb-green">{item.provider === 'google-drive' ? 'Drive' : 'Dropbox'}</span>
                       </div>
                     ))}
