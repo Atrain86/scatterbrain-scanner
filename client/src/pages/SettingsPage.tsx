@@ -3,12 +3,12 @@ import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, Chev
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
-import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue, enqueueReceiptSync, restoreFromGoogleDrive, type RestoreResult } from '../lib/cloudSync';
+import { getCloudSyncQueue, getCloudSyncSummary, backgroundSync, restoreFromGoogleDrive, type RestoreResult } from '../lib/cloudSync';
 import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.7.5';
+export const APP_VERSION = '0.7.6';
 
 interface CustomCategory {
   name: string;
@@ -158,8 +158,8 @@ export default function SettingsPage() {
     if (cloudSettings.primaryProvider === 'google-drive' && !cloudSettings.googleDrive.connected) return;
     if (cloudSettings.primaryProvider === 'dropbox' && !cloudSettings.dropbox.connected) return;
 
-    void processCloudSyncQueue(userId).then(status => {
-      setSyncStatus(status);
+    void backgroundSync(userId).then(() => {
+      setSyncStatus(getCloudSyncSummary(cloudSettings.primaryProvider, userId));
       setSyncQueue(getCloudSyncQueue(userId));
     });
   }, [cloudSettings]);
@@ -168,13 +168,8 @@ export default function SettingsPage() {
     if (!cloudSettings.primaryProvider) return;
     setIsSyncing(true);
     try {
-      // Always queue all local receipts before syncing
-      const allReceipts = await getAllReceipts(userId);
-      for (const receipt of allReceipts) {
-        await enqueueReceiptSync(receipt, cloudSettings.primaryProvider, userId);
-      }
-      const status = await processCloudSyncQueue(userId);
-      setSyncStatus(status);
+      await backgroundSync(userId);
+      setSyncStatus(getCloudSyncSummary(cloudSettings.primaryProvider, userId));
       setSyncQueue(getCloudSyncQueue(userId));
     } catch (error) {
       setSyncStatus(prev => ({
