@@ -1,6 +1,6 @@
 import type { CloudProvider, CloudProviderState, CloudSettings, Receipt } from '../utils/types';
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
-import { addReceipt, getAllReceipts, getReceiptByUuid } from './db';
+import { addReceipt, getAllReceipts } from './db';
 
 // ── Token management ──────────────────────────────────────────────────────────
 
@@ -202,9 +202,6 @@ async function pushReceiptToDrive(receipt: Receipt, accessToken: string): Promis
   const folderId = await getReceiptsFolderId(accessToken);
   const jsonName = `${receipt.uuid}.json`;
 
-  // Skip if already on Drive
-  if (await driveFileExists(accessToken, jsonName, folderId)) return;
-
   // Upload JSON metadata
   const meta = {
     uuid:         receipt.uuid,
@@ -233,59 +230,6 @@ async function pushReceiptToDrive(receipt: Receipt, accessToken: string): Promis
   }
 }
 
-// ── Core sync: pull receipts from Drive that are missing locally ──────────────
-
-async function pullFromDrive(
-  accessToken: string,
-  userId: string
-): Promise<{ imported: number; errors: string[] }> {
-  const folderId = await getReceiptsFolderId(accessToken);
-  const driveFiles = await listDriveJsonFiles(accessToken, folderId);
-
-  const result = { imported: 0, errors: [] as string[] };
-
-  for (const file of driveFiles) {
-    // Filename must be a UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.json
-    const uuidMatch = file.name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i);
-    if (!uuidMatch) continue;
-    const uuid = uuidMatch[1];
-
-    // Skip if already in local DB
-    const existing = await getReceiptByUuid(userId, uuid);
-    if (existing) continue;
-
-    try {
-      const text = await downloadDriveFile(accessToken, file.id);
-      const meta = JSON.parse(text) as Record<string, unknown>;
-      const now = new Date().toISOString();
-
-      await addReceipt(userId, {
-        uuid:         uuid,
-        storeName:    String(meta.storeName    ?? ''),
-        receiptDate:  String(meta.receiptDate  ?? now.slice(0, 10)),
-        subtotal:     Number(meta.subtotal     ?? 0),
-        taxAmount:    Number(meta.taxAmount    ?? 0),
-        total:        Number(meta.total        ?? 0),
-        category:     String(meta.category     ?? 'Other'),
-        clientName:   meta.clientName != null ? String(meta.clientName) : null,
-        lineItems:    typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
-        rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
-        taxLines:     typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
-        imagePath:    null,
-        imageUrl:     meta.imageUrl != null ? String(meta.imageUrl) : null,
-        notes:        meta.notes    != null ? String(meta.notes)    : null,
-        createdAt:    String(meta.createdAt ?? now),
-        updatedAt:    String(meta.updatedAt ?? now),
-      });
-      result.imported += 1;
-    } catch (err) {
-      result.errors.push(`${uuid}: ${(err as Error).message}`);
-    }
-  }
-
-  return result;
-}
-
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export interface SyncResult {
@@ -295,6 +239,7 @@ export interface SyncResult {
 }
 
 // Called silently on app load, window focus, and after every save.
+// Uses a single Drive file list for both push and pull — avoids per-receipt API calls.
 export async function backgroundSync(userId: string): Promise<SyncResult> {
   const result: SyncResult = { pushed: 0, pulled: 0, errors: [] };
   const settings = loadCloudSettings(userId);
@@ -307,38 +252,81 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
   const accessToken = await ensureValidAccessToken(providerState, provider, userId);
   if (!accessToken) return result;
 
-  // Only Google Drive supports pull — Dropbox is push-only for now
-  if (provider === 'google-drive') {
-    try {
-      const allReceipts = await getAllReceipts(userId);
+  if (provider !== 'google-drive') return result;
 
-      // Push all local receipts missing from Drive
-      for (const receipt of allReceipts) {
-        try {
-          await pushReceiptToDrive(receipt, accessToken);
-          result.pushed += 1;
-        } catch (err) {
-          result.errors.push(`push ${receipt.uuid}: ${(err as Error).message}`);
-        }
-      }
+  try {
+    const folderId = await getReceiptsFolderId(accessToken);
 
-      // Pull any Drive receipts missing locally
-      const pullResult = await pullFromDrive(accessToken, userId);
-      result.pulled = pullResult.imported;
-      result.errors.push(...pullResult.errors);
-
-      if (pullResult.imported > 0) {
-        window.dispatchEvent(new CustomEvent('receipts-updated'));
-      }
-    } catch (err) {
-      result.errors.push((err as Error).message);
+    // ONE Drive list call — builds set of all UUIDs already on Drive
+    const driveFiles = await listDriveJsonFiles(accessToken, folderId);
+    const driveUuids = new Set<string>();
+    for (const f of driveFiles) {
+      const m = f.name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i);
+      if (m) driveUuids.add(m[1].toLowerCase());
     }
+
+    const allReceipts = await getAllReceipts(userId);
+    const localUuids = new Set(allReceipts.map(r => r.uuid?.toLowerCase()).filter(Boolean));
+
+    // Push: local receipts whose UUID is not on Drive
+    for (const receipt of allReceipts) {
+      if (!receipt.uuid || driveUuids.has(receipt.uuid.toLowerCase())) continue;
+      try {
+        await pushReceiptToDrive(receipt, accessToken);
+        driveUuids.add(receipt.uuid.toLowerCase()); // prevent re-upload in same run
+        result.pushed += 1;
+      } catch (err) {
+        result.errors.push(`push ${receipt.uuid}: ${(err as Error).message}`);
+      }
+    }
+
+    // Pull: Drive UUIDs not in local DB
+    for (const file of driveFiles) {
+      const m = file.name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i);
+      if (!m) continue;
+      const uuid = m[1].toLowerCase();
+      if (localUuids.has(uuid)) continue;
+
+      try {
+        const text = await downloadDriveFile(accessToken, file.id);
+        const meta = JSON.parse(text) as Record<string, unknown>;
+        const now = new Date().toISOString();
+        await addReceipt(userId, {
+          uuid,
+          storeName:    String(meta.storeName    ?? ''),
+          receiptDate:  String(meta.receiptDate  ?? now.slice(0, 10)),
+          subtotal:     Number(meta.subtotal     ?? 0),
+          taxAmount:    Number(meta.taxAmount    ?? 0),
+          total:        Number(meta.total        ?? 0),
+          category:     String(meta.category     ?? 'Other'),
+          clientName:   meta.clientName != null ? String(meta.clientName) : null,
+          lineItems:    typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
+          rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
+          taxLines:     typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
+          imagePath:    null,
+          imageUrl:     meta.imageUrl != null ? String(meta.imageUrl) : null,
+          notes:        meta.notes    != null ? String(meta.notes)    : null,
+          createdAt:    String(meta.createdAt ?? now),
+          updatedAt:    String(meta.updatedAt ?? now),
+        });
+        localUuids.add(uuid);
+        result.pulled += 1;
+      } catch (err) {
+        result.errors.push(`pull ${uuid}: ${(err as Error).message}`);
+      }
+    }
+
+    if (result.pulled > 0) {
+      window.dispatchEvent(new CustomEvent('receipts-updated'));
+    }
+  } catch (err) {
+    result.errors.push((err as Error).message);
   }
 
   return result;
 }
 
-// Push a single receipt immediately after save — fast path, no full scan
+// Push a single receipt immediately after save — fast path, called from ScanModal
 export async function pushReceiptNow(receipt: Receipt, userId: string): Promise<void> {
   const settings = loadCloudSettings(userId);
   const provider = settings.primaryProvider;
@@ -351,6 +339,9 @@ export async function pushReceiptNow(receipt: Receipt, userId: string): Promise<
   if (!accessToken) return;
 
   if (provider === 'google-drive') {
+    const folderId = await getReceiptsFolderId(accessToken);
+    // Check existence before uploading — prevents double-upload on rapid re-save
+    if (await driveFileExists(accessToken, `${receipt.uuid}.json`, folderId)) return;
     await pushReceiptToDrive(receipt, accessToken);
   }
 }
@@ -437,12 +428,6 @@ export async function restoreFromGoogleDrive(
   userId?: string
 ): Promise<RestoreResult> {
   if (!userId) return { imported: 0, skipped: 0, failed: 0, errors: ['No userId'] };
-  const settings = loadCloudSettings(userId);
-  const providerState = settings.googleDrive;
-  if (!providerState.connected) throw new Error('Google Drive is not connected.');
-  const accessToken = await ensureValidAccessToken(providerState, 'google-drive', userId);
-  if (!accessToken) throw new Error('Unable to get a valid Google Drive access token. Try reconnecting.');
-  const pullResult = await pullFromDrive(accessToken, userId);
-  if (pullResult.imported > 0) window.dispatchEvent(new CustomEvent('receipts-updated'));
-  return { imported: pullResult.imported, skipped: 0, failed: pullResult.errors.length, errors: pullResult.errors };
+  const syncResult = await backgroundSync(userId);
+  return { imported: syncResult.pulled, skipped: 0, failed: syncResult.errors.length, errors: syncResult.errors };
 }
