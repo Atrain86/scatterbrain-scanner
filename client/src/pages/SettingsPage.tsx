@@ -3,12 +3,12 @@ import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, Chev
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
-import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue, restoreFromGoogleDrive, type RestoreResult } from '../lib/cloudSync';
+import { getCloudSyncQueue, getCloudSyncSummary, processCloudSyncQueue, enqueueReceiptSync, restoreFromGoogleDrive, type RestoreResult } from '../lib/cloudSync';
 import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.7.0';
+export const APP_VERSION = '0.7.1';
 
 interface CustomCategory {
   name: string;
@@ -165,15 +165,21 @@ export default function SettingsPage() {
   }, [cloudSettings]);
 
   async function handleSyncNow() {
+    if (!cloudSettings.primaryProvider) return;
     setIsSyncing(true);
     try {
+      // Always queue all local receipts before syncing
+      const allReceipts = await getAllReceipts(userId);
+      for (const receipt of allReceipts) {
+        await enqueueReceiptSync(receipt, cloudSettings.primaryProvider, userId);
+      }
       const status = await processCloudSyncQueue(userId);
       setSyncStatus(status);
       setSyncQueue(getCloudSyncQueue(userId));
     } catch (error) {
       setSyncStatus(prev => ({
         ...prev,
-        lastResult: 'Manual sync failed',
+        lastResult: 'Sync failed',
         errorMessage: (error as Error).message,
       }));
     } finally {
