@@ -2,8 +2,23 @@ import type { CloudProvider, CloudProviderState, CloudSettings, CloudSyncQueueIt
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
 import { addReceipt, getAllReceipts } from './db';
 
-function syncQueueKey(userId?: string)  { return userId ? `sb_u${userId}_cloud_sync_queue`  : 'sb_cloud_sync_queue'; }
-function syncStatusKey(userId?: string) { return userId ? `sb_u${userId}_cloud_sync_status` : 'sb_cloud_sync_status'; }
+function syncQueueKey(userId?: string)    { return userId ? `sb_u${userId}_cloud_sync_queue`    : 'sb_cloud_sync_queue'; }
+function syncStatusKey(userId?: string)   { return userId ? `sb_u${userId}_cloud_sync_status`   : 'sb_cloud_sync_status'; }
+function syncUploadedKey(userId?: string) { return userId ? `sb_u${userId}_cloud_sync_uploaded` : 'sb_cloud_sync_uploaded'; }
+
+function loadUploadedIds(userId?: string): Set<number> {
+  try {
+    const raw = localStorage.getItem(syncUploadedKey(userId));
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw) as number[]);
+  } catch { return new Set(); }
+}
+
+function markUploaded(receiptId: number, userId?: string) {
+  const set = loadUploadedIds(userId);
+  set.add(receiptId);
+  localStorage.setItem(syncUploadedKey(userId), JSON.stringify([...set]));
+}
 
 interface CloudSyncStatus {
   lastRunAt: number | null;
@@ -84,9 +99,13 @@ function decodeDataUri(dataUri: string): Blob {
 async function loadImageBlob(imageUrl: string | null): Promise<Blob | null> {
   if (!imageUrl) return null;
   if (imageUrl.startsWith('data:')) return decodeDataUri(imageUrl);
-  const response = await fetch(imageUrl);
-  if (!response.ok) throw new Error('Failed to fetch receipt image for cloud upload');
-  return await response.blob();
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) return null;
+    return await response.blob();
+  } catch {
+    return null;
+  }
 }
 
 // ── Google Drive folder helpers ───────────────────────────────────────────────
@@ -457,13 +476,14 @@ export async function backgroundSync(userId: string): Promise<void> {
   if (!providerState.connected) return;
 
   try {
-    // Push: queue all local receipts, then upload
+    // Push: queue all local receipts not yet uploaded or queued
     const allReceipts = await getAllReceipts(userId);
     const existingQueue = loadSyncQueue(userId);
     const queuedReceiptIds = new Set(existingQueue.map(q => q.receiptId));
+    const uploadedIds = loadUploadedIds(userId);
 
     for (const receipt of allReceipts) {
-      if (!queuedReceiptIds.has(receipt.id)) {
+      if (!queuedReceiptIds.has(receipt.id) && !uploadedIds.has(receipt.id)) {
         await enqueueReceiptSync(receipt, provider, userId);
       }
     }
@@ -577,6 +597,7 @@ export async function processCloudSyncQueue(userId?: string): Promise<CloudSyncS
 
       const index = nextQueue.findIndex(q => q.id === item.id);
       if (index >= 0) nextQueue.splice(index, 1);
+      markUploaded(item.receiptId, userId);
       processedCount += 1;
 
     } catch (error) {
