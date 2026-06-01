@@ -262,7 +262,7 @@ function normalizeProviderState(state: CloudProviderState, payload: Record<strin
   };
 }
 
-async function ensureValidAccessToken(providerState: CloudProviderState, provider: CloudProvider) {
+async function ensureValidAccessToken(providerState: CloudProviderState, provider: CloudProvider, userId?: string) {
   const now = Date.now();
   if (providerState.accessToken && providerState.expiresAt && providerState.expiresAt > now + 5000) {
     return providerState.accessToken;
@@ -273,13 +273,17 @@ async function ensureValidAccessToken(providerState: CloudProviderState, provide
     ? await refreshGoogleAccessToken(providerState.refreshToken)
     : await refreshDropboxAccessToken(providerState.refreshToken);
 
-  const settings = loadCloudSettings();
   const nextProviderState = normalizeProviderState(providerState, payload);
-  const nextSettings: CloudSettings = {
-    ...settings,
-    [provider === 'google-drive' ? 'googleDrive' : 'dropbox']: nextProviderState,
-  } as CloudSettings;
-  saveCloudSettings(nextSettings);
+  const providerKey = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
+
+  // Save to user-namespaced key (and unnamespaced fallback) so future calls get the fresh token
+  const userSettings = loadCloudSettings(userId);
+  saveCloudSettings({ ...userSettings, [providerKey]: nextProviderState } as CloudSettings, userId);
+  if (userId) {
+    const fallbackSettings = loadCloudSettings(undefined);
+    saveCloudSettings({ ...fallbackSettings, [providerKey]: nextProviderState } as CloudSettings, undefined);
+  }
+
   return nextProviderState.accessToken;
 }
 
@@ -369,7 +373,7 @@ export async function restoreFromGoogleDrive(
 
   if (!providerState.connected) throw new Error('Google Drive is not connected.');
 
-  const accessToken = await ensureValidAccessToken(providerState, 'google-drive');
+  const accessToken = await ensureValidAccessToken(providerState, 'google-drive', userId);
   if (!accessToken) throw new Error('Unable to get a valid Google Drive access token. Try reconnecting.');
 
   const jsonFiles = await listAllDriveReceiptJsons(accessToken);
@@ -561,7 +565,7 @@ export async function processCloudSyncQueue(userId?: string): Promise<CloudSyncS
     };
   }
 
-  const accessToken = await ensureValidAccessToken(providerState, activeProvider);
+  const accessToken = await ensureValidAccessToken(providerState, activeProvider, userId);
   if (!accessToken) {
     saveSyncStatus(status, userId);
     return {
