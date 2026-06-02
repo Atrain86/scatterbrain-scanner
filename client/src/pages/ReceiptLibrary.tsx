@@ -138,9 +138,9 @@ export default function ReceiptLibrary() {
     await update(id, updates);
   }
 
-  const enterSelectMode = useCallback((id: number) => {
+  const enterSelectMode = useCallback(() => {
     setSelectMode(true);
-    setSelectedIds(new Set([id]));
+    setSelectedIds(new Set());
   }, []);
 
   const toggleSelect = useCallback((id: number) => {
@@ -220,7 +220,7 @@ export default function ReceiptLibrary() {
             ) : (
               filtered.map(r => (
                 <ReceiptCard key={r.id} receipt={r} onDelete={onDelete} onUpdateCategory={onUpdateCategory} onReEdit={onReEdit}
-                  selectMode={selectMode} selected={selectedIds.has(r.id)} onToggleSelect={toggleSelect} onLongPress={enterSelectMode} />
+                  selectMode={selectMode} selected={selectedIds.has(r.id)} onToggleSelect={toggleSelect} />
               ))
             )}
           </div>
@@ -257,7 +257,7 @@ export default function ReceiptLibrary() {
                 selectMode={selectMode}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
-                onLongPress={enterSelectMode}
+                onEnterSelectMode={enterSelectMode}
               />
             ))}
 
@@ -428,26 +428,36 @@ interface MonthGroupProps {
   selectMode?: boolean;
   selectedIds?: Set<number>;
   onToggleSelect?: (id: number) => void;
-  onLongPress?: (id: number) => void;
+  onEnterSelectMode?: () => void;
 }
 
-function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit, selectMode, selectedIds, onToggleSelect, onLongPress }: MonthGroupProps) {
+function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit, selectMode, selectedIds, onToggleSelect, onEnterSelectMode }: MonthGroupProps) {
   const total = receipts.reduce((s, r) => s + r.total, 0);
   return (
     <div className="mb-1">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-white/5 transition active:bg-white/10"
-      >
-        <span className="text-sb-muted" style={{ width: 14 }}>
-          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-        </span>
-        <span className="flex-1 text-white text-sm font-semibold text-left">{label}</span>
-        <span className="text-[10px] px-2 py-0.5 rounded-full bg-sb-card border border-sb-border text-sb-muted mr-1">
-          {receipts.length} receipt{receipts.length !== 1 ? 's' : ''}
-        </span>
-        <span className="text-sb-green text-sm font-bold">${total.toFixed(2)}</span>
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={onToggle}
+          className="flex-1 flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-white/5 transition active:bg-white/10"
+        >
+          <span className="text-sb-muted" style={{ width: 14 }}>
+            {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          </span>
+          <span className="flex-1 text-white text-sm font-semibold text-left">{label}</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-sb-card border border-sb-border text-sb-muted mr-1">
+            {receipts.length} receipt{receipts.length !== 1 ? 's' : ''}
+          </span>
+          <span className="text-sb-green text-sm font-bold">${total.toFixed(2)}</span>
+        </button>
+        {!selectMode && onEnterSelectMode && (
+          <button
+            onClick={onEnterSelectMode}
+            className="px-2.5 py-1 rounded-lg text-[11px] text-sb-muted hover:text-white border border-transparent hover:border-sb-border transition flex-shrink-0"
+          >
+            Select
+          </button>
+        )}
+      </div>
       {!collapsed && (
         <div className="space-y-1.5 pl-1 animate-fade-in">
           {receipts.map(r => (
@@ -460,7 +470,6 @@ function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCa
               selectMode={selectMode}
               selected={selectedIds?.has(r.id)}
               onToggleSelect={onToggleSelect}
-              onLongPress={onLongPress}
             />
           ))}
         </div>
