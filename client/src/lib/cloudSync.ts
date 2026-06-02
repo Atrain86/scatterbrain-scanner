@@ -104,47 +104,77 @@ async function getReceiptsFolderId(accessToken: string): Promise<string> {
 
 // ── Drive file operations ─────────────────────────────────────────────────────
 
-async function driveFileExists(accessToken: string, fileName: string, folderId: string): Promise<boolean> {
+async function findDriveFileId(accessToken: string, fileName: string, folderId: string): Promise<string | null> {
   const query = `name='${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed=false`;
   const url = new URL('https://www.googleapis.com/drive/v3/files');
   url.searchParams.set('q', query);
   url.searchParams.set('fields', 'files(id)');
   url.searchParams.set('pageSize', '1');
   const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) return false;
+  if (!res.ok) return null;
   const data = await res.json() as { files: { id: string }[] };
-  return data.files.length > 0;
+  return data.files[0]?.id ?? null;
 }
 
 async function uploadFileToDrive(
   accessToken: string,
   fileBlob: Blob,
   fileName: string,
-  folderId: string
+  folderId: string,
+  existingFileId?: string | null,
 ): Promise<void> {
   const boundary = '-------314159265358979323846';
-  const metadata = { name: fileName, mimeType: fileBlob.type || 'application/octet-stream', parents: [folderId] };
-  const body = new Blob([
-    `--${boundary}\r\n`,
-    'Content-Type: application/json; charset=UTF-8\r\n\r\n',
-    JSON.stringify(metadata),
-    `\r\n--${boundary}\r\n`,
-    `Content-Type: ${fileBlob.type || 'application/octet-stream'}\r\n\r\n`,
-    fileBlob,
-    `\r\n--${boundary}--`,
-  ]);
-  const res = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': `multipart/related; boundary=${boundary}`,
-      },
-      body,
-    }
-  );
-  if (!res.ok) throw new Error(`Drive upload failed: ${await res.text()}`);
+  const mimeType = fileBlob.type || 'application/octet-stream';
+
+  if (existingFileId) {
+    // PATCH existing file — do not include parents in metadata
+    const metadata = { name: fileName, mimeType };
+    const body = new Blob([
+      `--${boundary}\r\n`,
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n',
+      JSON.stringify(metadata),
+      `\r\n--${boundary}\r\n`,
+      `Content-Type: ${mimeType}\r\n\r\n`,
+      fileBlob,
+      `\r\n--${boundary}--`,
+    ]);
+    const res = await fetch(
+      `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart&fields=id`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      }
+    );
+    if (!res.ok) throw new Error(`Drive update failed: ${await res.text()}`);
+  } else {
+    // POST new file
+    const metadata = { name: fileName, mimeType, parents: [folderId] };
+    const body = new Blob([
+      `--${boundary}\r\n`,
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n',
+      JSON.stringify(metadata),
+      `\r\n--${boundary}\r\n`,
+      `Content-Type: ${mimeType}\r\n\r\n`,
+      fileBlob,
+      `\r\n--${boundary}--`,
+    ]);
+    const res = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+        },
+        body,
+      }
+    );
+    if (!res.ok) throw new Error(`Drive upload failed: ${await res.text()}`);
+  }
 }
 
 async function deleteDriveFileById(accessToken: string, fileId: string): Promise<void> {
@@ -223,7 +253,12 @@ async function pushReceiptToDrive(receipt: Receipt, accessToken: string): Promis
   const folderId = await getReceiptsFolderId(accessToken);
   const jsonName = `${receipt.uuid}.json`;
 
-  // Upload JSON metadata
+  // Find existing file IDs so we PATCH instead of POST (avoids duplicates, preserves edits)
+  const [existingJsonId, existingImgId] = await Promise.all([
+    findDriveFileId(accessToken, jsonName, folderId),
+    findDriveFileId(accessToken, `${receipt.uuid}.jpg`, folderId),
+  ]);
+
   const meta = {
     uuid:         receipt.uuid,
     storeName:    receipt.storeName,
@@ -242,12 +277,12 @@ async function pushReceiptToDrive(receipt: Receipt, accessToken: string): Promis
     updatedAt:    receipt.updatedAt,
   };
   const jsonBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
-  await uploadFileToDrive(accessToken, jsonBlob, jsonName, folderId);
+  await uploadFileToDrive(accessToken, jsonBlob, jsonName, folderId, existingJsonId);
 
-  // Upload image (best-effort — don't fail sync if image can't be loaded)
+  // Upload image (best-effort)
   const imgBlob = await loadImageBlob(receipt.imageUrl);
   if (imgBlob) {
-    await uploadFileToDrive(accessToken, imgBlob, `${receipt.uuid}.jpg`, folderId);
+    await uploadFileToDrive(accessToken, imgBlob, `${receipt.uuid}.jpg`, folderId, existingImgId);
   }
 }
 
@@ -396,9 +431,6 @@ export async function pushReceiptNow(receipt: Receipt, userId: string): Promise<
   if (!accessToken) return;
 
   if (provider === 'google-drive') {
-    const folderId = await getReceiptsFolderId(accessToken);
-    // Check existence before uploading — prevents double-upload on rapid re-save
-    if (await driveFileExists(accessToken, `${receipt.uuid}.json`, folderId)) return;
     await pushReceiptToDrive(receipt, accessToken);
   }
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getAllReceipts, deleteReceipt, updateReceipt } from '../lib/db';
-import { deleteReceiptFromDrive } from '../lib/cloudSync';
+import { deleteReceiptFromDrive, pushReceiptNow } from '../lib/cloudSync';
 import { useAuth } from '../contexts/AuthContext';
 import type { Receipt } from '../utils/types';
 
@@ -46,6 +46,8 @@ export function useReceipts() {
   const update = useCallback(async (id: number, changes: Partial<Receipt>) => {
     const updated = await updateReceipt(userId, id, changes);
     setReceipts(prev => prev.map(r => r.id === id ? updated : r));
+    // Push edit to Drive immediately so other devices see the updated version
+    void pushReceiptNow(updated, userId);
     return updated;
   }, [userId]);
 
