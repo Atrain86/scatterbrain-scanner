@@ -36,9 +36,9 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const [expanded,         setExpanded]         = useState(false);
   const [editingStore,     setEditingStore]     = useState(false);
   const [editStore,        setEditStore]        = useState(receipt.storeName);
+  const [editingItems,     setEditingItems]     = useState(false);
   const [imgFullscreen,    setImgFullscreen]    = useState(false);
   const [shareOpen,        setShareOpen]        = useState(false);
-  const [reEditOpen,       setReEditOpen]       = useState(false);
   const [confirmDelete,    setConfirmDelete]    = useState(false);
   const [showCatPicker,    setShowCatPicker]    = useState(false);
   const [showClientPicker, setShowClientPicker] = useState(false);
@@ -46,16 +46,31 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const [newClientInput,   setNewClientInput]   = useState('');
   const [newCatInput,      setNewCatInput]      = useState('');
 
+  // Inline item editing — tracks which product item indices are selected
+  const allLineItems: { description: string; amount: number }[] = receipt.lineItems
+    ? JSON.parse(receipt.lineItems) : [];
+  const [checkedItems, setCheckedItems] = useState<Set<number>>(() => {
+    // Initially: all non-tax items that are in the saved lineItems are checked
+    const saved: { description: string; amount: number }[] = receipt.lineItems
+      ? JSON.parse(receipt.lineItems) : [];
+    const savedDescs = new Set(saved.filter(i => !isTaxLine(i.description)).map(i => i.description));
+    const s = new Set<number>();
+    allLineItems.forEach((item, i) => {
+      if (!isTaxLine(item.description) && savedDescs.has(item.description)) s.add(i);
+    });
+    return s;
+  });
+
   const catPickerRef    = useRef<HTMLDivElement>(null);
   const clientPickerRef = useRef<HTMLDivElement>(null);
   const storeInputRef   = useRef<HTMLInputElement>(null);
 
-  const catColor = getCategoryColorDynamic(receipt.category, userId);
+  const catColor     = getCategoryColorDynamic(receipt.category, userId);
+  const productItems = allLineItems.filter(i => !isTaxLine(i.description));
+  const taxItems     = allLineItems.filter(i =>  isTaxLine(i.description));
 
-  const lineItems: { description: string; amount: number }[] = receipt.lineItems
-    ? JSON.parse(receipt.lineItems) : [];
-  const productItems = lineItems.filter(i => !isTaxLine(i.description));
-  const taxItems     = lineItems.filter(i =>  isTaxLine(i.description));
+  // Live totals while editing items
+  const liveTotals = computeReceiptTotals(allLineItems, checkedItems);
 
   const dateDisplay = new Date(receipt.receiptDate + 'T00:00:00').toLocaleDateString('en-CA', {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -144,6 +159,23 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     pickClient(trimmed);
   }
 
+  function saveItems() {
+    const selectedProducts = allLineItems.filter((item, i) =>
+      !isTaxLine(item.description) && checkedItems.has(i)
+    );
+    onReEdit(receipt.id, {
+      storeName:   receipt.storeName,
+      lineItems:   JSON.stringify([...selectedProducts, ...taxItems]),
+      taxLines:    JSON.stringify(liveTotals.proportionalTaxes),
+      subtotal:    liveTotals.selectedSubtotal,
+      taxAmount:   liveTotals.totalTax,
+      total:       liveTotals.total,
+      clientName:  receipt.clientName,
+      category:    receipt.category,
+    });
+    setEditingItems(false);
+  }
+
   return (
     <>
       <div className={`bg-sb-card rounded-xl border transition-colors ${selected ? 'border-sb-green' : 'border-sb-border'} overflow-visible`}>
@@ -223,13 +255,13 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
         {expanded && (
           <div className="border-t border-sb-border animate-fade-in" onClick={e => e.stopPropagation()}>
 
-            {/* ── Header ── */}
-            <div className="px-3 pt-3 pb-2.5 space-y-1.5">
+            {/* ── Single header ── */}
+            <div className="px-3 pt-3 pb-2.5">
 
-              {/* Line 1: store name · client badge · icons */}
-              <div className="flex items-center gap-1.5 min-w-0">
+              {/* Line 1: store name · client badge · trash */}
+              <div className="flex items-center gap-1.5 min-w-0 mb-1.5">
 
-                {/* Store name — tappable to edit inline */}
+                {/* Store name */}
                 <div className="flex-1 min-w-0">
                   {editingStore ? (
                     <input
@@ -242,10 +274,13 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                       style={{ fontFamily: "'Poppins', sans-serif" }}
                     />
                   ) : (
-                    <p className="text-white font-bold text-sm leading-tight truncate"
-                       style={{ fontFamily: "'Poppins', sans-serif" }}>
+                    <button
+                      onClick={() => setEditingStore(true)}
+                      className="text-white font-bold text-sm leading-tight truncate text-left w-full hover:text-white/80 transition"
+                      style={{ fontFamily: "'Poppins', sans-serif" }}
+                    >
                       {receipt.storeName || 'Unknown Store'}
-                    </p>
+                    </button>
                   )}
                 </div>
 
@@ -290,53 +325,14 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                   )}
                 </div>
 
-                {/* Action icons */}
-                <div className="flex items-center flex-shrink-0 ml-auto">
-                  {/* Pencil — yellow — opens line item editor */}
-                  <button onClick={() => setReEditOpen(true)}
-                    className="p-2 rounded-lg hover:bg-white/5 transition" title="Edit items">
-                    <Pencil size={15} color="#eab308" />
-                  </button>
-                  {/* Split — purple */}
-                  {productItems.length > 0 && (
-                    <button onClick={() => {
-                      const el = document.createElement('div');
-                      el.className = 'fixed top-6 left-1/2 -translate-x-1/2 bg-sb-card border border-sb-border text-white text-xs px-4 py-2 rounded-xl z-50 shadow-xl pointer-events-none';
-                      el.textContent = 'Split receipt — coming soon';
-                      document.body.appendChild(el);
-                      setTimeout(() => el.remove(), 2000);
-                    }} className="p-2 rounded-lg hover:bg-white/5 transition" title="Split receipt">
-                      <SplitSquareHorizontal size={15} color="#a855f7" />
-                    </button>
-                  )}
-                  {/* Share — blue */}
-                  <button onClick={() => setShareOpen(true)}
-                    className="p-2 rounded-lg hover:bg-white/5 transition" title="Share">
-                    <Share2 size={15} color="#3b82f6" />
-                  </button>
-                  {/* Trash — red */}
-                  <button
-                    onClick={() => confirmDelete ? (onDelete(receipt.id), setConfirmDelete(false)) : setConfirmDelete(true)}
-                    onBlur={() => setConfirmDelete(false)}
-                    className={`p-2 rounded-lg transition ${confirmDelete ? 'bg-red-950/40' : 'hover:bg-white/5'}`}
-                    title="Delete">
-                    <Trash2 size={15} color={confirmDelete ? '#f87171' : '#ef4444'} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Line 2: date (read-only) · category badge · total */}
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-sb-muted">{dateDisplay}</span>
-
                 {/* Category badge — always tappable */}
-                <div className="relative" ref={catPickerRef}>
+                <div className="relative flex-shrink-0" ref={catPickerRef}>
                   <button
                     onClick={() => setShowCatPicker(p => !p)}
                     className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
                     style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
                   >
-                    {receipt.category || '+ category'}
+                    {receipt.category || '+ cat'}
                     <ChevronDown size={8} />
                   </button>
                   {showCatPicker && (
@@ -363,25 +359,96 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                   )}
                 </div>
 
-                <span className="ml-auto text-sb-green font-bold text-sm">${receipt.total.toFixed(2)}</span>
+                {/* Trash — top right */}
+                <button
+                  onClick={() => confirmDelete ? (onDelete(receipt.id), setConfirmDelete(false)) : setConfirmDelete(true)}
+                  onBlur={() => setConfirmDelete(false)}
+                  className={`p-2 rounded-lg transition ml-auto flex-shrink-0 ${confirmDelete ? 'bg-red-950/40' : 'hover:bg-white/5'}`}
+                  title="Delete">
+                  <Trash2 size={15} color={confirmDelete ? '#f87171' : '#ef4444'} />
+                </button>
+              </div>
+
+              {/* Line 2: date · pencil · split · share · total */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-sb-muted flex-shrink-0">{dateDisplay}</span>
+
+                {/* Pencil — yellow — inline item edit toggle */}
+                <button
+                  onClick={() => editingItems ? saveItems() : setEditingItems(true)}
+                  className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0"
+                  title={editingItems ? 'Save items' : 'Edit items'}
+                >
+                  {editingItems
+                    ? <Check size={14} color="#4ade80" strokeWidth={2.5} />
+                    : <Pencil size={14} color="#eab308" />
+                  }
+                </button>
+
+                {/* Split — purple */}
+                {productItems.length > 0 && (
+                  <button onClick={() => {
+                    const el = document.createElement('div');
+                    el.className = 'fixed top-6 left-1/2 -translate-x-1/2 bg-sb-card border border-sb-border text-white text-xs px-4 py-2 rounded-xl z-50 shadow-xl pointer-events-none';
+                    el.textContent = 'Split receipt — coming soon';
+                    document.body.appendChild(el);
+                    setTimeout(() => el.remove(), 2000);
+                  }} className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0" title="Split receipt">
+                    <SplitSquareHorizontal size={14} color="#a855f7" />
+                  </button>
+                )}
+
+                {/* Share — blue */}
+                <button onClick={() => setShareOpen(true)}
+                  className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0" title="Share">
+                  <Share2 size={14} color="#3b82f6" />
+                </button>
+
+                {/* Total — live when editing, saved otherwise */}
+                <span className="ml-auto text-sb-green font-bold text-sm flex-shrink-0">
+                  ${(editingItems ? liveTotals.total : receipt.total).toFixed(2)}
+                </span>
               </div>
             </div>
 
-            {/* ── Line items first ── */}
-            <div className="px-4 pb-3 space-y-3 border-t border-sb-border pt-3">
-              {productItems.length > 0 && (
-                <div className="space-y-1">
-                  {productItems.map((item, i) => (
-                    <div key={i} className="flex justify-between text-xs">
-                      <span className="text-sb-muted flex-1 pr-3 leading-snug">{item.description}</span>
-                      <span className="text-white flex-shrink-0">${item.amount.toFixed(2)}</span>
+            {/* ── Line items ── */}
+            <div className="px-4 pb-3 border-t border-sb-border pt-3 space-y-0.5">
+              {productItems.map((item, i) => {
+                const originalIndex = allLineItems.indexOf(item);
+                const checked = checkedItems.has(originalIndex);
+                return (
+                  <div
+                    key={i}
+                    onClick={() => {
+                      if (!editingItems) return;
+                      setCheckedItems(prev => {
+                        const next = new Set(prev);
+                        next.has(originalIndex) ? next.delete(originalIndex) : next.add(originalIndex);
+                        return next;
+                      });
+                    }}
+                    className={`flex items-center gap-2 py-1 rounded transition ${editingItems ? 'cursor-pointer hover:bg-white/5 active:bg-white/10' : ''}`}
+                  >
+                    {/* Checkbox slides in when editing */}
+                    <div className={`transition-all duration-150 overflow-hidden flex-shrink-0 ${editingItems ? 'w-5 opacity-100' : 'w-0 opacity-0'}`}>
+                      <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${checked ? 'bg-sb-green border-sb-green' : 'border-sb-muted bg-transparent'}`}>
+                        {checked && <Check size={9} className="text-black" strokeWidth={3} />}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <span className={`flex-1 text-xs leading-snug transition-colors ${editingItems && !checked ? 'text-white/30 line-through' : 'text-sb-muted'}`}>
+                      {item.description}
+                    </span>
+                    <span className={`text-xs flex-shrink-0 transition-colors ${editingItems && !checked ? 'text-white/30' : 'text-white'}`}>
+                      ${item.amount.toFixed(2)}
+                    </span>
+                  </div>
+                );
+              })}
+
+              {/* Tax — shown once, proportional if editing */}
               {taxItems.length > 0 && (
-                <div className="space-y-1 border-t border-sb-border pt-2">
-                  {taxItems.map((item, i) => (
+                <div className="border-t border-sb-border mt-2 pt-2 space-y-0.5">
+                  {(editingItems ? liveTotals.proportionalTaxes.map(t => ({ description: t.label, amount: t.amount })) : taxItems).map((item, i) => (
                     <div key={i} className="flex justify-between text-xs">
                       <span className="text-sb-muted">{item.description}</span>
                       <span className="text-sb-muted">${item.amount.toFixed(2)}</span>
@@ -389,30 +456,21 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                   ))}
                 </div>
               )}
-              <div className="border-t border-sb-border pt-2 space-y-1">
-                {receipt.subtotal > 0 && receipt.taxAmount > 0 && (
-                  <>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-sb-muted">Subtotal</span>
-                      <span className="text-white">${receipt.subtotal.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-sb-muted">Tax</span>
-                      <span className="text-white">${receipt.taxAmount.toFixed(2)}</span>
-                    </div>
-                  </>
-                )}
-                <div className="flex justify-between text-sm font-semibold">
-                  <span className="text-white">Total</span>
-                  <span className="text-sb-green">${receipt.total.toFixed(2)}</span>
-                </div>
+
+              {/* Total only — no subtotal row */}
+              <div className="border-t border-sb-border mt-2 pt-2 flex justify-between text-sm font-semibold">
+                <span className="text-white">Total</span>
+                <span className="text-sb-green">
+                  ${(editingItems ? liveTotals.total : receipt.total).toFixed(2)}
+                </span>
               </div>
+
               {receipt.notes && (
                 <p className="text-sb-muted text-xs italic border-t border-sb-border pt-2">{receipt.notes}</p>
               )}
             </div>
 
-            {/* ── Receipt photo second ── */}
+            {/* ── Receipt photo ── */}
             {receipt.imageUrl ? (
               <div className="cursor-zoom-in border-t border-sb-border bg-black"
                    onClick={() => setImgFullscreen(true)}>
@@ -433,15 +491,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
 
       {imgFullscreen && receipt.imageUrl && (
         <ZoomableImage src={receipt.imageUrl} onClose={() => setImgFullscreen(false)} />
-      )}
-
-      {reEditOpen && (
-        <ReEditModal
-          receipt={receipt}
-          userId={userId}
-          onClose={() => setReEditOpen(false)}
-          onSave={updates => { onReEdit(receipt.id, updates); setReEditOpen(false); }}
-        />
       )}
     </>
   );

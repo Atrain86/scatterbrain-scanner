@@ -1,0 +1,7 @@
+{
+  "workbench.colorTheme": "Solarized Dark",
+  "chat.tools.terminal.autoApprove": {
+    "npm --prefix server": true,
+    "timeout": true
+  }
+}

@@ -1,0 +1,431 @@
+# SCATTERBRAIN SCANNER — Claude Code Build Prompt V1
+## May 2026
+
+---
+
+## WHAT THIS IS
+
+Scatterbrain Scanner is a standalone receipt scanning and expense tracking PWA under the MyPoorBrain (MPB) brand. It is a **companion app** to PaintBrain — it reuses PaintBrain's receipt OCR and camera capture components but has a fundamentally different architecture.
+
+**The key difference:** Scatterbrain has no central user database. The user's own cloud storage (Google Drive or Dropbox) IS the persistence layer. The server exists only to broker OAuth token exchanges — it never stores user data.
+
+**Who it's for:** Solo tradespeople, freelancers, and anyone who stuffs receipts in their truck and loses them. Same target market as PaintBrain but this is a free standalone tool — the funnel pattern is: free viral tool → daily use → trust → conversion to PaintBrain.
+
+**Tagline:** "Snap it. File it. Forget it."
+
+---
+
+## ARCHITECTURE OVERVIEW
+
+```
+┌─────────────────────────────────────────────────┐
+│  CLIENT (Netlify)                                │
+│  React + Vite + TypeScript + Tailwind            │
+│  PWA — installable on iOS/Android home screen    │
+│                                                  │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────┐   │
+│  │ Camera/  │  │ Receipt  │  │ Cloud Sync   │   │
+│  │ Gallery  │  │ OCR      │  │ Manager      │   │
+│  │ Capture  │  │ Parser   │  │ (Drive/DB)   │   │
+│  └──────────┘  └──────────┘  └──────────────┘   │
+│                                                  │
+│  ┌──────────────────────────────────────────┐    │
+│  │ IndexedDB (local cache + offline queue)  │    │
+│  └──────────────────────────────────────────┘    │
+└─────────────────────┬───────────────────────────┘
+                      │ OAuth only
+┌─────────────────────▼───────────────────────────┐
+│  SERVER (Render — minimal)                       │
+│  Express + TypeScript                            │
+│                                                  │
+│  Routes:                                         │
+│    /api/auth/google/init                         │
+│    /api/auth/google/callback                     │
+│    /api/auth/dropbox/init                        │
+│    /api/auth/dropbox/callback                    │
+│    /api/health                                   │
+│                                                  │
+│  NO database. NO user table. NO receipt storage. │
+│  Server is a stateless OAuth relay only.         │
+└─────────────────────────────────────────────────┘
+
+Cloud Storage (user's own account):
+  Google Drive or Dropbox
+    └── Scatterbrain Scanner/
+        ├── receipts/
+        │   └── {year}/
+        │       └── {category}/
+        │           ├── 2026-05-13_HomeDepot_$47.82.jpg
+        │           └── 2026-05-13_HomeDepot_$47.82.json
+        ├── exports/
+        │   └── {year}/
+        │       └── scatterbrain_export_2026-Q2.csv
+        └── settings/
+            └── app_settings.json
+```
+
+**Why this architecture:**
+- Zero hosting cost for user data — it's in THEIR cloud
+- No GDPR/privacy headache — you never touch their data
+- Cross-device sync is free — Drive/Dropbox handle it
+- Offline-first via IndexedDB — critical for Cortes Island connectivity
+- Server stays on Render free tier permanently — it's just OAuth relay
+
+---
+
+## WHAT TO REUSE FROM PAINTBRAIN
+
+Scatterbrain reuses these PaintBrain components (adapt, don't copy blindly — strip PB-specific concerns like client/project association):
+
+1. **Camera capture UI** — the camera button and photo picker that already works in PB
+2. **Receipt OCR pipeline** — the `visionReceiptHandler.ts` flow that sends receipt images to OpenAI gpt-4o for text extraction (store name, date, items, total, tax, category)
+3. **Receipt display component** — the card/list view showing parsed receipt data
+4. **PWA manifest + service worker** — the installability setup from PB
+
+**What NOT to reuse:**
+- PB's Drizzle ORM / PostgreSQL schema — Scatterbrain has no database
+- PB's user auth system — Scatterbrain uses cloud OAuth, not user accounts
+- PB's client/project model — receipts in SB are standalone, not tied to clients
+- PB's invoice/estimate generators — out of scope for SB
+
+---
+
+## DATA MODEL
+
+All data lives in IndexedDB locally and syncs to cloud storage as JSON + image pairs.
+
+### Receipt Record
+```typescript
+interface Receipt {
+  id: string;                    // UUID generated client-side
+  imageBlob: Blob;               // Original photo (stored in IndexedDB)
+  imageThumbnail: Blob;          // Compressed thumbnail for list view
+  
+  // OCR-extracted fields (editable by user)
+  storeName: string;
+  date: string;                  // ISO date
+  items: ReceiptItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  currency: string;              // default CAD
+  category: ReceiptCategory;
+  notes: string;
+  
+  // Sync metadata
+  cloudFileId: string | null;    // Drive file ID or Dropbox path
+  cloudMetaId: string | null;    // JSON companion file ID
+  syncStatus: 'pending' | 'synced' | 'failed' | 'offline-queued';
+  lastSynced: string | null;     // ISO timestamp
+  
+  // Local metadata
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ReceiptItem {
+  description: string;
+  quantity: number;
+  price: number;
+}
+
+type ReceiptCategory = 
+  | 'materials'      // Paint, lumber, supplies
+  | 'tools'          // Equipment purchases
+  | 'fuel'           // Gas, ferry, travel
+  | 'food'           // Meals on the job
+  | 'vehicle'        // Maintenance, parts
+  | 'office'         // Admin supplies
+  | 'subcontractor'  // Hired help
+  | 'other';
+```
+
+### App Settings (synced to cloud)
+```typescript
+interface AppSettings {
+  cloudProvider: 'google-drive' | 'dropbox' | null;
+  cloudConnected: boolean;
+  cloudEmail: string | null;
+  defaultCategory: ReceiptCategory;
+  currency: string;
+  autoSync: boolean;             // Upload immediately after scan
+  darkMode: boolean;
+  hapticFeedback: boolean;
+}
+```
+
+---
+
+## BUILD ORDER
+
+### Phase 1 — Core Scanner (build this first, get it working locally)
+
+**Goal:** Snap a receipt, OCR it, see the parsed result, edit it, save to IndexedDB.
+
+1. Project scaffold: Vite + React + TypeScript + Tailwind, PWA manifest, service worker
+2. Camera capture component (reuse from PB — single button, opens camera or photo picker)
+3. Receipt OCR integration:
+   - For now, the OCR call goes through the Render server (proxied to OpenAI gpt-4o)
+   - Server route: `POST /api/ocr/receipt` — accepts image, returns parsed JSON
+   - This is the ONE non-OAuth route on the server
+   - Later, if you add client-side Tesseract.js, the server route becomes optional
+4. Receipt display card — shows parsed fields, all editable inline
+5. Receipt list view — scrollable list of saved receipts, sorted by date
+6. IndexedDB persistence — save/load/delete receipts locally
+7. Category picker — tap to assign category (materials, tools, fuel, etc.)
+8. Basic search/filter — by category, date range, store name
+
+**Definition of done:** You can install the PWA on your phone, snap a receipt on a paint job, see it parsed and categorized, edit any wrong fields, and find it later. Everything works offline except the OCR call.
+
+### Phase 2 — Cloud Connect
+
+**Goal:** Wire up Google Drive and/or Dropbox so receipts sync to the user's own cloud.
+
+1. Server OAuth routes:
+   - `GET /api/auth/google/init` — redirects to Google consent screen
+   - `GET /api/auth/google/callback` — exchanges code for tokens, returns tokens to client via redirect with query params or postMessage
+   - Same pair for Dropbox
+   - **Tokens go to the CLIENT, not stored on server.** Server is stateless.
+2. Client-side token storage:
+   - Store OAuth tokens in IndexedDB (encrypted at rest if possible)
+   - Token refresh logic — Google access tokens expire hourly, use refresh token
+3. Settings page — Cloud Export section:
+   - Connect / Disconnect buttons for Google Drive and Dropbox
+   - Show connected account email
+   - Choose primary provider if both connected
+   - Auto-sync toggle
+4. Cloud API helpers (client-side):
+   - `client/src/lib/googleDrive.ts` — create folder, upload file, download file, list files
+   - `client/src/lib/dropbox.ts` — same interface
+   - Abstract behind a `CloudStorage` interface so the app doesn't care which provider
+5. Upload logic:
+   - On receipt save (if cloud connected + auto-sync on): upload image + JSON companion
+   - Folder structure: `Scatterbrain Scanner/receipts/{year}/{category}/`
+   - File naming: `{date}_{storeName}_{total}.jpg` and matching `.json`
+   - Store `cloudFileId` on the receipt record
+6. Offline upload queue:
+   - If offline or token expired, queue the upload
+   - Process queue on app load, on connectivity change, and every 5 minutes
+   - Show sync status indicator in the UI (synced / pending / failed)
+
+**Definition of done:** You connect Google Drive in settings, scan a receipt, and within seconds the image + metadata appear in your Drive in a clean folder structure. Disconnect and reconnect works. Offline queueing works.
+
+### Phase 3 — Restore & Backup
+
+**Goal:** Recover from a lost phone or new device. Keep settings safe.
+
+1. Companion JSON for each receipt in cloud:
+   - Every receipt image has a `{filename}.json` sidecar with full receipt data
+   - This means the cloud folder IS the backup — no separate backup step
+2. "Restore from Cloud" button in Settings:
+   - Scans the `Scatterbrain Scanner/` folder tree
+   - Downloads all JSON sidecars
+   - Rebuilds IndexedDB from cloud data
+   - Downloads image thumbnails (full images on demand)
+3. First-launch detection:
+   - If IndexedDB is empty AND cloud is connected → prompt "Restore from cloud?"
+4. Settings backup:
+   - Sync `app_settings.json` to `Scatterbrain Scanner/settings/`
+   - "Sync Settings" button in Settings page
+5. Sync direction:
+   - Push: automatic (on save/edit/delete)
+   - Pull: manual only ("Restore from Cloud" button) — never auto-overwrite local data
+
+**Definition of done:** You can wipe the app, reinstall, connect Drive, tap Restore, and get all your receipts back.
+
+### Phase 4 — Export & Polish
+
+**Goal:** Make the data useful for tax time. Polish the daily experience.
+
+1. Export to CSV/Excel:
+   - Filter receipts by date range and/or category
+   - Generate CSV with columns: Date, Store, Category, Subtotal, Tax, Total, Notes
+   - Save to `Scatterbrain Scanner/exports/{year}/`
+   - Also offer local download
+2. Year-end summary view:
+   - Total spend by category (bar chart or simple table)
+   - Monthly breakdown
+   - Exportable as PDF or CSV
+3. Receipt photo viewer:
+   - Tap a receipt to see the original photo full-screen
+   - Pinch to zoom
+4. Cloud status indicators:
+   - Per-receipt sync badge (✓ synced, ↑ pending, ✗ failed)
+   - Global sync status in header or settings
+5. Delete handling:
+   - Delete locally → also delete from cloud (with confirmation)
+   - "Are you sure?" modal — this is permanent
+6. Re-categorize:
+   - Change category → move file in cloud to new category folder
+7. Haptic feedback on scan success
+8. Dark mode (default on — trades people use phones in bright sun AND dark rooms)
+
+---
+
+## PAINTBRAIN LESSON — DO NOT REPEAT
+
+PaintBrain was built without user scoping from day one. When other users were added later, admin data (Alan's personal settings, receipts, API tokens) leaked across user boundaries. This created weeks of cleanup work.
+
+**Scatterbrain avoids this entirely by design:**
+- There is no user table. There are no user accounts.
+- Each user's data lives in THEIR cloud storage, completely isolated.
+- The server never sees, stores, or routes user data.
+- If two people install the app and connect their own Google Drives, their data never touches the same system.
+
+This is the cleanest possible architecture for data isolation. Don't add a user database. Don't add server-side receipt storage. If you feel the urge to store something on the server, stop and ask: can this live in IndexedDB + cloud instead? The answer is almost always yes.
+
+The ONE exception is the OCR proxy route (`/api/ocr/receipt`), which forwards images to OpenAI. This is stateless — the image goes in, the parsed JSON comes out, nothing is stored. If API cost tracking becomes important later, add a lightweight counter, but don't build a user system around it.
+
+---
+
+## TECH STACK
+
+**Client:**
+- React 18+ with TypeScript
+- Vite for build
+- Tailwind CSS for styling
+- idb (or Dexie) for IndexedDB wrapper
+- PWA: manifest.json + service worker (Workbox)
+
+**Server (minimal):**
+- Express with TypeScript
+- googleapis package (for Google OAuth + Drive API)
+- dropbox package (for Dropbox OAuth + API)
+- cors, helmet for security basics
+- NO database driver. NO ORM. NO Drizzle. NO PostgreSQL.
+
+**Deployment:**
+- Client → Netlify (auto-deploy from GitHub)
+- Server → Render free tier (auto-deploy from GitHub)
+- Same monorepo structure as PaintBrain: `/client` and `/server` folders
+- GitHub repo: create new repo (e.g., `scatterbrain-scanner`)
+
+**OCR:**
+- OpenAI gpt-4o via server proxy route
+- Prompt: "Extract the following from this receipt image: store name, date, line items (description, quantity, price), subtotal, tax, total, and suggest a category from: materials, tools, fuel, food, vehicle, office, subcontractor, other. Return as JSON."
+
+---
+
+## UI DESIGN PRINCIPLES
+
+- **Mobile-first.** This is a phone app used on job sites. Every tap target minimum 44px.
+- **One-handed operation.** Primary actions at thumb reach (bottom of screen).
+- **Dark mode default.** Trades people work in all lighting conditions.
+- **Scan is the hero action.** Big camera button, always visible, bottom center.
+- **Speed over features.** The flow is: tap → snap → done. OCR happens in background.
+- **Forgiveness over precision.** OCR will get things wrong. Make every field editable with one tap.
+- **MyPoorBrain branding.** Match PaintBrain's visual language — dark theme, accent colors from the MPB palette.
+
+---
+
+## FILE STRUCTURE
+
+```
+scatterbrain-scanner/
+├── client/
+│   ├── public/
+│   │   ├── manifest.json
+│   │   ├── sw.js
+│   │   └── icons/
+│   ├── src/
+│   │   ├── App.tsx
+│   │   ├── main.tsx
+│   │   ├── components/
+│   │   │   ├── CameraCapture.tsx
+│   │   │   ├── ReceiptCard.tsx
+│   │   │   ├── ReceiptList.tsx
+│   │   │   ├── ReceiptEditor.tsx
+│   │   │   ├── CategoryPicker.tsx
+│   │   │   ├── SyncStatus.tsx
+│   │   │   └── ExportView.tsx
+│   │   ├── pages/
+│   │   │   ├── ScanPage.tsx          // Camera + recent scans
+│   │   │   ├── LibraryPage.tsx       // All receipts, filterable
+│   │   │   ├── SettingsPage.tsx      // Cloud connect, preferences
+│   │   │   └── ExportPage.tsx        // CSV/summary generation
+│   │   ├── lib/
+│   │   │   ├── db.ts                 // IndexedDB wrapper (Dexie or idb)
+│   │   │   ├── cloudStorage.ts       // Abstract cloud interface
+│   │   │   ├── googleDrive.ts        // Google Drive API calls
+│   │   │   ├── dropbox.ts            // Dropbox API calls
+│   │   │   ├── syncManager.ts        // Upload queue, retry logic
+│   │   │   ├── ocr.ts                // Receipt OCR API call
+│   │   │   └── receiptUtils.ts       // Formatting, validation helpers
+│   │   ├── hooks/
+│   │   │   ├── useReceipts.ts
+│   │   │   ├── useCloudSync.ts
+│   │   │   └── useCamera.ts
+│   │   └── types/
+│   │       └── index.ts              // Receipt, AppSettings, etc.
+│   ├── index.html
+│   ├── tailwind.config.ts
+│   ├── tsconfig.json
+│   ├── vite.config.ts
+│   └── package.json
+├── server/
+│   ├── src/
+│   │   ├── index.ts                  // Express app entry
+│   │   ├── routes.ts                 // OAuth + OCR routes
+│   │   └── config.ts                 // Env var handling
+│   ├── tsconfig.json
+│   └── package.json
+├── CLAUDE.md                         // Claude Code project context
+├── .gitignore
+└── README.md
+```
+
+---
+
+## CLAUDE.MD CONTENT
+
+Include this in the repo root so Claude Code has project context on every session:
+
+```markdown
+# Scatterbrain Scanner — Claude Code Context
+
+## What this is
+Standalone receipt scanning PWA. Part of the MyPoorBrain (MPB) product family.
+Companion app to PaintBrain — reuses camera/OCR components, different architecture.
+
+## Architecture
+- NO central database. User data lives in THEIR Google Drive or Dropbox.
+- Server is OAuth relay only (+ OCR proxy to OpenAI).
+- IndexedDB is the local persistence layer.
+- Cloud storage is the remote persistence layer.
+- Server is stateless. Never stores user data.
+
+## Tech stack
+- Client: React + Vite + TypeScript + Tailwind, deployed on Netlify
+- Server: Express + TypeScript, deployed on Render (free tier)
+- OCR: OpenAI gpt-4o via server proxy
+- Cloud: Google Drive API + Dropbox API (called from client with OAuth tokens)
+
+## Deployment
+- Client: Netlify auto-deploy from `main` branch, build dir `client/dist`
+- Server: Render auto-deploy from `main` branch, root dir `server`
+- Verify deploys: curl frontend URL for 200, curl `/api/health` for server
+
+## Key rules
+- NEVER add a user database or server-side data storage
+- NEVER store OAuth tokens on the server — tokens belong to the client
+- ALL receipt data flows: Camera → OCR → IndexedDB → Cloud (user's own)
+- Offline-first: everything except OCR must work without connectivity
+```
+
+---
+
+## IMPORTANT NOTES FOR CLAUDE CODE
+
+1. **Start with Phase 1.** Get the scanner working locally before touching cloud sync. The app should be useful with just IndexedDB — cloud is an enhancement, not a requirement.
+
+2. **The OCR route is the only server route that handles data.** It's a stateless proxy. Image in, JSON out, nothing stored.
+
+3. **Google Drive API calls happen from the CLIENT, not the server.** The server only handles the OAuth code→token exchange. After that, the client has the tokens and talks to Drive/Dropbox directly.
+
+4. **IndexedDB is the primary data store.** Cloud is a backup/sync target. The app must be fully functional offline (except OCR).
+
+5. **Don't over-engineer the sync.** Start with "upload on save, manual restore." Bidirectional real-time sync is a future problem — and probably unnecessary since this is a single-user app per device.
+
+6. **Match PaintBrain's visual quality.** Dark theme, clean typography, MPB branding. This app should feel like it belongs in the same family.
+
+7. **Test on mobile.** This is a phone app. Every interaction should be tested on an actual phone, not just a desktop browser.
