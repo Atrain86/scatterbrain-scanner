@@ -74,7 +74,12 @@ function AuthenticatedApp() {
     void backgroundSync(user.id);
     const handleFocus = () => { void backgroundSync(user.id); };
     window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
+    // Periodic sync every 30 minutes for background/desktop use
+    const interval = setInterval(() => { void backgroundSync(user.id); }, 30 * 60 * 1000);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
   }, [user]);
 
   if (isLoading) return null;

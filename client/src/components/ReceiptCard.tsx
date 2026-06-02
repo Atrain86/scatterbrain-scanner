@@ -88,7 +88,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
 
         {/* ── Collapsed row ── */}
         <div
-          className="flex items-stretch gap-0 cursor-pointer active:bg-white/5 transition rounded-xl"
+          className="flex items-stretch gap-0 cursor-pointer active:bg-white/5 hover:bg-white/[0.03] transition rounded-xl"
           onClick={() => selectMode ? onToggleSelect?.(receipt.id) : setExpanded(p => !p)}
         >
           {/* Checkbox — slides in from left in select mode */}
