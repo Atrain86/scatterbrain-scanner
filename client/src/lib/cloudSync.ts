@@ -1,6 +1,6 @@
 import type { CloudProvider, CloudProviderState, CloudSettings, Receipt } from '../utils/types';
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
-import { addReceipt, getAllReceipts, getDeletedUuids, clearDeletedUuid } from './db';
+import { addReceipt, getAllReceipts, getReceiptByUuid, updateReceipt, getDeletedUuids, clearDeletedUuid } from './db';
 
 // ── Token management ──────────────────────────────────────────────────────────
 
@@ -352,45 +352,74 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
       }
     }
 
-    // Pull: Drive UUIDs not in local DB (skip tombstoned UUIDs)
+    // Build a map of local receipts by UUID for last-write-wins comparison
+    const localByUuid = new Map(allReceipts.map(r => [r.uuid?.toLowerCase(), r]));
+
+    // Pull: new receipts from Drive + last-write-wins overwrites for existing ones
     const tombstoneSet = new Set(getDeletedUuids(userId).map(u => u.toLowerCase()));
+    let updated = 0;
     for (const file of driveFiles) {
       const m = file.name.match(/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i);
       if (!m) continue;
       const uuid = m[1].toLowerCase();
-      if (localUuids.has(uuid)) continue;
       if (tombstoneSet.has(uuid)) continue; // user deleted this — don't re-pull
+
+      const local = localByUuid.get(uuid);
 
       try {
         const text = await downloadDriveFile(accessToken, file.id);
         const meta = JSON.parse(text) as Record<string, unknown>;
         const now = new Date().toISOString();
-        await addReceipt(userId, {
-          uuid,
-          storeName:    String(meta.storeName    ?? ''),
-          receiptDate:  String(meta.receiptDate  ?? now.slice(0, 10)),
-          subtotal:     Number(meta.subtotal     ?? 0),
-          taxAmount:    Number(meta.taxAmount    ?? 0),
-          total:        Number(meta.total        ?? 0),
-          category:     String(meta.category     ?? 'Other'),
-          clientName:   meta.clientName != null ? String(meta.clientName) : null,
-          lineItems:    typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
-          rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
-          taxLines:     typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
-          imagePath:    null,
-          imageUrl:     meta.imageUrl != null ? String(meta.imageUrl) : null,
-          notes:        meta.notes    != null ? String(meta.notes)    : null,
-          createdAt:    String(meta.createdAt ?? now),
-          updatedAt:    String(meta.updatedAt ?? now),
-        });
-        localUuids.add(uuid);
-        result.pulled += 1;
+        const driveUpdatedAt = String(meta.updatedAt ?? '');
+
+        if (local) {
+          // Last-write-wins: only overwrite local if Drive version is strictly newer
+          if (!driveUpdatedAt || (local.updatedAt && local.updatedAt >= driveUpdatedAt)) continue;
+
+          await updateReceipt(userId, local.id, {
+            storeName:    String(meta.storeName    ?? local.storeName),
+            receiptDate:  String(meta.receiptDate  ?? local.receiptDate),
+            subtotal:     Number(meta.subtotal     ?? local.subtotal),
+            taxAmount:    Number(meta.taxAmount    ?? local.taxAmount),
+            total:        Number(meta.total        ?? local.total),
+            category:     String(meta.category     ?? local.category),
+            clientName:   meta.clientName != null ? String(meta.clientName) : local.clientName,
+            lineItems:    typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
+            rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
+            taxLines:     typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
+            imageUrl:     meta.imageUrl != null ? String(meta.imageUrl) : local.imageUrl,
+            notes:        meta.notes    != null ? String(meta.notes)    : local.notes,
+            updatedAt:    driveUpdatedAt,
+          });
+          updated += 1;
+        } else {
+          // New receipt — add it
+          await addReceipt(userId, {
+            uuid,
+            storeName:    String(meta.storeName    ?? ''),
+            receiptDate:  String(meta.receiptDate  ?? now.slice(0, 10)),
+            subtotal:     Number(meta.subtotal     ?? 0),
+            taxAmount:    Number(meta.taxAmount    ?? 0),
+            total:        Number(meta.total        ?? 0),
+            category:     String(meta.category     ?? 'Other'),
+            clientName:   meta.clientName != null ? String(meta.clientName) : null,
+            lineItems:    typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
+            rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
+            taxLines:     typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
+            imagePath:    null,
+            imageUrl:     meta.imageUrl != null ? String(meta.imageUrl) : null,
+            notes:        meta.notes    != null ? String(meta.notes)    : null,
+            createdAt:    String(meta.createdAt ?? now),
+            updatedAt:    driveUpdatedAt || now,
+          });
+          result.pulled += 1;
+        }
       } catch (err) {
         result.errors.push(`pull ${uuid}: ${(err as Error).message}`);
       }
     }
 
-    if (result.pulled > 0) {
+    if (result.pulled > 0 || updated > 0) {
       window.dispatchEvent(new CustomEvent('receipts-updated'));
     }
   } catch (err) {
