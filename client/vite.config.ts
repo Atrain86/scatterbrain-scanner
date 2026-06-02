@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'brain-logo.png'],
       manifest: {
         name: 'Scatterbrain Scanner',
@@ -24,7 +24,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        cacheId: 'sb-v3',
+        cacheId: 'sb-v4',
         skipWaiting: true,
         clientsClaim: true,
       },
