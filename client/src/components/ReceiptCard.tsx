@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Trash2, Check, Pencil, Share2, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut, ChevronDown } from 'lucide-react';
+import { Trash2, Check, Pencil, Share2, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut, ChevronDown, SplitSquareHorizontal } from 'lucide-react';
 import type { Receipt } from '../utils/types';
 import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
 import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
@@ -16,6 +16,7 @@ interface ReEditUpdates {
   total: number;
   clientName: string | null;
   category: string;
+  receiptDate?: string;
 }
 
 interface Props {
@@ -32,16 +33,29 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const { user } = useAuth();
   const userId = user!.id;
 
-  const [expanded, setExpanded] = useState(false);
-  const [editingCat, setEditingCat] = useState(false);
+  const [expanded,      setExpanded]      = useState(false);
+  const [editMode,      setEditMode]      = useState(false);
   const [imgFullscreen, setImgFullscreen] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
-  const [reEditOpen, setReEditOpen] = useState(false);
+  const [shareOpen,     setShareOpen]     = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [newCatName, setNewCatName] = useState('');
-  const catPickerRef = useRef<HTMLDivElement>(null);
 
-  const catColor = getCategoryColorDynamic(receipt.category, userId);
+  // Inline edit state
+  const [editStore,    setEditStore]    = useState(receipt.storeName);
+  const [editClient,   setEditClient]   = useState(receipt.clientName ?? '');
+  const [editCategory, setEditCategory] = useState(receipt.category ?? '');
+  const [editDate,     setEditDate]     = useState(receipt.receiptDate);
+  const [showCatPicker, setShowCatPicker] = useState(false);
+  const [showClientPicker, setShowClientPicker] = useState(false);
+  const [clients, setClients] = useState<string[]>(() => loadClients(userId));
+  const [newClientInput, setNewClientInput] = useState('');
+
+  const catPickerRef    = useRef<HTMLDivElement>(null);
+  const clientPickerRef = useRef<HTMLDivElement>(null);
+  const headerRef       = useRef<HTMLDivElement>(null);
+
+  const catColor        = getCategoryColorDynamic(receipt.category, userId);
+  const editCatColor    = getCategoryColorDynamic(editCategory, userId);
+
   const lineItems: { description: string; amount: number }[] = receipt.lineItems
     ? JSON.parse(receipt.lineItems) : [];
   const productItems = lineItems.filter(i => !isTaxLine(i.description));
@@ -51,35 +65,65 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     month: 'short', day: 'numeric', year: 'numeric',
   });
 
+  // Reset edit fields when receipt changes or edit mode opens
   useEffect(() => {
-    if (!editingCat) return;
+    if (editMode) {
+      setEditStore(receipt.storeName);
+      setEditClient(receipt.clientName ?? '');
+      setEditCategory(receipt.category ?? '');
+      setEditDate(receipt.receiptDate);
+    }
+  }, [editMode, receipt]);
+
+  // Close pickers on outside click
+  useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (catPickerRef.current && !catPickerRef.current.contains(e.target as Node)) {
-        setEditingCat(false);
+      if (showCatPicker && catPickerRef.current && !catPickerRef.current.contains(e.target as Node)) {
+        setShowCatPicker(false);
+      }
+      if (showClientPicker && clientPickerRef.current && !clientPickerRef.current.contains(e.target as Node)) {
+        setShowClientPicker(false);
       }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [editingCat]);
+  }, [showCatPicker, showClientPicker]);
 
-  function pickCategory(name: string) {
-    onUpdateCategory(receipt.id, name);
-    setEditingCat(false);
-    setNewCatName('');
+  function saveEdit() {
+    onReEdit(receipt.id, {
+      storeName:    editStore.trim() || receipt.storeName,
+      lineItems:    receipt.lineItems ?? '[]',
+      taxLines:     receipt.taxLines ?? '[]',
+      subtotal:     receipt.subtotal,
+      taxAmount:    receipt.taxAmount,
+      total:        receipt.total,
+      clientName:   editClient.trim() || null,
+      category:     editCategory,
+      receiptDate:  editDate || receipt.receiptDate,
+    });
+    setEditMode(false);
+    setShowCatPicker(false);
+    setShowClientPicker(false);
   }
 
-  function addInlineCategory() {
-    const trimmed = newCatName.trim();
+  function pickCategory(name: string) {
+    setEditCategory(name);
+    setShowCatPicker(false);
+  }
+
+  function pickClient(name: string) {
+    setEditClient(name);
+    setLastClient(userId, name);
+    setShowClientPicker(false);
+    setNewClientInput('');
+  }
+
+  function addNewClient() {
+    const trimmed = newClientInput.trim();
     if (!trimmed) return;
-    const all = getAllCategories(userId);
-    if (all.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
-      pickCategory(all.find(c => c.name.toLowerCase() === trimmed.toLowerCase())!.name);
-      return;
-    }
-    const storageKey = `sb_u${userId}_custom_categories`;
-    const existing = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    localStorage.setItem(storageKey, JSON.stringify([...existing, { name: trimmed, color: '#6B7280' }]));
-    pickCategory(trimmed);
+    const updated = addClient(userId, trimmed);
+    setClients(updated);
+    pickClient(trimmed);
   }
 
   return (
@@ -161,21 +205,183 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
         {expanded && (
           <div className="border-t border-sb-border animate-fade-in">
 
+            {/* ── Detail header: two lines with inline edit ── */}
+            <div ref={headerRef} className="px-4 pt-3 pb-2 space-y-1.5">
+
+              {/* Line 1: store name + client badge + action icons */}
+              <div className="flex items-center gap-2 min-w-0">
+                {/* Store name */}
+                <div className="flex-1 min-w-0">
+                  {editMode ? (
+                    <input
+                      value={editStore}
+                      onChange={e => setEditStore(e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      className="w-full bg-sb-card2 border border-sb-green rounded-lg px-2 py-0.5 text-white font-bold text-sm focus:outline-none"
+                      style={{ fontFamily: "'Poppins', sans-serif" }}
+                    />
+                  ) : (
+                    <p className="text-white font-bold text-sm leading-tight truncate"
+                       style={{ fontFamily: "'Poppins', sans-serif" }}>
+                      {receipt.storeName || 'Unknown Store'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Client badge (edit mode: dropdown) */}
+                {editMode ? (
+                  <div className="relative flex-shrink-0" ref={clientPickerRef}>
+                    <button
+                      onClick={e => { e.stopPropagation(); setShowClientPicker(p => !p); }}
+                      className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border border-blue-700/60 bg-blue-900/30 text-blue-300 whitespace-nowrap"
+                    >
+                      {editClient || 'Client'}
+                      <ChevronDown size={9} />
+                    </button>
+                    {showClientPicker && (
+                      <div className="absolute top-full left-0 mt-1 w-44 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl">
+                        <button onClick={() => pickClient('')} className="w-full px-3 py-2 text-xs text-left text-sb-muted hover:bg-white/5">No client</button>
+                        {clients.length > 0 && <div className="border-t border-sb-border" />}
+                        <div className="max-h-32 overflow-y-auto">
+                          {clients.map(c => (
+                            <button key={c} onClick={() => pickClient(c)}
+                              className={`w-full flex items-center justify-between px-3 py-2 text-xs text-left hover:bg-white/5 ${c === editClient ? 'bg-white/5' : ''}`}>
+                              <span className="text-white">{c}</span>
+                              {c === editClient && <Check size={10} className="text-sb-green" />}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="border-t border-sb-border px-2 py-1.5 flex gap-1">
+                          <input value={newClientInput} onChange={e => setNewClientInput(e.target.value)}
+                            onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewClient(); }}
+                            onClick={e => e.stopPropagation()}
+                            placeholder="New client…"
+                            className="flex-1 bg-sb-card border border-sb-border rounded px-2 py-1 text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green" />
+                          <button onClick={e => { e.stopPropagation(); addNewClient(); }} disabled={!newClientInput.trim()}
+                            className="text-sb-green disabled:opacity-30 px-1"><Plus size={12} /></button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : receipt.clientName ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 flex-shrink-0 whitespace-nowrap">
+                    {receipt.clientName}
+                  </span>
+                ) : null}
+
+                {/* Action icons */}
+                <div className="flex items-center gap-0.5 flex-shrink-0 ml-auto" onClick={e => e.stopPropagation()}>
+                  {/* Pencil / checkmark */}
+                  <button
+                    onClick={() => editMode ? saveEdit() : setEditMode(true)}
+                    className={`p-2.5 rounded-lg transition ${editMode ? 'text-sb-green hover:bg-sb-green/10' : 'text-sb-muted hover:text-yellow-400'}`}
+                    title={editMode ? 'Save' : 'Edit'}
+                  >
+                    {editMode ? <Check size={15} strokeWidth={2.5} /> : <Pencil size={15} />}
+                  </button>
+
+                  {/* Split (placeholder) */}
+                  {productItems.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const el = document.createElement('div');
+                        el.className = 'fixed top-4 left-1/2 -translate-x-1/2 bg-sb-card border border-sb-border text-white text-xs px-4 py-2 rounded-xl z-50 shadow-xl';
+                        el.textContent = 'Split receipt — coming soon';
+                        document.body.appendChild(el);
+                        setTimeout(() => el.remove(), 2000);
+                      }}
+                      className="p-2.5 rounded-lg text-sb-muted hover:text-sb-purple transition"
+                      title="Split receipt"
+                    >
+                      <SplitSquareHorizontal size={15} />
+                    </button>
+                  )}
+
+                  {/* Share */}
+                  <button
+                    onClick={() => setShareOpen(true)}
+                    className="p-2.5 rounded-lg text-sb-muted hover:text-sb-purple transition"
+                    title="Share"
+                  >
+                    <Share2 size={15} />
+                  </button>
+
+                  {/* Delete */}
+                  <button
+                    onClick={() => confirmDelete ? (onDelete(receipt.id), setConfirmDelete(false)) : setConfirmDelete(true)}
+                    onBlur={() => setConfirmDelete(false)}
+                    className={`p-2.5 rounded-lg transition ${confirmDelete ? 'text-red-400 bg-red-950/40' : 'text-sb-muted hover:text-red-400'}`}
+                    title="Delete"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Line 2: date + category badge + total */}
+              <div className="flex items-center gap-2">
+                {/* Date */}
+                {editMode ? (
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={e => setEditDate(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    className="bg-sb-card2 border border-sb-green rounded-lg px-2 py-0.5 text-[11px] text-white focus:outline-none"
+                  />
+                ) : (
+                  <span className="text-[11px] text-sb-muted">{dateDisplay}</span>
+                )}
+
+                {/* Category badge (edit mode: dropdown) */}
+                {editMode ? (
+                  <div className="relative" ref={catPickerRef}>
+                    <button
+                      onClick={e => { e.stopPropagation(); setShowCatPicker(p => !p); }}
+                      className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap"
+                      style={{ backgroundColor: editCatColor + '22', color: editCatColor, border: `1px solid ${editCatColor}44` }}
+                    >
+                      {editCategory || 'Category'}
+                      <ChevronDown size={9} />
+                    </button>
+                    {showCatPicker && (
+                      <div className="absolute top-full left-0 mt-1 w-48 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl max-h-52 overflow-y-auto">
+                        {getAllCategories(userId).map(cat => (
+                          <button key={cat.name} onClick={() => pickCategory(cat.name)}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-white/5 ${cat.name === editCategory ? 'bg-white/5' : ''}`}>
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                            <span className="text-white flex-1">{cat.name}</span>
+                            {cat.name === editCategory && <Check size={10} className="text-sb-green" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : receipt.category ? (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap"
+                    style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
+                  >
+                    {receipt.category}
+                  </span>
+                ) : null}
+
+                {/* Total — pushed to right */}
+                <span className="ml-auto text-sb-green font-bold text-sm">${receipt.total.toFixed(2)}</span>
+              </div>
+            </div>
+
             {/* Receipt image */}
             {receipt.imageUrl ? (
               <div
-                className="cursor-zoom-in border-b border-sb-border bg-black"
+                className="cursor-zoom-in border-t border-b border-sb-border bg-black"
                 onClick={() => setImgFullscreen(true)}
               >
-                <img
-                  src={receipt.imageUrl}
-                  alt="Receipt"
-                  className="w-full max-h-56 object-contain"
-                />
+                <img src={receipt.imageUrl} alt="Receipt" className="w-full max-h-56 object-contain" />
                 <p className="text-center text-[10px] text-sb-muted py-1">Tap to enlarge</p>
               </div>
             ) : (
-              <div className="border-b border-sb-border flex items-center justify-center gap-2 py-4 text-sb-muted">
+              <div className="border-t border-b border-sb-border flex items-center justify-center gap-2 py-4 text-sb-muted">
                 <ImageIcon size={16} />
                 <span className="text-xs">No receipt image</span>
               </div>
@@ -229,114 +435,17 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               {receipt.notes && (
                 <p className="text-sb-muted text-xs italic border-t border-sb-border pt-2">{receipt.notes}</p>
               )}
-
-              {/* Action row */}
-              <div className="border-t border-sb-border pt-3 flex items-center justify-between">
-
-                {/* Category picker */}
-                <div className="relative" ref={editingCat ? catPickerRef : undefined}>
-                  <button
-                    onClick={e => { e.stopPropagation(); setEditingCat(p => !p); }}
-                    className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-full transition hover:brightness-125"
-                    style={{
-                      backgroundColor: catColor + '22',
-                      color: catColor,
-                      border: `1px solid ${catColor}44`,
-                    }}
-                  >
-                    {receipt.category || 'Set category'}
-                    <Pencil size={9} />
-                  </button>
-
-                  {editingCat && (
-                    <div
-                      ref={catPickerRef}
-                      className="absolute bottom-full left-0 mb-1 w-56 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl"
-                      style={{ animation: 'fadeIn 120ms ease-out' }}
-                    >
-                      <div className="max-h-56 overflow-y-auto">
-                        {getAllCategories(userId).map(cat => (
-                          <button
-                            key={cat.name}
-                            onClick={() => pickCategory(cat.name)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-white/5 transition"
-                          >
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                            <span className="text-white flex-1">{cat.name}</span>
-                            {cat.name === receipt.category && <Check size={11} className="text-sb-green" />}
-                          </button>
-                        ))}
-                      </div>
-                      {/* Inline new category */}
-                      <div className="border-t border-sb-border px-2 py-2 flex items-center gap-1.5">
-                        <input
-                          value={newCatName}
-                          onChange={e => setNewCatName(e.target.value)}
-                          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addInlineCategory(); }}
-                          onClick={e => e.stopPropagation()}
-                          placeholder="New category…"
-                          className="flex-1 bg-sb-card border border-sb-border rounded-lg px-2 py-1 text-xs text-white placeholder-white/30 focus:outline-none focus:border-sb-green transition"
-                        />
-                        <button
-                          onClick={e => { e.stopPropagation(); addInlineCategory(); }}
-                          disabled={!newCatName.trim()}
-                          className="p-1 rounded-lg text-sb-green disabled:opacity-30 hover:bg-sb-green/10 transition"
-                        >
-                          <Plus size={13} />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Right actions */}
-                <div className="flex items-center gap-4">
-                  <button
-                    onClick={() => setReEditOpen(true)}
-                    className="transition"
-                    style={{ color: '#eab308' }}
-                    title="Edit receipt"
-                  >
-                    <Pencil size={15} />
-                  </button>
-                  <button
-                    onClick={() => setShareOpen(true)}
-                    className="text-sb-purple hover:brightness-125 transition"
-                    title="Share"
-                  >
-                    <Share2 size={15} />
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         )}
       </div>
 
       {shareOpen && (
-        <ShareModal
-          receipt={receipt}
-          onClose={() => setShareOpen(false)}
-        />
+        <ShareModal receipt={receipt} onClose={() => setShareOpen(false)} />
       )}
 
       {imgFullscreen && receipt.imageUrl && (
-        <ZoomableImage
-          src={receipt.imageUrl}
-          onClose={() => setImgFullscreen(false)}
-        />
-      )}
-
-      {reEditOpen && (
-        <ReEditModal
-          receipt={receipt}
-          userId={userId}
-          onClose={() => setReEditOpen(false)}
-          onSave={(updates) => {
-            onReEdit(receipt.id, updates);
-            setReEditOpen(false);
-          }}
-        />
+        <ZoomableImage src={receipt.imageUrl} onClose={() => setImgFullscreen(false)} />
       )}
     </>
   );

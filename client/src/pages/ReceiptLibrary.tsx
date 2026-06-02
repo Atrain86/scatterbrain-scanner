@@ -133,7 +133,7 @@ export default function ReceiptLibrary() {
   async function onReEdit(id: number, updates: {
     storeName: string; lineItems: string; taxLines: string;
     subtotal: number; taxAmount: number; total: number;
-    clientName: string | null; category: string;
+    clientName: string | null; category: string; receiptDate?: string;
   }) {
     await update(id, updates);
   }
@@ -424,7 +424,7 @@ interface MonthGroupProps {
   onToggle: () => void;
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, cat: string) => void;
-  onReEdit: (id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number; clientName: string | null; category: string }) => void;
+  onReEdit: (id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number; clientName: string | null; category: string; receiptDate?: string }) => void;
   selectMode?: boolean;
   selectedIds?: Set<number>;
   onToggleSelect?: (id: number) => void;
