@@ -180,80 +180,82 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     <>
       <div className={`bg-sb-card rounded-xl border transition-colors ${selected ? 'border-sb-green' : 'border-sb-border'} overflow-visible`}>
 
-        {/* ── Collapsed row ── */}
-        <div
-          className="flex items-stretch gap-0 cursor-pointer active:bg-white/5 hover:bg-white/[0.03] transition rounded-xl"
-          onClick={() => selectMode ? onToggleSelect?.(receipt.id) : setExpanded(p => !p)}
-        >
-          {/* Checkbox — slides in from left in select mode */}
-          <div className={`flex items-center justify-center transition-all duration-200 overflow-hidden ${selectMode ? 'w-10 opacity-100' : 'w-0 opacity-0'}`}>
-            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${selected ? 'bg-sb-green border-sb-green' : 'border-sb-muted bg-transparent'}`}>
-              {selected && <Check size={11} className="text-black" strokeWidth={3} />}
-            </div>
-          </div>
-
-          {/* Category color bar */}
-          <span
-            className="w-1 rounded-l-xl flex-shrink-0 self-stretch"
-            style={{ backgroundColor: catColor, minHeight: 52 }}
-          />
-
-          {/* Store + date + tags */}
-          <div className="flex-1 min-w-0 px-3 py-3">
-            <p className="text-white font-bold text-sm leading-tight truncate"
-               style={{ fontFamily: "'Poppins', sans-serif" }}>
-              {receipt.storeName || 'Unknown Store'}
-            </p>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
-              {receipt.clientName && (
-                <span className="text-[10px] px-1.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-snug">
-                  {receipt.clientName}
-                </span>
-              )}
-              {receipt.category && (
-                <span
-                  className="text-[10px] px-1.5 rounded-full leading-snug"
-                  style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
-                >
-                  {receipt.category}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Trash (top-right) + price below */}
+        {/* ── Collapsed row (hidden when expanded) ── */}
+        {!expanded && (
           <div
-            className="flex flex-col items-center justify-between px-3 py-2 flex-shrink-0"
-            onClick={e => e.stopPropagation()}
+            className="flex items-stretch gap-0 cursor-pointer active:bg-white/5 hover:bg-white/[0.03] transition rounded-xl"
+            onClick={() => selectMode ? onToggleSelect?.(receipt.id) : setExpanded(p => !p)}
           >
-            {confirmDelete ? (
-              <button
-                onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }}
-                onBlur={() => setConfirmDelete(false)}
-                className="text-red-400 bg-red-950/40 rounded-lg p-1 transition"
-                title="Confirm delete"
-              >
-                <Trash2 size={14} />
-              </button>
-            ) : (
-              <button
-                onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
-                className="text-sb-muted hover:text-red-400 transition p-1"
-                title="Delete receipt"
-              >
-                <Trash2 size={14} />
-              </button>
-            )}
-            <span className="text-sb-green font-bold text-sm leading-tight mt-1">
-              ${receipt.total.toFixed(2)}
-            </span>
+            {/* Checkbox — slides in from left in select mode */}
+            <div className={`flex items-center justify-center transition-all duration-200 overflow-hidden ${selectMode ? 'w-10 opacity-100' : 'w-0 opacity-0'}`}>
+              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${selected ? 'bg-sb-green border-sb-green' : 'border-sb-muted bg-transparent'}`}>
+                {selected && <Check size={11} className="text-black" strokeWidth={3} />}
+              </div>
+            </div>
+
+            {/* Category color bar */}
+            <span
+              className="w-1 rounded-l-xl flex-shrink-0 self-stretch"
+              style={{ backgroundColor: catColor, minHeight: 52 }}
+            />
+
+            {/* Store + date + tags */}
+            <div className="flex-1 min-w-0 px-3 py-3">
+              <p className="text-white font-bold text-sm leading-tight truncate"
+                 style={{ fontFamily: "'Poppins', sans-serif" }}>
+                {receipt.storeName || 'Unknown Store'}
+              </p>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
+                {receipt.clientName && (
+                  <span className="text-[10px] px-1.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-snug">
+                    {receipt.clientName}
+                  </span>
+                )}
+                {receipt.category && (
+                  <span
+                    className="text-[10px] px-1.5 rounded-full leading-snug"
+                    style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
+                  >
+                    {receipt.category}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Trash (top-right) + price below */}
+            <div
+              className="flex flex-col items-center justify-between px-3 py-2 flex-shrink-0"
+              onClick={e => e.stopPropagation()}
+            >
+              {confirmDelete ? (
+                <button
+                  onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }}
+                  onBlur={() => setConfirmDelete(false)}
+                  className="text-red-400 bg-red-950/40 rounded-lg p-1 transition"
+                  title="Confirm delete"
+                >
+                  <Trash2 size={14} />
+                </button>
+              ) : (
+                <button
+                  onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
+                  className="text-sb-muted hover:text-red-400 transition p-1"
+                  title="Delete receipt"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+              <span className="text-sb-green font-bold text-sm leading-tight mt-1">
+                ${receipt.total.toFixed(2)}
+              </span>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* ── Expanded detail ── */}
         {expanded && (
-          <div className="border-t border-sb-border animate-fade-in" onClick={e => e.stopPropagation()}>
+          <div className="animate-fade-in" onClick={e => e.stopPropagation()}>
 
             {/* ── Single header ── */}
             <div className="px-3 pt-3 pb-2.5">
@@ -369,45 +371,47 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                 </button>
               </div>
 
-              {/* Line 2: date · pencil · split · share · total */}
-              <div className="flex items-center gap-2">
+              {/* Line 2: date (left) · icons + total (right) */}
+              <div className="flex items-center">
                 <span className="text-[11px] text-sb-muted flex-shrink-0">{dateDisplay}</span>
 
-                {/* Pencil — yellow — inline item edit toggle */}
-                <button
-                  onClick={() => editingItems ? saveItems() : setEditingItems(true)}
-                  className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0"
-                  title={editingItems ? 'Save items' : 'Edit items'}
-                >
-                  {editingItems
-                    ? <Check size={14} color="#4ade80" strokeWidth={2.5} />
-                    : <Pencil size={14} color="#eab308" />
-                  }
-                </button>
-
-                {/* Split — purple */}
-                {productItems.length > 0 && (
-                  <button onClick={() => {
-                    const el = document.createElement('div');
-                    el.className = 'fixed top-6 left-1/2 -translate-x-1/2 bg-sb-card border border-sb-border text-white text-xs px-4 py-2 rounded-xl z-50 shadow-xl pointer-events-none';
-                    el.textContent = 'Split receipt — coming soon';
-                    document.body.appendChild(el);
-                    setTimeout(() => el.remove(), 2000);
-                  }} className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0" title="Split receipt">
-                    <SplitSquareHorizontal size={14} color="#a855f7" />
+                <div className="flex items-center gap-1 ml-auto">
+                  {/* Pencil — yellow — inline item edit toggle */}
+                  <button
+                    onClick={() => editingItems ? saveItems() : setEditingItems(true)}
+                    className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0"
+                    title={editingItems ? 'Save items' : 'Edit items'}
+                  >
+                    {editingItems
+                      ? <Check size={14} color="#4ade80" strokeWidth={2.5} />
+                      : <Pencil size={14} color="#eab308" />
+                    }
                   </button>
-                )}
 
-                {/* Share — blue */}
-                <button onClick={() => setShareOpen(true)}
-                  className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0" title="Share">
-                  <Share2 size={14} color="#3b82f6" />
-                </button>
+                  {/* Split — purple */}
+                  {productItems.length > 0 && (
+                    <button onClick={() => {
+                      const el = document.createElement('div');
+                      el.className = 'fixed top-6 left-1/2 -translate-x-1/2 bg-sb-card border border-sb-border text-white text-xs px-4 py-2 rounded-xl z-50 shadow-xl pointer-events-none';
+                      el.textContent = 'Split receipt — coming soon';
+                      document.body.appendChild(el);
+                      setTimeout(() => el.remove(), 2000);
+                    }} className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0" title="Split receipt">
+                      <SplitSquareHorizontal size={14} color="#a855f7" />
+                    </button>
+                  )}
 
-                {/* Total — live when editing, saved otherwise */}
-                <span className="ml-auto text-sb-green font-bold text-sm flex-shrink-0">
-                  ${(editingItems ? liveTotals.total : receipt.total).toFixed(2)}
-                </span>
+                  {/* Share — blue */}
+                  <button onClick={() => setShareOpen(true)}
+                    className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0" title="Share">
+                    <Share2 size={14} color="#3b82f6" />
+                  </button>
+
+                  {/* Total — live when editing, saved otherwise */}
+                  <span className="text-sb-green font-bold text-sm flex-shrink-0 ml-1">
+                    ${(editingItems ? liveTotals.total : receipt.total).toFixed(2)}
+                  </span>
+                </div>
               </div>
             </div>
 
