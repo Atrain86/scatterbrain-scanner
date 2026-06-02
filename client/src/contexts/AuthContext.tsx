@@ -60,53 +60,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setLoading] = useState(true);
   const [error, setError]       = useState('');
 
-  // On mount: verify stored token
+  // On mount: decode token locally first for instant load, verify with server in background
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) { setLoading(false); return; }
 
+    // Step 1: decode JWT locally — instant, no network needed
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.id && payload.email) {
+        migrateUnnamedDb(payload.id).catch(() => {});
+        migrateCloudSettings(payload.id);
+        setUser({ id: payload.id, email: payload.email });
+        setLoading(false); // show the app immediately
+      } else {
+        localStorage.removeItem(TOKEN_KEY);
+        setLoading(false);
+        return;
+      }
+    } catch {
+      // Malformed token — clear it and show login
+      localStorage.removeItem(TOKEN_KEY);
+      setLoading(false);
+      return;
+    }
+
+    // Step 2: verify with server in background — only acts on explicit 401
     fetch(`${API_BASE}/api/user/verify`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(async r => {
-        if (!r.ok) {
-          if (r.status === 401) {
-            // Explicit rejection — token is invalid, clear it
-            localStorage.removeItem(TOKEN_KEY);
-          } else {
-            // Server/network error — decode token locally to keep user logged in
-            try {
-              const payload = JSON.parse(atob(token.split('.')[1]));
-              if (payload.id && payload.email) {
-                await migrateUnnamedDb(payload.id);
-                migrateCloudSettings(payload.id);
-                setUser({ id: payload.id, email: payload.email });
-              }
-            } catch { /* malformed token */ }
-          }
+        if (r.status === 401) {
+          // Server explicitly rejected the token — log out
+          localStorage.removeItem(TOKEN_KEY);
+          setUser(null);
           return;
         }
+        if (!r.ok) return; // server error / cold start — keep local user, ignore
         const data = await r.json();
         if (data.user) {
-          await migrateUnnamedDb(data.user.id);
-          migrateCloudSettings(data.user.id);
+          // Update with canonical server user data (email change etc.)
           setUser(data.user);
-        } else {
-          localStorage.removeItem(TOKEN_KEY);
         }
       })
-      .catch(async () => {
-        // Network error (Render cold start etc.) — decode token locally
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          if (payload.id && payload.email) {
-            await migrateUnnamedDb(payload.id);
-            migrateCloudSettings(payload.id);
-            setUser({ id: payload.id, email: payload.email });
-          }
-        } catch { /* malformed token — stay logged out */ }
-      })
-      .finally(() => setLoading(false));
+      .catch(() => {
+        // Network offline or Render cold start — local user stays, no action
+      });
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {

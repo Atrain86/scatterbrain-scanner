@@ -70,6 +70,11 @@ function AuthenticatedApp() {
   const { user, isLoading } = useAuth();
 
   useEffect(() => {
+    // Wake Render server immediately — runs before user taps Scan
+    fetch(`${import.meta.env.VITE_API_URL ?? ''}/api/health`).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
     void backgroundSync(user.id);
     const handleFocus = () => { void backgroundSync(user.id); };
@@ -82,7 +87,7 @@ function AuthenticatedApp() {
     };
   }, [user]);
 
-  if (isLoading) return null;
+  if (isLoading) return null; // only true for <5ms now (local JWT decode)
   if (!user) return <LoginPage />;
 
   return (
