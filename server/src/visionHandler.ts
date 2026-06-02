@@ -180,7 +180,8 @@ Rules:
 - List EVERY item. Duplicate descriptions are valid — list each separately.
 - Include GST/PST/HST as separate items with isTax: true.
 - totalAmount = final total after all taxes.
-- date: YYYY-MM-DD, default to 2026 if ambiguous.`;
+- date: YYYY-MM-DD, default to 2026 if ambiguous.
+- vendor: Use the shortest recognizable name, 1-3 words max. Drop location numbers, city names, legal suffixes. Examples: "Starbucks Coffee Canada" → "Starbucks", "Mobil 1724 Gas Bar" → "Mobil Gas", "Gorge Harbour Marina & Resort" → "Gorge Harbour", "Canadian Tire #142" → "Canadian Tire".`;
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
