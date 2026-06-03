@@ -220,6 +220,7 @@ export default function ReceiptLibrary() {
             ) : (
               filtered.map(r => (
                 <ReceiptCard key={r.id} receipt={r} onDelete={onDelete} onUpdateCategory={onUpdateCategory} onReEdit={onReEdit}
+                  onNewReceipt={r => add(r)}
                   selectMode={selectMode} selected={selectedIds.has(r.id)} onToggleSelect={toggleSelect} />
               ))
             )}
@@ -254,6 +255,7 @@ export default function ReceiptLibrary() {
                 onDelete={onDelete}
                 onUpdateCategory={onUpdateCategory}
                 onReEdit={onReEdit}
+                onNewReceipt={r => add(r)}
                 selectMode={selectMode}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
@@ -425,13 +427,14 @@ interface MonthGroupProps {
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, cat: string) => void;
   onReEdit: (id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number; clientName: string | null; category: string; receiptDate?: string }) => void;
+  onNewReceipt?: (r: ReceiptType) => void;
   selectMode?: boolean;
   selectedIds?: Set<number>;
   onToggleSelect?: (id: number) => void;
   onEnterSelectMode?: () => void;
 }
 
-function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit, selectMode, selectedIds, onToggleSelect, onEnterSelectMode }: MonthGroupProps) {
+function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit, onNewReceipt, selectMode, selectedIds, onToggleSelect, onEnterSelectMode }: MonthGroupProps) {
   const total = receipts.reduce((s, r) => s + r.total, 0);
   return (
     <div className="mb-1">
@@ -467,6 +470,7 @@ function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCa
               onDelete={onDelete}
               onUpdateCategory={onUpdateCategory}
               onReEdit={onReEdit}
+              onNewReceipt={onNewReceipt}
               selectMode={selectMode}
               selected={selectedIds?.has(r.id)}
               onToggleSelect={onToggleSelect}

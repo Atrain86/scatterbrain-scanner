@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { Trash2, Check, Pencil, Share2, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut, ChevronDown, SplitSquareHorizontal } from 'lucide-react';
+import { Trash2, Check, Pencil, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut, ChevronDown } from 'lucide-react';
 import type { Receipt } from '../utils/types';
 import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
 import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
 import { loadClients, addClient, setLastClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import ShareModal from './ShareModal';
+import { addReceipt } from '../lib/db';
+import { pushReceiptNow } from '../lib/cloudSync';
 
 interface ReEditUpdates {
   storeName: string;
@@ -24,12 +26,153 @@ interface Props {
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, category: string) => void;
   onReEdit: (id: number, updates: ReEditUpdates) => void;
+  onNewReceipt?: (r: Receipt) => void;
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
 }
 
-export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReEdit, selectMode, selected, onToggleSelect }: Props) {
+// Blue curved share arrow (SVG)
+function ShareArrow({ size = 16, color = '#3b82f6' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg">
+      <path d="M18 8.5C18 8.5 15.5 3 9 3C5.5 3 3 6 3 9.5C3 13.5 6.5 17 12 20.5C12 20.5 14 19 16 17.5" stroke={color} strokeWidth="0" />
+      <path d="M13 3L21 3L21 11" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+      <path d="M21 3L12 12" stroke={color} strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+      <path d="M10 5C6.5 5 3 8 3 12C3 16.5 7 20 12 20C14.5 20 16.5 19 18 17.5" stroke={color} strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+    </svg>
+  );
+}
+
+// Inline client picker dropdown (reusable for split mode)
+function ClientPicker({
+  value, userId, onChange,
+}: { value: string | null; userId: string; onChange: (v: string | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const [clients, setClients] = useState(() => loadClients(userId));
+  const [input, setInput] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function h(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  function pick(name: string | null) { onChange(name); setOpen(false); setInput(''); }
+
+  function addNew() {
+    const t = input.trim(); if (!t) return;
+    const updated = addClient(userId, t); setClients(updated); pick(t);
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(p => !p); }}
+        className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full border whitespace-nowrap transition hover:brightness-125"
+        style={value
+          ? { backgroundColor: 'rgba(59,130,246,0.15)', color: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)' }
+          : { backgroundColor: 'rgba(255,255,255,0.05)', color: '#6b7280', borderColor: 'rgba(255,255,255,0.1)' }
+        }
+      >
+        {value || '+ client'}<ChevronDown size={7} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-40 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-50 shadow-2xl">
+          <button onClick={() => pick(null)} className="w-full px-3 py-2 text-xs text-left text-sb-muted hover:bg-white/5 flex items-center gap-2">
+            <X size={9} /> No client
+          </button>
+          {clients.length > 0 && <div className="border-t border-sb-border" />}
+          <div className="max-h-32 overflow-y-auto">
+            {clients.map(c => (
+              <button key={c} onClick={() => pick(c)}
+                className={`w-full flex items-center justify-between px-3 py-2 text-xs text-left hover:bg-white/5 ${c === value ? 'bg-white/5' : ''}`}>
+                <span className="text-white">{c}</span>
+                {c === value && <Check size={9} className="text-sb-green" />}
+              </button>
+            ))}
+          </div>
+          <div className="border-t border-sb-border px-2 py-1.5 flex gap-1">
+            <input value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNew(); }}
+              onClick={e => e.stopPropagation()}
+              placeholder="+ new client"
+              className="flex-1 bg-transparent border-b border-sb-border text-[10px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
+            <button onClick={e => { e.stopPropagation(); addNew(); }} disabled={!input.trim()}
+              className="text-sb-green disabled:opacity-30"><Plus size={11} /></button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Inline category picker dropdown (reusable for split mode)
+function CatPicker({
+  value, userId, onChange,
+}: { value: string; userId: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const color = getCategoryColorDynamic(value, userId);
+
+  useEffect(() => {
+    function h(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  function pick(name: string) { onChange(name); setOpen(false); setInput(''); }
+
+  function addNew() {
+    const t = input.trim(); if (!t) return;
+    const all = getAllCategories(userId);
+    const existing = all.find(c => c.name.toLowerCase() === t.toLowerCase());
+    if (existing) { pick(existing.name); return; }
+    const key = `sb_u${userId}_custom_categories`;
+    const stored = JSON.parse(localStorage.getItem(key) || '[]');
+    localStorage.setItem(key, JSON.stringify([...stored, { name: t, color: '#6B7280' }]));
+    pick(t);
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={e => { e.stopPropagation(); setOpen(p => !p); }}
+        className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
+        style={{ backgroundColor: color + '22', color, border: `1px solid ${color}44` }}
+      >
+        {value || '+ cat'}<ChevronDown size={7} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-44 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-50 shadow-2xl">
+          <div className="max-h-44 overflow-y-auto">
+            {getAllCategories(userId).map(cat => (
+              <button key={cat.name} onClick={() => pick(cat.name)}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-white/5 ${cat.name === value ? 'bg-white/5' : ''}`}>
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                <span className="text-white flex-1">{cat.name}</span>
+                {cat.name === value && <Check size={9} className="text-sb-green" />}
+              </button>
+            ))}
+          </div>
+          <div className="border-t border-sb-border px-2 py-1.5 flex gap-1">
+            <input value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNew(); }}
+              onClick={e => e.stopPropagation()}
+              placeholder="+ new category"
+              className="flex-1 bg-transparent border-b border-sb-border text-[10px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
+            <button onClick={e => { e.stopPropagation(); addNew(); }} disabled={!input.trim()}
+              className="text-sb-green disabled:opacity-30"><Plus size={11} /></button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReEdit, onNewReceipt, selectMode, selected, onToggleSelect }: Props) {
   const { user } = useAuth();
   const userId = user!.id;
 
@@ -37,6 +180,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const [editingStore,     setEditingStore]     = useState(false);
   const [editStore,        setEditStore]        = useState(receipt.storeName);
   const [editingItems,     setEditingItems]     = useState(false);
+  const [splitMode,        setSplitMode]        = useState(false);
   const [imgFullscreen,    setImgFullscreen]    = useState(false);
   const [shareOpen,        setShareOpen]        = useState(false);
   const [confirmDelete,    setConfirmDelete]    = useState(false);
@@ -46,11 +190,11 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const [newClientInput,   setNewClientInput]   = useState('');
   const [newCatInput,      setNewCatInput]      = useState('');
 
-  // Inline item editing — tracks which product item indices are selected
   const allLineItems: { description: string; amount: number }[] = receipt.lineItems
     ? JSON.parse(receipt.lineItems) : [];
+
+  // Pencil mode — all non-tax items checked by default
   const [checkedItems, setCheckedItems] = useState<Set<number>>(() => {
-    // Initially: all non-tax items that are in the saved lineItems are checked
     const saved: { description: string; amount: number }[] = receipt.lineItems
       ? JSON.parse(receipt.lineItems) : [];
     const savedDescs = new Set(saved.filter(i => !isTaxLine(i.description)).map(i => i.description));
@@ -61,6 +205,11 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     return s;
   });
 
+  // Split mode — per-item client + category assignments
+  const [splitChecked,   setSplitChecked]   = useState<Set<number>>(new Set());
+  const [splitClients,   setSplitClients]   = useState<Record<number, string | null>>({});
+  const [splitCats,      setSplitCats]      = useState<Record<number, string>>({});
+
   const catPickerRef    = useRef<HTMLDivElement>(null);
   const clientPickerRef = useRef<HTMLDivElement>(null);
   const storeInputRef   = useRef<HTMLInputElement>(null);
@@ -69,14 +218,26 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const productItems = allLineItems.filter(i => !isTaxLine(i.description));
   const taxItems     = allLineItems.filter(i =>  isTaxLine(i.description));
 
-  // Live totals while editing items
-  const liveTotals = computeReceiptTotals(allLineItems, checkedItems);
+  const liveTotals   = computeReceiptTotals(allLineItems, checkedItems);
+
+  // Split totals: items assigned to new receipt
+  const splitIndices = new Set(
+    [...splitChecked].filter(i => !isTaxLine(allLineItems[i]?.description ?? ''))
+  );
+  const splitTotals  = computeReceiptTotals(allLineItems, splitIndices);
+  // Remaining (original) indices = all product items NOT in split
+  const remainIndices = new Set(
+    allLineItems.map((_, i) => i).filter(i => !isTaxLine(allLineItems[i].description) && !splitChecked.has(i))
+  );
+  const remainTotals  = computeReceiptTotals(allLineItems, remainIndices);
 
   const dateDisplay = new Date(receipt.receiptDate + 'T00:00:00').toLocaleDateString('en-CA', {
     month: 'short', day: 'numeric', year: 'numeric',
   });
 
-  // Focus store input when editing starts
+  const anyPickerOpen = showCatPicker || showClientPicker;
+  const anyEditActive = editingStore || editingItems || splitMode || anyPickerOpen;
+
   useEffect(() => {
     if (editingStore) {
       setEditStore(receipt.storeName);
@@ -84,15 +245,12 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     }
   }, [editingStore, receipt.storeName]);
 
-  // Close pickers on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (showCatPicker && catPickerRef.current && !catPickerRef.current.contains(e.target as Node)) {
+      if (showCatPicker && catPickerRef.current && !catPickerRef.current.contains(e.target as Node))
         setShowCatPicker(false);
-      }
-      if (showClientPicker && clientPickerRef.current && !clientPickerRef.current.contains(e.target as Node)) {
+      if (showClientPicker && clientPickerRef.current && !clientPickerRef.current.contains(e.target as Node))
         setShowClientPicker(false);
-      }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
@@ -102,14 +260,10 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     const trimmed = editStore.trim();
     if (trimmed && trimmed !== receipt.storeName) {
       onReEdit(receipt.id, {
-        storeName:   trimmed,
-        lineItems:   receipt.lineItems ?? '[]',
-        taxLines:    receipt.taxLines ?? '[]',
-        subtotal:    receipt.subtotal,
-        taxAmount:   receipt.taxAmount,
-        total:       receipt.total,
-        clientName:  receipt.clientName,
-        category:    receipt.category,
+        storeName: trimmed, lineItems: receipt.lineItems ?? '[]',
+        taxLines: receipt.taxLines ?? '[]', subtotal: receipt.subtotal,
+        taxAmount: receipt.taxAmount, total: receipt.total,
+        clientName: receipt.clientName, category: receipt.category,
       });
     }
     setEditingStore(false);
@@ -122,12 +276,10 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   }
 
   function addNewCategory() {
-    const trimmed = newCatInput.trim();
-    if (!trimmed) return;
+    const trimmed = newCatInput.trim(); if (!trimmed) return;
     const all = getAllCategories(userId);
     if (all.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
-      pickCategory(all.find(c => c.name.toLowerCase() === trimmed.toLowerCase())!.name);
-      return;
+      pickCategory(all.find(c => c.name.toLowerCase() === trimmed.toLowerCase())!.name); return;
     }
     const key = `sb_u${userId}_custom_categories`;
     const existing = JSON.parse(localStorage.getItem(key) || '[]');
@@ -138,22 +290,17 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   function pickClient(name: string) {
     setLastClient(userId, name);
     onReEdit(receipt.id, {
-      storeName:   receipt.storeName,
-      lineItems:   receipt.lineItems ?? '[]',
-      taxLines:    receipt.taxLines ?? '[]',
-      subtotal:    receipt.subtotal,
-      taxAmount:   receipt.taxAmount,
-      total:       receipt.total,
-      clientName:  name || null,
-      category:    receipt.category,
+      storeName: receipt.storeName, lineItems: receipt.lineItems ?? '[]',
+      taxLines: receipt.taxLines ?? '[]', subtotal: receipt.subtotal,
+      taxAmount: receipt.taxAmount, total: receipt.total,
+      clientName: name || null, category: receipt.category,
     });
     setShowClientPicker(false);
     setNewClientInput('');
   }
 
   function addNewClient() {
-    const trimmed = newClientInput.trim();
-    if (!trimmed) return;
+    const trimmed = newClientInput.trim(); if (!trimmed) return;
     const updated = addClient(userId, trimmed);
     setClients(updated);
     pickClient(trimmed);
@@ -164,145 +311,201 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
       !isTaxLine(item.description) && checkedItems.has(i)
     );
     onReEdit(receipt.id, {
-      storeName:   receipt.storeName,
-      lineItems:   JSON.stringify([...selectedProducts, ...taxItems]),
-      taxLines:    JSON.stringify(liveTotals.proportionalTaxes),
-      subtotal:    liveTotals.selectedSubtotal,
-      taxAmount:   liveTotals.totalTax,
-      total:       liveTotals.total,
-      clientName:  receipt.clientName,
-      category:    receipt.category,
+      storeName: receipt.storeName,
+      lineItems: JSON.stringify([...selectedProducts, ...taxItems]),
+      taxLines: JSON.stringify(liveTotals.proportionalTaxes),
+      subtotal: liveTotals.selectedSubtotal,
+      taxAmount: liveTotals.totalTax,
+      total: liveTotals.total,
+      clientName: receipt.clientName,
+      category: receipt.category,
     });
     setEditingItems(false);
+  }
+
+  function enterPencilMode() {
+    // Reset checked to current saved items
+    const saved: { description: string; amount: number }[] = receipt.lineItems
+      ? JSON.parse(receipt.lineItems) : [];
+    const savedDescs = new Set(saved.filter(i => !isTaxLine(i.description)).map(i => i.description));
+    const s = new Set<number>();
+    allLineItems.forEach((item, idx) => {
+      if (!isTaxLine(item.description) && savedDescs.has(item.description)) s.add(idx);
+    });
+    setCheckedItems(s);
+    setEditingItems(true);
+    setEditingStore(true);
+  }
+
+  function enterSplitMode() {
+    setSplitChecked(new Set());
+    setSplitClients({});
+    // Default split items to same category as receipt
+    const defaults: Record<number, string> = {};
+    allLineItems.forEach((item, i) => { if (!isTaxLine(item.description)) defaults[i] = receipt.category; });
+    setSplitCats(defaults);
+    setSplitMode(true);
+    setEditingItems(false);
+  }
+
+  async function saveSplit() {
+    if (splitChecked.size === 0) { setSplitMode(false); return; }
+
+    // Determine the primary client/category for the new receipt
+    // Use the most common assigned client among split items, or receipt default
+    const splitClientCounts: Record<string, number> = {};
+    splitChecked.forEach(i => {
+      const c = splitClients[i] ?? receipt.clientName ?? '';
+      splitClientCounts[c] = (splitClientCounts[c] || 0) + 1;
+    });
+    const newClient = Object.entries(splitClientCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
+    const splitCatCounts: Record<string, number> = {};
+    splitChecked.forEach(i => {
+      const c = splitCats[i] ?? receipt.category;
+      splitCatCounts[c] = (splitCatCounts[c] || 0) + 1;
+    });
+    const newCat = Object.entries(splitCatCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || receipt.category;
+
+    const splitProducts = allLineItems.filter((item, i) =>
+      !isTaxLine(item.description) && splitChecked.has(i)
+    );
+
+    // 1. Update original receipt — remove split items
+    const remainProducts = allLineItems.filter((item, i) =>
+      !isTaxLine(item.description) && !splitChecked.has(i)
+    );
+    onReEdit(receipt.id, {
+      storeName: receipt.storeName,
+      lineItems: JSON.stringify([...remainProducts, ...taxItems]),
+      taxLines: JSON.stringify(remainTotals.proportionalTaxes),
+      subtotal: remainTotals.selectedSubtotal,
+      taxAmount: remainTotals.totalTax,
+      total: remainTotals.total,
+      clientName: receipt.clientName,
+      category: receipt.category,
+    });
+
+    // 2. Create new receipt for split items
+    const newReceipt = await addReceipt(userId, {
+      storeName: receipt.storeName,
+      receiptDate: receipt.receiptDate,
+      lineItems: JSON.stringify([...splitProducts, ...taxItems]),
+      rawLineItems: receipt.rawLineItems ?? null,
+      taxLines: JSON.stringify(splitTotals.proportionalTaxes),
+      subtotal: splitTotals.selectedSubtotal,
+      taxAmount: splitTotals.totalTax,
+      total: splitTotals.total,
+      clientName: newClient || null,
+      category: newCat,
+      imagePath: receipt.imagePath ?? null,
+      imageUrl: receipt.imageUrl ?? null,
+      notes: receipt.notes ?? null,
+      uuid: crypto.randomUUID(),
+      updatedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    });
+
+    void pushReceiptNow(newReceipt, userId);
+    onNewReceipt?.(newReceipt);
+    setSplitMode(false);
+  }
+
+  // ── Collapsed badge row (store name line 1, client+cat line 1, date line 2) ──
+  function CollapsedBadges() {
+    return (
+      <div className="flex-1 min-w-0 px-3 py-3">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="text-white font-bold text-sm leading-tight truncate"
+             style={{ fontFamily: "'Poppins', sans-serif" }}>
+            {receipt.storeName || 'Unknown Store'}
+          </p>
+          {receipt.clientName && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-none">
+              {receipt.clientName}
+            </span>
+          )}
+          {receipt.category && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full leading-none"
+              style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}>
+              {receipt.category}
+            </span>
+          )}
+        </div>
+        <p className="text-[11px] text-sb-muted leading-snug mt-0.5">{dateDisplay}</p>
+      </div>
+    );
   }
 
   return (
     <>
       <div className={`bg-sb-card rounded-xl border transition-colors ${selected ? 'border-sb-green' : 'border-sb-border'} overflow-visible`}>
 
-        {/* ── Collapsed row (hidden when expanded) ── */}
+        {/* ── Collapsed row ── */}
         {!expanded && (
           <div
             className="flex items-stretch gap-0 cursor-pointer active:bg-white/5 hover:bg-white/[0.03] transition rounded-xl"
-            onClick={() => selectMode ? onToggleSelect?.(receipt.id) : setExpanded(p => !p)}
+            onClick={() => selectMode ? onToggleSelect?.(receipt.id) : setExpanded(true)}
           >
-            {/* Checkbox — slides in from left in select mode */}
             <div className={`flex items-center justify-center transition-all duration-200 overflow-hidden ${selectMode ? 'w-10 opacity-100' : 'w-0 opacity-0'}`}>
               <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${selected ? 'bg-sb-green border-sb-green' : 'border-sb-muted bg-transparent'}`}>
                 {selected && <Check size={11} className="text-black" strokeWidth={3} />}
               </div>
             </div>
-
-            {/* Category color bar */}
-            <span
-              className="w-1 rounded-l-xl flex-shrink-0 self-stretch"
-              style={{ backgroundColor: catColor, minHeight: 52 }}
-            />
-
-            {/* Store + date + tags */}
-            <div className="flex-1 min-w-0 px-3 py-3">
-              <p className="text-white font-bold text-sm leading-tight truncate"
-                 style={{ fontFamily: "'Poppins', sans-serif" }}>
-                {receipt.storeName || 'Unknown Store'}
-              </p>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                <p className="text-[11px] text-sb-muted leading-snug">{dateDisplay}</p>
-                {receipt.clientName && (
-                  <span className="text-[10px] px-1.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-snug">
-                    {receipt.clientName}
-                  </span>
-                )}
-                {receipt.category && (
-                  <span
-                    className="text-[10px] px-1.5 rounded-full leading-snug"
-                    style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
-                  >
-                    {receipt.category}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Trash (top-right) + price below */}
-            <div
-              className="flex flex-col items-center justify-between px-3 py-2 flex-shrink-0"
-              onClick={e => e.stopPropagation()}
-            >
+            <span className="w-1 rounded-l-xl flex-shrink-0 self-stretch" style={{ backgroundColor: catColor, minHeight: 52 }} />
+            <CollapsedBadges />
+            <div className="flex flex-col items-center justify-between px-3 py-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
               {confirmDelete ? (
-                <button
-                  onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }}
-                  onBlur={() => setConfirmDelete(false)}
-                  className="text-red-400 bg-red-950/40 rounded-lg p-1 transition"
-                  title="Confirm delete"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <button onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }} onBlur={() => setConfirmDelete(false)}
+                  className="text-red-400 bg-red-950/40 rounded-lg p-1 transition"><Trash2 size={14} /></button>
               ) : (
-                <button
-                  onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
-                  className="text-sb-muted hover:text-red-400 transition p-1"
-                  title="Delete receipt"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <button onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
+                  className="text-sb-muted hover:text-red-400 transition p-1"><Trash2 size={14} /></button>
               )}
-              <span className="text-sb-green font-bold text-sm leading-tight mt-1">
-                ${receipt.total.toFixed(2)}
-              </span>
+              <span className="text-sb-green font-bold text-sm leading-tight mt-1">${receipt.total.toFixed(2)}</span>
             </div>
           </div>
         )}
 
-        {/* ── Expanded detail — tap gray background to collapse ── */}
+        {/* ── Expanded detail — tap gray area to collapse ── */}
         {expanded && (
-          <div className="animate-fade-in" onClick={() => { if (!editingStore && !editingItems && !showCatPicker && !showClientPicker) setExpanded(false); }}>
+          <div className="animate-fade-in"
+            onClick={() => { if (!anyEditActive) setExpanded(false); }}>
 
-            {/* ── Single header ── */}
+            {/* ── Header ── */}
             <div className="px-3 pt-3 pb-2.5" onClick={e => e.stopPropagation()}>
 
-              {/* Line 1: store name · client badge · trash */}
+              {/* Line 1: store name · client · category · trash */}
               <div className="flex items-center gap-1.5 min-w-0 mb-1.5">
-
-                {/* Store name */}
                 <div className="flex-1 min-w-0">
                   {editingStore ? (
-                    <input
-                      ref={storeInputRef}
-                      value={editStore}
+                    <input ref={storeInputRef} value={editStore}
                       onChange={e => setEditStore(e.target.value)}
                       onBlur={saveStoreName}
                       onKeyDown={e => { if (e.key === 'Enter') saveStoreName(); if (e.key === 'Escape') setEditingStore(false); }}
                       className="w-full bg-transparent border-b border-sb-green text-white font-bold text-sm focus:outline-none pb-0.5"
-                      style={{ fontFamily: "'Poppins', sans-serif" }}
-                    />
+                      style={{ fontFamily: "'Poppins', sans-serif" }} />
                   ) : (
-                    <button
-                      onClick={() => setEditingStore(true)}
-                      className="text-white font-bold text-sm leading-tight truncate text-left w-full hover:text-white/80 transition"
-                      style={{ fontFamily: "'Poppins', sans-serif" }}
-                    >
+                    <span className="text-white font-bold text-sm leading-tight truncate block"
+                      style={{ fontFamily: "'Poppins', sans-serif" }}>
                       {receipt.storeName || 'Unknown Store'}
-                    </button>
+                    </span>
                   )}
                 </div>
 
-                {/* Client badge — always tappable */}
+                {/* Client badge */}
                 <div className="relative flex-shrink-0" ref={clientPickerRef}>
-                  <button
-                    onClick={() => setShowClientPicker(p => !p)}
+                  <button onClick={() => setShowClientPicker(p => !p)}
                     className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap transition hover:brightness-125"
                     style={receipt.clientName
                       ? { backgroundColor: 'rgba(59,130,246,0.15)', color: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)' }
                       : { backgroundColor: 'rgba(255,255,255,0.05)', color: '#6b7280', borderColor: 'rgba(255,255,255,0.1)' }
-                    }
-                  >
-                    {receipt.clientName || '+ client'}
-                    <ChevronDown size={8} />
+                    }>
+                    {receipt.clientName || '+ client'}<ChevronDown size={8} />
                   </button>
                   {showClientPicker && (
                     <div className="absolute top-full left-0 mt-1 w-44 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl">
-                      <button onClick={() => pickClient('')}
-                        className="w-full px-3 py-2.5 text-xs text-left text-sb-muted hover:bg-white/5 flex items-center gap-2">
+                      <button onClick={() => pickClient('')} className="w-full px-3 py-2.5 text-xs text-left text-sb-muted hover:bg-white/5 flex items-center gap-2">
                         <X size={10} /> No client
                       </button>
                       {clients.length > 0 && <div className="border-t border-sb-border" />}
@@ -318,24 +521,22 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                       <div className="border-t border-sb-border px-2 py-1.5 flex gap-1">
                         <input value={newClientInput} onChange={e => setNewClientInput(e.target.value)}
                           onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewClient(); }}
+                          onClick={e => e.stopPropagation()}
                           placeholder="+ new client"
                           className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
-                        <button onClick={addNewClient} disabled={!newClientInput.trim()}
-                          className="text-sb-green disabled:opacity-30"><Plus size={12} /></button>
+                        <button onClick={e => { e.stopPropagation(); addNewClient(); }} disabled={!newClientInput.trim()}
+                          className="text-sb-green disabled:opacity-30 p-1"><Plus size={12} /></button>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Category badge — always tappable */}
+                {/* Category badge */}
                 <div className="relative flex-shrink-0" ref={catPickerRef}>
-                  <button
-                    onClick={() => setShowCatPicker(p => !p)}
+                  <button onClick={() => setShowCatPicker(p => !p)}
                     className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
-                    style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}
-                  >
-                    {receipt.category || '+ cat'}
-                    <ChevronDown size={8} />
+                    style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}>
+                    {receipt.category || '+ cat'}<ChevronDown size={8} />
                   </button>
                   {showCatPicker && (
                     <div className="absolute top-full left-0 mt-1 w-48 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl">
@@ -352,62 +553,63 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                       <div className="border-t border-sb-border px-2 py-1.5 flex gap-1">
                         <input value={newCatInput} onChange={e => setNewCatInput(e.target.value)}
                           onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewCategory(); }}
+                          onClick={e => e.stopPropagation()}
                           placeholder="+ new category"
                           className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
-                        <button onClick={addNewCategory} disabled={!newCatInput.trim()}
-                          className="text-sb-green disabled:opacity-30"><Plus size={12} /></button>
+                        <button onClick={e => { e.stopPropagation(); addNewCategory(); }} disabled={!newCatInput.trim()}
+                          className="text-sb-green disabled:opacity-30 p-1"><Plus size={12} /></button>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Trash — top right */}
+                {/* Trash */}
                 <button
                   onClick={() => confirmDelete ? (onDelete(receipt.id), setConfirmDelete(false)) : setConfirmDelete(true)}
                   onBlur={() => setConfirmDelete(false)}
-                  className={`p-2 rounded-lg transition ml-auto flex-shrink-0 ${confirmDelete ? 'bg-red-950/40' : 'hover:bg-white/5'}`}
-                  title="Delete">
+                  className={`p-2 rounded-lg transition ml-auto flex-shrink-0 ${confirmDelete ? 'bg-red-950/40' : 'hover:bg-white/5'}`}>
                   <Trash2 size={15} color={confirmDelete ? '#f87171' : '#ef4444'} />
                 </button>
               </div>
 
-              {/* Line 2: date (left) · icons + total (right) */}
-              <div className="flex items-center">
+              {/* Line 2: date · Split button · pencil · share · total */}
+              <div className="flex items-center gap-1.5">
                 <span className="text-[11px] text-sb-muted flex-shrink-0">{dateDisplay}</span>
 
                 <div className="flex items-center gap-1 ml-auto">
-                  {/* Pencil — yellow — inline item edit toggle */}
-                  <button
-                    onClick={() => editingItems ? saveItems() : setEditingItems(true)}
-                    className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0"
-                    title={editingItems ? 'Save items' : 'Edit items'}
-                  >
-                    {editingItems
-                      ? <Check size={14} color="#4ade80" strokeWidth={2.5} />
-                      : <Pencil size={14} color="#eab308" />
-                    }
-                  </button>
-
-                  {/* Split — purple */}
-                  {productItems.length > 0 && (
-                    <button onClick={() => {
-                      const el = document.createElement('div');
-                      el.className = 'fixed top-6 left-1/2 -translate-x-1/2 bg-sb-card border border-sb-border text-white text-xs px-4 py-2 rounded-xl z-50 shadow-xl pointer-events-none';
-                      el.textContent = 'Split receipt — coming soon';
-                      document.body.appendChild(el);
-                      setTimeout(() => el.remove(), 2000);
-                    }} className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0" title="Split receipt">
-                      <SplitSquareHorizontal size={14} color="#a855f7" />
+                  {/* Split — green text button */}
+                  {productItems.length > 1 && !editingItems && (
+                    <button
+                      onClick={() => splitMode ? setSplitMode(false) : enterSplitMode()}
+                      className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition flex-shrink-0 ${
+                        splitMode
+                          ? 'bg-sb-green/20 text-sb-green border border-sb-green/40'
+                          : 'bg-sb-green/10 text-sb-green border border-sb-green/20 hover:bg-sb-green/20'
+                      }`}>
+                      Split
                     </button>
                   )}
 
-                  {/* Share — blue */}
+                  {/* Pencil — yellow — toggles item checkboxes + store name edit */}
+                  {!splitMode && (
+                    <button
+                      onClick={() => editingItems ? saveItems() : enterPencilMode()}
+                      className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0"
+                      title={editingItems ? 'Save' : 'Edit items'}>
+                      {editingItems
+                        ? <Check size={14} color="#4ade80" strokeWidth={2.5} />
+                        : <Pencil size={14} color="#eab308" />
+                      }
+                    </button>
+                  )}
+
+                  {/* Share */}
                   <button onClick={() => setShareOpen(true)}
                     className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0" title="Share">
-                    <Share2 size={14} color="#3b82f6" />
+                    <ShareArrow size={15} color="#3b82f6" />
                   </button>
 
-                  {/* Total — live when editing, saved otherwise */}
+                  {/* Total */}
                   <span className="text-sb-green font-bold text-sm flex-shrink-0 ml-1">
                     ${(editingItems ? liveTotals.total : receipt.total).toFixed(2)}
                   </span>
@@ -415,74 +617,162 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               </div>
             </div>
 
-            {/* ── Line items ── */}
-            <div className="px-4 pb-3 border-t border-sb-border pt-3 space-y-0.5" onClick={e => e.stopPropagation()}>
-              {productItems.map((item, i) => {
-                const originalIndex = allLineItems.indexOf(item);
-                const checked = checkedItems.has(originalIndex);
-                return (
-                  <div
-                    key={i}
-                    onClick={() => {
-                      if (!editingItems) return;
-                      setCheckedItems(prev => {
-                        const next = new Set(prev);
-                        next.has(originalIndex) ? next.delete(originalIndex) : next.add(originalIndex);
-                        return next;
-                      });
-                    }}
-                    className={`flex items-center gap-2 py-1 rounded transition ${editingItems ? 'cursor-pointer hover:bg-white/5 active:bg-white/10' : ''}`}
-                  >
-                    {/* Checkbox slides in when editing */}
-                    <div className={`transition-all duration-150 overflow-hidden flex-shrink-0 ${editingItems ? 'w-5 opacity-100' : 'w-0 opacity-0'}`}>
-                      <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${checked ? 'bg-sb-green border-sb-green' : 'border-sb-muted bg-transparent'}`}>
-                        {checked && <Check size={9} className="text-black" strokeWidth={3} />}
+            {/* ── Line items (pencil mode) ── */}
+            {!splitMode && (
+              <div className="px-4 pb-3 border-t border-sb-border pt-3 space-y-0.5" onClick={e => e.stopPropagation()}>
+                {productItems.map((item, i) => {
+                  const originalIndex = allLineItems.indexOf(item);
+                  const checked = checkedItems.has(originalIndex);
+                  return (
+                    <div key={i}
+                      onClick={() => {
+                        if (!editingItems) return;
+                        setCheckedItems(prev => {
+                          const next = new Set(prev);
+                          next.has(originalIndex) ? next.delete(originalIndex) : next.add(originalIndex);
+                          return next;
+                        });
+                      }}
+                      className={`flex items-center gap-2 py-1 rounded transition ${editingItems ? 'cursor-pointer hover:bg-white/5 active:bg-white/10' : ''}`}>
+                      <div className={`transition-all duration-150 overflow-hidden flex-shrink-0 ${editingItems ? 'w-5 opacity-100' : 'w-0 opacity-0'}`}>
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${checked ? 'bg-sb-green border-sb-green' : 'border-sb-muted bg-transparent'}`}>
+                          {checked && <Check size={9} className="text-black" strokeWidth={3} />}
+                        </div>
+                      </div>
+                      <span className={`flex-1 text-xs leading-snug transition-colors ${editingItems && !checked ? 'text-white/30 line-through' : 'text-sb-muted'}`}>
+                        {item.description}
+                      </span>
+                      <span className={`text-xs flex-shrink-0 transition-colors ${editingItems && !checked ? 'text-white/30' : 'text-white'}`}>
+                        ${item.amount.toFixed(2)}
+                      </span>
+                    </div>
+                  );
+                })}
+
+                {taxItems.length > 0 && (
+                  <div className="border-t border-sb-border mt-2 pt-2 space-y-0.5">
+                    {(editingItems
+                      ? liveTotals.proportionalTaxes.map(t => ({ description: t.label, amount: t.amount }))
+                      : taxItems
+                    ).map((item, i) => (
+                      <div key={i} className="flex justify-between text-xs">
+                        <span className="text-sb-muted">{item.description}</span>
+                        <span className="text-sb-muted">${item.amount.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="border-t border-sb-border mt-2 pt-2 flex justify-between text-sm font-semibold">
+                  <span className="text-white">Total</span>
+                  <span className="text-sb-green">${(editingItems ? liveTotals.total : receipt.total).toFixed(2)}</span>
+                </div>
+
+                {receipt.notes && (
+                  <p className="text-sb-muted text-xs italic border-t border-sb-border pt-2">{receipt.notes}</p>
+                )}
+              </div>
+            )}
+
+            {/* ── Split mode ── */}
+            {splitMode && (
+              <div className="border-t border-sb-border" onClick={e => e.stopPropagation()}>
+                <div className="px-3 py-2 bg-sb-green/5 border-b border-sb-border">
+                  <p className="text-[11px] text-sb-green font-medium">Select items to split into a new receipt</p>
+                </div>
+
+                <div className="px-3 pt-2 pb-1 space-y-1">
+                  {productItems.map((item, i) => {
+                    const originalIndex = allLineItems.indexOf(item);
+                    const checked = splitChecked.has(originalIndex);
+                    return (
+                      <div key={i} className="flex items-center gap-2 py-1.5 cursor-pointer hover:bg-white/5 rounded-lg px-1 active:bg-white/10"
+                        onClick={() => {
+                          setSplitChecked(prev => {
+                            const next = new Set(prev);
+                            next.has(originalIndex) ? next.delete(originalIndex) : next.add(originalIndex);
+                            return next;
+                          });
+                        }}>
+                        <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-sb-green border-sb-green' : 'border-sb-muted bg-transparent'}`}>
+                          {checked && <Check size={9} className="text-black" strokeWidth={3} />}
+                        </div>
+                        <span className="flex-1 text-xs text-sb-muted leading-snug">{item.description}</span>
+                        <span className="text-xs text-white flex-shrink-0">${item.amount.toFixed(2)}</span>
+                        {/* Per-item client + category — only show when checked */}
+                        {checked && (
+                          <div className="flex items-center gap-1 ml-1" onClick={e => e.stopPropagation()}>
+                            <ClientPicker
+                              value={splitClients[originalIndex] ?? null}
+                              userId={userId}
+                              onChange={v => setSplitClients(prev => ({ ...prev, [originalIndex]: v }))}
+                            />
+                            <CatPicker
+                              value={splitCats[originalIndex] ?? receipt.category}
+                              userId={userId}
+                              onChange={v => setSplitCats(prev => ({ ...prev, [originalIndex]: v }))}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Tax lines */}
+                {taxItems.length > 0 && (
+                  <div className="px-4 pb-2 space-y-0.5">
+                    <div className="border-t border-sb-border pt-2 space-y-0.5">
+                      {taxItems.map((item, i) => (
+                        <div key={i} className="flex justify-between text-xs">
+                          <span className="text-sb-muted">{item.description}</span>
+                          <span className="text-sb-muted">${item.amount.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Split preview — two receipt totals */}
+                {splitChecked.size > 0 && (
+                  <div className="mx-3 mb-2 mt-1 rounded-xl border border-sb-border overflow-hidden">
+                    <div className="flex divide-x divide-sb-border">
+                      <div className="flex-1 px-3 py-2.5 text-center">
+                        <p className="text-[10px] text-sb-muted mb-0.5">Original</p>
+                        <p className="text-sm font-bold text-white">${remainTotals.total.toFixed(2)}</p>
+                        <p className="text-[10px] text-sb-muted">{productItems.length - splitChecked.size} items</p>
+                      </div>
+                      <div className="flex-1 px-3 py-2.5 text-center">
+                        <p className="text-[10px] text-sb-green mb-0.5">New receipt</p>
+                        <p className="text-sm font-bold text-sb-green">${splitTotals.total.toFixed(2)}</p>
+                        <p className="text-[10px] text-sb-muted">{splitChecked.size} items</p>
                       </div>
                     </div>
-                    <span className={`flex-1 text-xs leading-snug transition-colors ${editingItems && !checked ? 'text-white/30 line-through' : 'text-sb-muted'}`}>
-                      {item.description}
-                    </span>
-                    <span className={`text-xs flex-shrink-0 transition-colors ${editingItems && !checked ? 'text-white/30' : 'text-white'}`}>
-                      ${item.amount.toFixed(2)}
-                    </span>
                   </div>
-                );
-              })}
+                )}
 
-              {/* Tax — shown once, proportional if editing */}
-              {taxItems.length > 0 && (
-                <div className="border-t border-sb-border mt-2 pt-2 space-y-0.5">
-                  {(editingItems ? liveTotals.proportionalTaxes.map(t => ({ description: t.label, amount: t.amount })) : taxItems).map((item, i) => (
-                    <div key={i} className="flex justify-between text-xs">
-                      <span className="text-sb-muted">{item.description}</span>
-                      <span className="text-sb-muted">${item.amount.toFixed(2)}</span>
-                    </div>
-                  ))}
+                {/* Save split button */}
+                <div className="px-3 pb-3">
+                  <button
+                    onClick={saveSplit}
+                    disabled={splitChecked.size === 0}
+                    className="w-full py-2.5 rounded-xl bg-sb-green text-black text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:brightness-110 transition active:scale-[0.98]">
+                    {splitChecked.size > 0 ? `Save — create 2 receipts` : 'Select items to split'}
+                  </button>
                 </div>
-              )}
-
-              {/* Total only — no subtotal row */}
-              <div className="border-t border-sb-border mt-2 pt-2 flex justify-between text-sm font-semibold">
-                <span className="text-white">Total</span>
-                <span className="text-sb-green">
-                  ${(editingItems ? liveTotals.total : receipt.total).toFixed(2)}
-                </span>
               </div>
-
-              {receipt.notes && (
-                <p className="text-sb-muted text-xs italic border-t border-sb-border pt-2">{receipt.notes}</p>
-              )}
-            </div>
+            )}
 
             {/* ── Receipt photo ── */}
             {receipt.imageUrl ? (
               <div className="cursor-zoom-in border-t border-sb-border bg-black"
-                   onClick={e => { e.stopPropagation(); setImgFullscreen(true); }}>
+                onClick={e => { e.stopPropagation(); setImgFullscreen(true); }}>
                 <img src={receipt.imageUrl} alt="Receipt" className="w-full max-h-56 object-contain" />
                 <p className="text-center text-[10px] text-sb-muted py-1">Tap to enlarge</p>
               </div>
             ) : (
-              <div className="border-t border-sb-border flex items-center justify-center gap-2 py-4 text-sb-muted">
+              <div className="border-t border-sb-border flex items-center justify-center gap-2 py-4 text-sb-muted"
+                onClick={e => e.stopPropagation()}>
                 <ImageIcon size={16} />
                 <span className="text-xs">No receipt image</span>
               </div>
@@ -492,7 +782,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
       </div>
 
       {shareOpen && <ShareModal receipt={receipt} onClose={() => setShareOpen(false)} />}
-
       {imgFullscreen && receipt.imageUrl && (
         <ZoomableImage src={receipt.imageUrl} onClose={() => setImgFullscreen(false)} />
       )}
@@ -505,7 +794,6 @@ function ZoomableImage({ src, onClose }: { src: string; onClose: () => void }) {
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const lastTouchDist = useRef<number | null>(null);
-  const lastTouchMid  = useRef<{ x: number; y: number } | null>(null);
   const dragStart     = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
 
   function getTouchDist(touches: React.TouchList) {
@@ -517,17 +805,8 @@ function ZoomableImage({ src, onClose }: { src: string; onClose: () => void }) {
   function onTouchStart(e: React.TouchEvent) {
     if (e.touches.length === 2) {
       lastTouchDist.current = getTouchDist(e.touches);
-      lastTouchMid.current = {
-        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
-        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
-      };
     } else if (e.touches.length === 1 && scale > 1) {
-      dragStart.current = {
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY,
-        ox: offset.x,
-        oy: offset.y,
-      };
+      dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: offset.x, oy: offset.y };
     }
   }
 
@@ -535,13 +814,10 @@ function ZoomableImage({ src, onClose }: { src: string; onClose: () => void }) {
     e.preventDefault();
     if (e.touches.length === 2 && lastTouchDist.current !== null) {
       const newDist = getTouchDist(e.touches);
-      const ratio = newDist / lastTouchDist.current;
-      setScale(s => Math.min(Math.max(s * ratio, 1), 5));
+      setScale(s => Math.min(Math.max(s * (newDist / lastTouchDist.current!), 1), 5));
       lastTouchDist.current = newDist;
     } else if (e.touches.length === 1 && dragStart.current && scale > 1) {
-      const dx = e.touches[0].clientX - dragStart.current.x;
-      const dy = e.touches[0].clientY - dragStart.current.y;
-      setOffset({ x: dragStart.current.ox + dx, y: dragStart.current.oy + dy });
+      setOffset({ x: dragStart.current.ox + (e.touches[0].clientX - dragStart.current.x), y: dragStart.current.oy + (e.touches[0].clientY - dragStart.current.y) });
     }
   }
 
@@ -551,378 +827,30 @@ function ZoomableImage({ src, onClose }: { src: string; onClose: () => void }) {
     if (scale <= 1) setOffset({ x: 0, y: 0 });
   }
 
-  function handleTap() {
-    if (scale === 1) onClose();
-  }
-
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center"
-      style={{ touchAction: 'none' }}
-    >
-      {/* Header */}
+    <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center" style={{ touchAction: 'none' }}>
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 safe-top z-10">
-        <button onClick={onClose} className="text-white/70 hover:text-white transition p-1">
-          <X size={22} />
-        </button>
+        <button onClick={onClose} className="text-white/70 hover:text-white transition p-1"><X size={22} /></button>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => { setScale(s => Math.max(s - 0.5, 1)); if (scale - 0.5 <= 1) setOffset({ x: 0, y: 0 }); }}
-            className="text-white/70 hover:text-white transition p-1"
-            disabled={scale <= 1}
-          >
-            <ZoomOut size={20} />
-          </button>
+          <button onClick={() => { setScale(s => Math.max(s - 0.5, 1)); if (scale - 0.5 <= 1) setOffset({ x: 0, y: 0 }); }}
+            className="text-white/70 hover:text-white transition p-1" disabled={scale <= 1}><ZoomOut size={20} /></button>
           <span className="text-white/50 text-xs tabular-nums">{Math.round(scale * 100)}%</span>
-          <button
-            onClick={() => setScale(s => Math.min(s + 0.5, 5))}
-            className="text-white/70 hover:text-white transition p-1"
-            disabled={scale >= 5}
-          >
-            <ZoomIn size={20} />
-          </button>
+          <button onClick={() => setScale(s => Math.min(s + 0.5, 5))}
+            className="text-white/70 hover:text-white transition p-1" disabled={scale >= 5}><ZoomIn size={20} /></button>
         </div>
       </div>
-
-      {/* Image */}
-      <div
-        className="w-full h-full flex items-center justify-center overflow-hidden"
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onClick={handleTap}
-      >
-        <img
-          src={src}
-          alt="Receipt"
-          draggable={false}
+      <div className="w-full h-full flex items-center justify-center overflow-hidden"
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+        onClick={() => { if (scale === 1) onClose(); }}>
+        <img src={src} alt="Receipt" draggable={false}
           style={{
             transform: `scale(${scale}) translate(${offset.x / scale}px, ${offset.y / scale}px)`,
             transformOrigin: 'center',
             transition: lastTouchDist.current ? 'none' : 'transform 0.1s ease-out',
-            maxWidth: '100%',
-            maxHeight: '100%',
-            objectFit: 'contain',
-            userSelect: 'none',
-          }}
-        />
+            maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', userSelect: 'none',
+          }} />
       </div>
-
-      {scale === 1 && (
-        <p className="absolute bottom-8 text-white/30 text-xs">Tap to close · Pinch to zoom</p>
-      )}
-    </div>
-  );
-}
-
-/* ── Inline re-edit modal ── */
-interface ReEditModalProps {
-  receipt: Receipt;
-  userId: string;
-  onClose: () => void;
-  onSave: (updates: ReEditUpdates) => void;
-}
-
-function ReEditModal({ receipt, userId, onClose, onSave }: ReEditModalProps) {
-  const allItems: { description: string; amount: number }[] = (() => {
-    try {
-      if (receipt.rawLineItems) return JSON.parse(receipt.rawLineItems);
-      if (receipt.lineItems) return JSON.parse(receipt.lineItems);
-    } catch {}
-    return [];
-  })();
-
-  const savedItems: { description: string; amount: number }[] = (() => {
-    try { return receipt.lineItems ? JSON.parse(receipt.lineItems) : []; } catch { return []; }
-  })();
-  const savedDescriptions = new Set(savedItems.filter(i => !isTaxLine(i.description)).map(i => i.description));
-  const taxLineItems = allItems.filter(i => isTaxLine(i.description));
-
-  const [storeName, setStoreName]   = useState(receipt.storeName);
-  const [clientName, setClientName] = useState(receipt.clientName ?? '');
-  const [category, setCategory]     = useState(receipt.category ?? '');
-
-  // Client dropdown state
-  const [clients, setClients]             = useState<string[]>(() => loadClients(userId));
-  const [showClientPicker, setShowClientPicker] = useState(false);
-  const [newClientInput, setNewClientInput]     = useState('');
-  const clientRef = useRef<HTMLDivElement>(null);
-
-  // Category dropdown state
-  const [showCatPicker, setShowCatPicker] = useState(false);
-  const catRef = useRef<HTMLDivElement>(null);
-
-  const [selected, setSelected] = useState<Set<number>>(() => {
-    const s = new Set<number>();
-    allItems.forEach((item, i) => {
-      if (!isTaxLine(item.description) && savedDescriptions.has(item.description)) s.add(i);
-    });
-    return s;
-  });
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (showClientPicker && clientRef.current && !clientRef.current.contains(e.target as Node)) setShowClientPicker(false);
-      if (showCatPicker   && catRef.current    && !catRef.current.contains(e.target as Node))    setShowCatPicker(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [showClientPicker, showCatPicker]);
-
-  const lineItems = allItems;
-
-  function toggleItem(index: number) {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(index) ? next.delete(index) : next.add(index);
-      return next;
-    });
-  }
-
-  const totals = computeReceiptTotals(lineItems, selected);
-
-  function pickClient(name: string) {
-    setClientName(name);
-    setLastClient(userId, name);
-    setShowClientPicker(false);
-    setNewClientInput('');
-  }
-
-  function handleAddNewClient() {
-    const trimmed = newClientInput.trim();
-    if (!trimmed) return;
-    const updated = addClient(userId, trimmed);
-    setClients(updated);
-    pickClient(trimmed);
-  }
-
-  function handleSave() {
-    const selectedItems = lineItems.filter((item, i) =>
-      isTaxLine(item.description) ? false : selected.has(i)
-    );
-    onSave({
-      storeName,
-      lineItems: JSON.stringify([...selectedItems, ...taxLineItems]),
-      taxLines: JSON.stringify(totals.proportionalTaxes),
-      subtotal: totals.selectedSubtotal,
-      taxAmount: totals.totalTax,
-      total: totals.total,
-      clientName: clientName.trim() || null,
-      category,
-    });
-  }
-
-  const productItems = allItems.filter(i => !isTaxLine(i.description));
-  const catColor = getCategoryColorDynamic(category, userId);
-
-  return (
-    <div className="fixed inset-0 z-50 bg-sb-bg flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-sb-border safe-top">
-        <h2 className="text-white font-semibold text-base">Edit Receipt</h2>
-        <button onClick={onClose} className="text-sb-muted hover:text-white transition p-1">
-          <X size={20} />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-
-        {/* Store name */}
-        <div className="bg-sb-card border border-sb-border rounded-xl px-4 py-3">
-          <label className="block text-xs text-sb-muted mb-1">Store Name</label>
-          <input
-            value={storeName}
-            onChange={e => setStoreName(e.target.value)}
-            className="w-full bg-transparent text-white text-base font-semibold border-b border-sb-border pb-1 focus:outline-none focus:border-sb-green transition"
-          />
-        </div>
-
-        {/* Client dropdown */}
-        <div className="relative" ref={clientRef}>
-          <button
-            onClick={() => setShowClientPicker(p => !p)}
-            className="w-full bg-sb-card border border-sb-border rounded-xl px-4 py-3 flex items-center justify-between"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-xs text-sb-muted flex-shrink-0">Client</span>
-              {clientName ? (
-                <span className="text-white text-sm font-medium truncate">{clientName}</span>
-              ) : (
-                <span className="text-white/30 text-sm">Select or add client…</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {clientName && (
-                <span onClick={e => { e.stopPropagation(); setClientName(''); }} className="text-sb-muted hover:text-white p-0.5">
-                  <X size={12} />
-                </span>
-              )}
-              <ChevronDown size={16} className="text-sb-muted" />
-            </div>
-          </button>
-          {showClientPicker && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-sb-card border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl">
-              <button
-                onClick={() => { setClientName(''); setShowClientPicker(false); }}
-                className="w-full px-4 py-2.5 text-sm text-left text-sb-muted hover:bg-white/5 transition"
-              >
-                No client
-              </button>
-              {clients.length > 0 && <div className="border-t border-sb-border" />}
-              <div className="max-h-36 overflow-y-auto">
-                {clients.map(c => (
-                  <button key={c} onClick={() => pickClient(c)}
-                    className={`w-full flex items-center justify-between px-4 py-2.5 text-sm text-left hover:bg-white/5 transition ${c === clientName ? 'bg-white/5' : ''}`}
-                  >
-                    <span className="text-white">{c}</span>
-                    {c === clientName && <Check size={13} className="text-sb-green" />}
-                  </button>
-                ))}
-              </div>
-              <div className="border-t border-sb-border px-3 py-2 flex items-center gap-2">
-                <input
-                  value={newClientInput}
-                  onChange={e => setNewClientInput(e.target.value)}
-                  onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') handleAddNewClient(); }}
-                  onClick={e => e.stopPropagation()}
-                  placeholder="New client…"
-                  className="flex-1 bg-sb-card2 border border-sb-border rounded-lg px-2 py-1 text-xs text-white placeholder-white/30 focus:outline-none focus:border-sb-green transition"
-                />
-                <button onClick={e => { e.stopPropagation(); handleAddNewClient(); }} disabled={!newClientInput.trim()}
-                  className="p-1 rounded-lg text-sb-green disabled:opacity-30 hover:bg-sb-green/10 transition">
-                  <Plus size={13} />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Category dropdown */}
-        <div className="relative" ref={catRef}>
-          <button
-            onClick={() => setShowCatPicker(p => !p)}
-            className="w-full bg-sb-card border border-sb-border rounded-xl px-4 py-3 flex items-center justify-between"
-          >
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: catColor }} />
-              <span className="text-white text-sm font-medium">{category || 'Select category…'}</span>
-            </div>
-            <ChevronDown size={16} className="text-sb-muted" />
-          </button>
-          {showCatPicker && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-sb-card border border-sb-border rounded-xl overflow-y-auto z-30 shadow-2xl" style={{ maxHeight: '55vh' }}>
-              {getAllCategories().map(cat => (
-                <button key={cat.name} onClick={() => { setCategory(cat.name); setShowCatPicker(false); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-sm text-left hover:bg-white/5 transition ${cat.name === category ? 'bg-white/5' : ''}`}
-                >
-                  <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                  <span className="text-white">{cat.name}</span>
-                  {cat.name === category && <Check size={13} className="ml-auto text-sb-green" />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Line items */}
-        {productItems.length === 0 ? (
-          <p className="text-sb-muted text-sm text-center py-8">No line items to edit.</p>
-        ) : (
-          <div className="bg-sb-card border border-sb-border rounded-xl overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 border-b border-sb-border">
-              <span className="text-xs text-sb-muted">
-                {selected.size} of {productItems.length} items selected
-              </span>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setSelected(new Set(lineItems.map((_, i) => i).filter(i => !isTaxLine(lineItems[i].description))))}
-                  className="text-xs text-sb-green hover:underline"
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setSelected(new Set())}
-                  className="text-xs text-sb-muted hover:underline"
-                >
-                  None
-                </button>
-              </div>
-            </div>
-
-            <div className="divide-y divide-sb-border">
-              {lineItems.map((item, index) => {
-                if (isTaxLine(item.description)) return null;
-                const checked = selected.has(index);
-                return (
-                  <button
-                    key={index}
-                    onClick={() => toggleItem(index)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-left transition ${
-                      checked ? 'bg-green-950/20' : 'hover:bg-white/5'
-                    }`}
-                  >
-                    <div
-                      className="w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition"
-                      style={{
-                        borderColor: checked ? '#4ade80' : '#555',
-                        backgroundColor: checked ? 'rgba(74,222,128,0.15)' : 'transparent',
-                      }}
-                    >
-                      {checked && <Check size={11} color="#4ade80" strokeWidth={3} />}
-                    </div>
-                    <span className={`flex-1 text-sm ${checked ? 'text-white' : 'text-sb-muted line-through'}`}>
-                      {item.description}
-                    </span>
-                    <span className={`text-sm font-medium ${checked ? 'text-sb-green' : 'text-sb-muted'}`}>
-                      {fmt(item.amount)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {totals.proportionalTaxes.length > 0 && (
-          <div className="mt-3 bg-sb-card border border-sb-border rounded-xl px-4 py-3 space-y-1.5">
-            <p className="text-xs text-sb-muted mb-2">Proportional Tax</p>
-            {totals.proportionalTaxes.map((t, i) => (
-              <div key={i} className="flex justify-between text-sm">
-                <span className="text-sb-muted">{t.label}</span>
-                <span className="text-white">{fmt(t.amount)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="border-t border-sb-border px-4 py-4 safe-bottom">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-sb-muted">Total</p>
-            <p className="text-2xl font-bold text-sb-green">{fmt(totals.total)}</p>
-            {totals.totalTax > 0 && (
-              <p className="text-xs text-sb-muted">
-                {fmt(totals.selectedSubtotal)} + {fmt(totals.totalTax)} tax
-              </p>
-            )}
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-sb-border text-sb-muted hover:text-white transition"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={selected.size === 0}
-              className="px-6 py-2.5 rounded-xl bg-sb-green text-black font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-110 transition"
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      </div>
+      {scale === 1 && <p className="absolute bottom-8 text-white/30 text-xs">Tap to close · Pinch to zoom</p>}
     </div>
   );
 }
