@@ -32,14 +32,13 @@ interface Props {
   onToggleSelect?: (id: number) => void;
 }
 
-// Blue curved share arrow (SVG)
+// Standard iOS-style share arrow: box with upward arrow
 function ShareArrow({ size = 16, color = '#3b82f6' }: { size?: number; color?: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg">
-      <path d="M18 8.5C18 8.5 15.5 3 9 3C5.5 3 3 6 3 9.5C3 13.5 6.5 17 12 20.5C12 20.5 14 19 16 17.5" stroke={color} strokeWidth="0" />
-      <path d="M13 3L21 3L21 11" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-      <path d="M21 3L12 12" stroke={color} strokeWidth="2.2" strokeLinecap="round" fill="none"/>
-      <path d="M10 5C6.5 5 3 8 3 12C3 16.5 7 20 12 20C14.5 20 16.5 19 18 17.5" stroke={color} strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+      <polyline points="16 6 12 2 8 6" />
+      <line x1="12" y1="2" x2="12" y2="15" />
     </svg>
   );
 }
@@ -467,13 +466,18 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
           </div>
         )}
 
-        {/* ── Expanded detail — tap gray area to collapse ── */}
+        {/* ── Expanded detail ── */}
         {expanded && (
-          <div className="animate-fade-in"
-            onClick={() => { if (!anyEditActive) setExpanded(false); }}>
+          <div className="animate-fade-in">
+
+            {/* Tap-to-close strip at top */}
+            <div className="flex justify-center pt-2 pb-0 cursor-pointer"
+              onClick={() => { if (!anyEditActive) setExpanded(false); }}>
+              <div className="w-10 h-1 rounded-full bg-white/15" />
+            </div>
 
             {/* ── Header ── */}
-            <div className="px-3 pt-3 pb-2.5" onClick={e => e.stopPropagation()}>
+            <div className="px-3 pt-2 pb-2.5" onClick={e => e.stopPropagation()}>
 
               {/* Line 1: store name · client · category · trash */}
               <div className="flex items-center gap-1.5 min-w-0 mb-1.5">
@@ -518,14 +522,13 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                           </button>
                         ))}
                       </div>
-                      <div className="border-t border-sb-border px-2 py-1.5 flex gap-1">
+                      <div className="border-t border-sb-border px-2 py-1.5 flex gap-1" onClick={e => e.stopPropagation()}>
                         <input value={newClientInput} onChange={e => setNewClientInput(e.target.value)}
                           onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewClient(); }}
-                          onClick={e => e.stopPropagation()}
                           placeholder="+ new client"
                           className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
-                        <button onClick={e => { e.stopPropagation(); addNewClient(); }} disabled={!newClientInput.trim()}
-                          className="text-sb-green disabled:opacity-30 p-1"><Plus size={12} /></button>
+                        <button onClick={() => addNewClient()}
+                          className={`p-1 transition ${newClientInput.trim() ? 'text-sb-green' : 'text-white/20'}`}><Plus size={12} /></button>
                       </div>
                     </div>
                   )}
@@ -550,14 +553,13 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                           </button>
                         ))}
                       </div>
-                      <div className="border-t border-sb-border px-2 py-1.5 flex gap-1">
+                      <div className="border-t border-sb-border px-2 py-1.5 flex gap-1" onClick={e => e.stopPropagation()}>
                         <input value={newCatInput} onChange={e => setNewCatInput(e.target.value)}
                           onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewCategory(); }}
-                          onClick={e => e.stopPropagation()}
                           placeholder="+ new category"
                           className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
-                        <button onClick={e => { e.stopPropagation(); addNewCategory(); }} disabled={!newCatInput.trim()}
-                          className="text-sb-green disabled:opacity-30 p-1"><Plus size={12} /></button>
+                        <button onClick={() => addNewCategory()}
+                          className={`p-1 transition ${newCatInput.trim() ? 'text-sb-green' : 'text-white/20'}`}><Plus size={12} /></button>
                       </div>
                     </div>
                   )}
@@ -572,54 +574,55 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                 </button>
               </div>
 
-              {/* Line 2: date · Split button · pencil · share · total */}
-              <div className="flex items-center gap-1.5">
+              {/* Line 2: date · [Split] · pencil · share · total */}
+              <div className="flex items-center gap-2">
                 <span className="text-[11px] text-sb-muted flex-shrink-0">{dateDisplay}</span>
 
-                <div className="flex items-center gap-1 ml-auto">
-                  {/* Split — green text button */}
-                  {productItems.length > 1 && !editingItems && (
-                    <button
-                      onClick={() => splitMode ? setSplitMode(false) : enterSplitMode()}
-                      className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition flex-shrink-0 ${
-                        splitMode
-                          ? 'bg-sb-green/20 text-sb-green border border-sb-green/40'
-                          : 'bg-sb-green/10 text-sb-green border border-sb-green/20 hover:bg-sb-green/20'
-                      }`}>
-                      Split
-                    </button>
-                  )}
-
-                  {/* Pencil — yellow — toggles item checkboxes + store name edit */}
-                  {!splitMode && (
-                    <button
-                      onClick={() => editingItems ? saveItems() : enterPencilMode()}
-                      className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0"
-                      title={editingItems ? 'Save' : 'Edit items'}>
-                      {editingItems
-                        ? <Check size={14} color="#4ade80" strokeWidth={2.5} />
-                        : <Pencil size={14} color="#eab308" />
-                      }
-                    </button>
-                  )}
-
-                  {/* Share */}
-                  <button onClick={() => setShareOpen(true)}
-                    className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0" title="Share">
-                    <ShareArrow size={15} color="#3b82f6" />
+                {/* Split — wide muted green, centered between date and right icons */}
+                {productItems.length > 1 && !editingItems && (
+                  <button
+                    onClick={() => splitMode ? setSplitMode(false) : enterSplitMode()}
+                    className={`flex-1 mx-1 py-1 rounded-lg text-[11px] font-semibold transition ${
+                      splitMode
+                        ? 'bg-green-900/60 text-green-400 border border-green-700/50'
+                        : 'bg-green-900/30 text-green-500 border border-green-800/40 hover:bg-green-900/50'
+                    }`}>
+                    Split
                   </button>
+                )}
+                {/* Spacer when no split button */}
+                {(productItems.length <= 1 || editingItems) && <div className="flex-1" />}
 
-                  {/* Total */}
-                  <span className="text-sb-green font-bold text-sm flex-shrink-0 ml-1">
-                    ${(editingItems ? liveTotals.total : receipt.total).toFixed(2)}
-                  </span>
-                </div>
+                {/* Pencil — yellow */}
+                {!splitMode && (
+                  <button
+                    onClick={() => editingItems ? saveItems() : enterPencilMode()}
+                    className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0"
+                    title={editingItems ? 'Save' : 'Edit items'}>
+                    {editingItems
+                      ? <Check size={14} color="#4ade80" strokeWidth={2.5} />
+                      : <Pencil size={14} color="#eab308" />
+                    }
+                  </button>
+                )}
+
+                {/* Share */}
+                <button onClick={() => setShareOpen(true)}
+                  className="p-1.5 rounded-lg hover:bg-white/5 transition flex-shrink-0" title="Share">
+                  <ShareArrow size={15} color="#3b82f6" />
+                </button>
+
+                {/* Total */}
+                <span className="text-sb-green font-bold text-sm flex-shrink-0">
+                  ${(editingItems ? liveTotals.total : receipt.total).toFixed(2)}
+                </span>
               </div>
             </div>
 
             {/* ── Line items (pencil mode) ── */}
             {!splitMode && (
-              <div className="px-4 pb-3 border-t border-sb-border pt-3 space-y-0.5" onClick={e => e.stopPropagation()}>
+              <div className="px-4 pb-3 border-t border-sb-border pt-3 space-y-0.5"
+                onClick={e => { if (editingItems) e.stopPropagation(); else { e.stopPropagation(); if (!anyEditActive) setExpanded(false); } }}>
                 {productItems.map((item, i) => {
                   const originalIndex = allLineItems.indexOf(item);
                   const checked = checkedItems.has(originalIndex);
@@ -757,7 +760,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                     onClick={saveSplit}
                     disabled={splitChecked.size === 0}
                     className="w-full py-2.5 rounded-xl bg-sb-green text-black text-sm font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:brightness-110 transition active:scale-[0.98]">
-                    {splitChecked.size > 0 ? `Save — create 2 receipts` : 'Select items to split'}
+                    {splitChecked.size > 0 ? 'Save' : 'Select items to split'}
                   </button>
                 </div>
               </div>
