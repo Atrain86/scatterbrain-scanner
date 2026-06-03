@@ -253,12 +253,12 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
           </div>
         )}
 
-        {/* ── Expanded detail ── */}
+        {/* ── Expanded detail — tap gray background to collapse ── */}
         {expanded && (
-          <div className="animate-fade-in" onClick={e => e.stopPropagation()}>
+          <div className="animate-fade-in" onClick={() => { if (!editingStore && !editingItems && !showCatPicker && !showClientPicker) setExpanded(false); }}>
 
             {/* ── Single header ── */}
-            <div className="px-3 pt-3 pb-2.5">
+            <div className="px-3 pt-3 pb-2.5" onClick={e => e.stopPropagation()}>
 
               {/* Line 1: store name · client badge · trash */}
               <div className="flex items-center gap-1.5 min-w-0 mb-1.5">
@@ -416,7 +416,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
             </div>
 
             {/* ── Line items ── */}
-            <div className="px-4 pb-3 border-t border-sb-border pt-3 space-y-0.5">
+            <div className="px-4 pb-3 border-t border-sb-border pt-3 space-y-0.5" onClick={e => e.stopPropagation()}>
               {productItems.map((item, i) => {
                 const originalIndex = allLineItems.indexOf(item);
                 const checked = checkedItems.has(originalIndex);
@@ -477,7 +477,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
             {/* ── Receipt photo ── */}
             {receipt.imageUrl ? (
               <div className="cursor-zoom-in border-t border-sb-border bg-black"
-                   onClick={() => setImgFullscreen(true)}>
+                   onClick={e => { e.stopPropagation(); setImgFullscreen(true); }}>
                 <img src={receipt.imageUrl} alt="Receipt" className="w-full max-h-56 object-contain" />
                 <p className="text-center text-[10px] text-sb-muted py-1">Tap to enlarge</p>
               </div>
