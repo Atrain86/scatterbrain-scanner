@@ -76,16 +76,24 @@ async function extractTextWithGoogleVision(imageBase64: string): Promise<string>
 async function parseReceiptText(ocrText: string, openaiKey: string): Promise<ScannedReceiptData> {
   const prompt = `You are a receipt parser. The following text was extracted from a receipt photo via OCR. Parse every line item into structured JSON.
 
-CRITICAL RULES:
-1. List EVERY line item individually — do not skip, merge, or summarize.
-2. DUPLICATE DESCRIPTIONS ARE VALID — if "HK-KITCHEN STO" appears 4 times at different prices, list all 4 separately.
+THE PRINTED TOTAL IS YOUR GROUND TRUTH:
+- First, find the final printed "Total" on the receipt. That is what the customer actually paid.
+- Your line items + taxes MUST sum to this Total (within $0.05 tolerance for rounding).
+- Treat parsing as a constraint-satisfaction problem: choose the set of items whose math reconciles with the printed Total.
+- When you see ambiguous lines like "$4.34 x 2" appearing under an item already listed at $8.68, that is a QUANTITY BREAKDOWN of the same item. Include EITHER the parent ($8.68) OR the breakdown (two × $4.34) — never both. Pick whichever interpretation balances against the printed Total.
+- Same for any "$X.XX x N" pattern under a parent line. It is one item OR N items, not N+1.
+- Before returning JSON, verify: sum(non-tax items) + sum(taxes) ≈ printed Total. If it doesn't match, re-examine which lines are duplicates/breakdowns and fix.
+
+OTHER RULES:
+1. List every GENUINE distinct line item. Do not skip real items.
+2. Duplicate descriptions are valid only when they are genuinely separate purchases on separate lines, NOT when they are a "$X x N" quantity breakdown of a parent line.
 3. For Value Village / thrift store receipts: items appear as pairs of lines:
    - Line 1: item code (SP-28778) with Qty / Price / Total columns
    - Line 2: description (MEN-S/S CASUAL) followed by "Net Price: $X.XX"
-   Every "Net Price:" line = one item. Count them all.
+   Every "Net Price:" line = one item.
 4. Include GST, PST, HST, QST as separate line items with isTax: true.
 5. Skip: Subtotal, Total, Grand Total, payment method lines, store address, phone numbers, transaction IDs.
-6. totalAmount = the final Total after all taxes (e.g. if Total: $95.23, use 95.23).
+6. totalAmount = the final printed Total after all taxes (e.g. if Total: $42.07, use 42.07).
 7. date: YYYY-MM-DD format. Default to 2026 if year is ambiguous.
 8. suggestedCategory: pick one from: ${CATEGORY_LIST.join(', ')}. Value Village/thrift → Supplies & Hardware. Restaurants → Meals. Gas → Travel.
 
@@ -176,10 +184,16 @@ Return ONLY valid JSON:
   "confidence": 0.9
 }
 
+GROUND TRUTH — THE PRINTED TOTAL:
+- Find the final printed "Total" on the receipt. That is what the customer paid.
+- Your line items + taxes MUST sum to this Total (within $0.05 for rounding).
+- When you see "$X.XX x N" under a parent line (e.g. "$4.34 x 2" below an $8.68 cocktail), that is a QUANTITY BREAKDOWN of the same item — include EITHER the parent OR the breakdown, never both. Pick whichever makes the math reconcile.
+- Before returning JSON, verify your items + taxes equal the printed Total. If not, find the duplicate/breakdown and fix it.
+
 Rules:
-- List EVERY item. Duplicate descriptions are valid — list each separately.
+- List every GENUINE distinct item. Duplicate descriptions are valid only for genuinely separate purchases, NOT for "$X x N" quantity breakdowns of a parent line.
 - Include GST/PST/HST as separate items with isTax: true.
-- totalAmount = final total after all taxes.
+- totalAmount = the final printed total after all taxes.
 - date: YYYY-MM-DD, default to 2026 if ambiguous.
 - vendor: Use the shortest recognizable name, 1-3 words max. Drop location numbers, city names, legal suffixes. Examples: "Starbucks Coffee Canada" → "Starbucks", "Mobil 1724 Gas Bar" → "Mobil Gas", "Gorge Harbour Marina & Resort" → "Gorge Harbour", "Canadian Tire #142" → "Canadian Tire".`;
 
