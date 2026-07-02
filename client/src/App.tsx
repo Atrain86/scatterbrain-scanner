@@ -95,6 +95,8 @@ function AuthenticatedApp() {
       <Routes>
         <Route path="/"          element={<Navigate to="/receipts" replace />} />
         <Route path="/receipts"  element={<ReceiptLibrary />} />
+        <Route path="/home"      element={<ReceiptLibrary />} />
+        <Route path="/library"   element={<ReceiptLibrary />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/export"    element={<ExportPage />} />
         <Route path="/settings"  element={<SettingsPage />} />
