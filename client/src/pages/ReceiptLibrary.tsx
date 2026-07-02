@@ -177,7 +177,7 @@ export default function ReceiptLibrary() {
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
 
-      <header className="flex items-center justify-between px-4 pt-12 pb-2 safe-top">
+      <header className="flex items-center justify-between px-4 pt-12 pb-2 safe-top max-w-2xl mx-auto w-full">
         <img
           src="/logo.png"
           alt="Scatterbrain"
@@ -187,7 +187,7 @@ export default function ReceiptLibrary() {
         <span className="text-[10px] text-white/50 tracking-wider select-none">v{APP_VERSION} beta</span>
       </header>
 
-      <main className="flex-1 px-3 pt-1 pb-56 overflow-y-auto">
+      <main className="flex-1 px-3 pt-1 pb-56 overflow-y-auto max-w-2xl mx-auto w-full">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
@@ -334,7 +334,7 @@ export default function ReceiptLibrary() {
         className="fixed left-0 right-0 z-20 bg-sb-bg/95 backdrop-blur-sm border-t border-sb-border px-3 py-2"
         style={{ bottom: 'calc(56px + env(safe-area-inset-bottom))' }}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-w-2xl mx-auto w-full">
           <div className="relative">
             <button
               onClick={() => setShowModeMenu(p => !p)}
@@ -383,7 +383,7 @@ export default function ReceiptLibrary() {
       {/* ── Select mode action bar ── */}
       {selectMode && (
         <div
-          className="fixed left-0 right-0 z-30 bg-sb-card2 border-t border-sb-border px-4 py-3 flex items-center gap-3 animate-fade-in"
+          className="fixed left-0 right-0 z-30 bg-sb-card2 border-t border-sb-border px-4 py-3 flex items-center gap-3 animate-fade-in max-w-2xl mx-auto"
           style={{ bottom: 'calc(56px + env(safe-area-inset-bottom))' }}
         >
           <button onClick={exitSelectMode} className="p-2 text-sb-muted hover:text-white transition">
