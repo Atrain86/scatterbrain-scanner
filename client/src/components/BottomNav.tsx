@@ -23,7 +23,7 @@ export default function BottomNav() {
   return (
     <>
       <nav className="fixed bottom-0 left-0 right-0 z-20 bg-sb-bg/95 backdrop-blur-sm border-t border-sb-border safe-bottom">
-        <div className="flex items-center justify-around px-1 py-1.5">
+        <div className="flex items-center justify-around px-1 py-1.5 max-w-2xl mx-auto w-full">
           {/* Scan button — first */}
           <button
             onClick={() => setScanOpen(true)}
