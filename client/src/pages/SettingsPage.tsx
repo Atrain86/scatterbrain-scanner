@@ -8,7 +8,7 @@ import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.9.9';
+export const APP_VERSION = '0.10.0';
 
 interface CustomCategory {
   name: string;
@@ -268,11 +268,13 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
-      <header className="sticky top-0 z-20 bg-sb-bg border-b border-sb-border px-4 py-3 safe-top">
-        <h1 className="text-base font-bold text-white text-center">Settings</h1>
+      <header className="sticky top-0 z-20 bg-sb-bg border-b border-sb-border safe-top">
+        <div className="px-4 py-3 max-w-2xl mx-auto w-full">
+          <h1 className="text-base font-bold text-white text-center">Settings</h1>
+        </div>
       </header>
 
-      <main className="flex-1 px-4 py-4 pb-24 space-y-4 max-w-lg mx-auto w-full">
+      <main className="flex-1 px-4 py-4 pb-24 space-y-4 max-w-2xl mx-auto w-full">
 
         {/* Clients */}
         <Section icon={<Users size={16} />} title="Clients" defaultOpen={false}>

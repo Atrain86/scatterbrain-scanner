@@ -175,7 +175,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
   const selectedCategory = allCategories.find(c => c.name === category) ?? allCategories[0];
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden max-w-2xl mx-auto w-full">
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
 
         {/* Store name + date */}

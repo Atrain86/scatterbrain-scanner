@@ -101,9 +101,9 @@ export default function ShareModal({ receipt, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/70" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70" onClick={onClose}>
       <div
-        className="w-full bg-sb-card border-t border-sb-border rounded-t-3xl p-6 pb-10 animate-slide-up"
+        className="w-full max-w-2xl bg-sb-card border-t border-sb-border rounded-t-3xl p-6 pb-10 animate-slide-up"
         onClick={e => e.stopPropagation()}
       >
         <div className="w-10 h-1 bg-sb-border rounded-full mx-auto mb-5" />

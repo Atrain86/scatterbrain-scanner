@@ -168,23 +168,25 @@ export default function ScanModal({ onClose, onSaved }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-sb-bg">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-sb-border safe-top">
-        <h2 className="text-lg font-semibold text-white">
-          {step === 'pick'     ? 'Scan' :
-           step === 'scanning' ? 'Scanning…' :
-           step === 'select'   ? 'Select Items' :
-           'Saving…'}
-        </h2>
-        {step !== 'scanning' && step !== 'saving' && (
-          <button onClick={onClose} className="p-2 text-sb-muted hover:text-white transition">
-            <X size={20} />
-          </button>
-        )}
+      <div className="border-b border-sb-border safe-top">
+        <div className="flex items-center justify-between px-4 py-3 max-w-2xl mx-auto w-full">
+          <h2 className="text-lg font-semibold text-white">
+            {step === 'pick'     ? 'Scan' :
+             step === 'scanning' ? 'Scanning…' :
+             step === 'select'   ? 'Select Items' :
+             'Saving…'}
+          </h2>
+          {step !== 'scanning' && step !== 'saving' && (
+            <button onClick={onClose} className="p-2 text-sb-muted hover:text-white transition">
+              <X size={20} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Body */}
       {step === 'pick' && (
-        <div className="flex-1 flex flex-col px-6">
+        <div className="flex-1 flex flex-col px-6 max-w-2xl mx-auto w-full">
           <div className="flex-1 flex flex-col items-center justify-center gap-4">
             {error && (
               <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-lg px-4 py-3 text-center w-full max-w-xs">

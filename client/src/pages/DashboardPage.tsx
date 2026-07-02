@@ -48,11 +48,13 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
-      <header className="sticky top-0 z-20 bg-sb-bg border-b border-sb-border px-4 py-3 flex items-center gap-3 safe-top">
-        <button onClick={() => navigate('/receipts')} className="p-2 -ml-2 text-sb-muted hover:text-white transition rounded-lg">
-          <ArrowLeft size={20} />
-        </button>
-        <h1 className="text-base font-bold text-white">Dashboard</h1>
+      <header className="sticky top-0 z-20 bg-sb-bg border-b border-sb-border safe-top">
+        <div className="px-4 py-3 flex items-center gap-3 max-w-2xl mx-auto w-full">
+          <button onClick={() => navigate('/receipts')} className="p-2 -ml-2 text-sb-muted hover:text-white transition rounded-lg">
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="text-base font-bold text-white">Dashboard</h1>
+        </div>
       </header>
 
       <main className="flex-1 px-4 py-5 space-y-4 pb-32 max-w-2xl mx-auto w-full">
