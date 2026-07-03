@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ReceiptLibrary from './pages/ReceiptLibrary';
+import HomePage from './pages/HomePage';
 import DashboardPage from './pages/DashboardPage';
 import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
@@ -93,14 +94,14 @@ function AuthenticatedApp() {
   return (
     <>
       <Routes>
-        <Route path="/"          element={<Navigate to="/receipts" replace />} />
+        <Route path="/"          element={<Navigate to="/home" replace />} />
+        <Route path="/home"      element={<HomePage />} />
         <Route path="/receipts"  element={<ReceiptLibrary />} />
-        <Route path="/home"      element={<ReceiptLibrary />} />
         <Route path="/library"   element={<ReceiptLibrary />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/export"    element={<ExportPage />} />
         <Route path="/settings"  element={<SettingsPage />} />
-        <Route path="*"          element={<Navigate to="/receipts" replace />} />
+        <Route path="*"          element={<Navigate to="/home" replace />} />
       </Routes>
       <BottomNav />
     </>

@@ -7,6 +7,10 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans:  ['Inter', 'ui-sans-serif', 'system-ui'],
+        inter: ['Inter', 'ui-sans-serif', 'system-ui'],
+      },
       colors: {
         // Core palette — matches PaintBrain dark aesthetic
         'sb-purple': '#a855f7',
