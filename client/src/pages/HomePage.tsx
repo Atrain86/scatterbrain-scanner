@@ -9,6 +9,11 @@ import ReceiptCard from '../components/ReceiptCard';
 import type { Receipt as ReceiptType } from '../utils/types';
 import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
 import { useAuth } from '../contexts/AuthContext';
+import { seedDemoReceipts, clearDemoReceipts } from '../lib/demoSeed';
+
+// Show demo seed controls ONLY on branch preview / localhost — never production
+const IS_PREVIEW = typeof window !== 'undefined'
+  && (window.location.hostname.includes('nav-restructure') || window.location.hostname === 'localhost' || window.location.hostname.startsWith('127.'));
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 function monthKey(receiptDate: string) { return receiptDate.slice(0, 7); }
@@ -38,6 +43,25 @@ export default function HomePage() {
   const [monthsBack, setMonthsBack] = useState<number>(12);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [showCatMenu, setShowCatMenu] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+
+  async function handleSeed() {
+    setSeeding(true);
+    try {
+      const created = await seedDemoReceipts(userId, 24);
+      created.forEach(add);
+    } finally {
+      setSeeding(false);
+    }
+  }
+
+  async function handleClearDemo() {
+    if (!confirm('Delete all demo receipts?')) return;
+    await clearDemoReceipts(userId, receipts);
+    void reload();
+  }
+
+  const hasDemoData = IS_PREVIEW && receipts.some(r => r.uuid?.startsWith('demo-'));
 
   useEffect(() => {
     localStorage.setItem(CHART_COLLAPSED_KEY, chartCollapsed ? '1' : '0');
@@ -150,7 +174,18 @@ export default function HomePage() {
       <header className="safe-top">
         <div className="px-4 pt-3 pb-3 flex items-center justify-between max-w-2xl mx-auto w-full">
           <h1 className="text-white text-xl font-semibold">Home</h1>
-          <span className="text-sb-muted text-sm">{thisYear}</span>
+          <div className="flex items-center gap-3">
+            {hasDemoData && (
+              <button
+                onClick={handleClearDemo}
+                className="text-[10px] px-2 py-0.5 rounded-full border border-sb-purple/40 text-sb-purple hover:bg-sb-purple/10 transition"
+                title="Clear demo receipts (preview only)"
+              >
+                Clear demo
+              </button>
+            )}
+            <span className="text-sb-muted text-sm">{thisYear}</span>
+          </div>
         </div>
       </header>
 
@@ -161,7 +196,7 @@ export default function HomePage() {
             <div className="w-7 h-7 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
           </div>
         ) : receipts.length === 0 ? (
-          <EmptyState />
+          <EmptyState onSeed={IS_PREVIEW ? handleSeed : undefined} seeding={seeding} />
         ) : (
           <>
             {/* ── By category panel ── */}
@@ -541,7 +576,7 @@ function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCa
 }
 
 // ── Empty state ────────────────────────────────────────────────────────────────
-function EmptyState() {
+function EmptyState({ onSeed, seeding }: { onSeed?: () => void; seeding?: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[55vh] text-center px-6">
       <div className="w-16 h-16 rounded-2xl bg-sb-card border border-sb-border flex items-center justify-center mb-5">
@@ -549,6 +584,19 @@ function EmptyState() {
       </div>
       <h2 className="text-white font-semibold text-lg mb-2">No receipts yet</h2>
       <p className="text-sb-muted text-sm">Tap Scan below to add your first receipt.</p>
+
+      {IS_PREVIEW && onSeed && (
+        <div className="mt-8 pt-6 border-t border-sb-border/40 w-full max-w-xs">
+          <p className="text-[10px] uppercase tracking-wider text-sb-muted mb-2">Preview only</p>
+          <button
+            onClick={onSeed}
+            disabled={seeding}
+            className="w-full px-4 py-2.5 rounded-xl bg-sb-purple/20 border border-sb-purple/40 text-sb-purple text-xs font-semibold hover:bg-sb-purple/30 transition disabled:opacity-50"
+          >
+            {seeding ? 'Seeding…' : 'Seed 24 demo receipts'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
