@@ -455,10 +455,11 @@ function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCa
           <span className="text-sb-muted" style={{ width: 14 }}>
             {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
           </span>
-          <span className="flex-1 text-white text-sm font-semibold text-left">{label}</span>
-          <span className="text-[10px] text-sb-muted mr-2">
+          <span className="text-white text-sm font-semibold text-left">{label}</span>
+          <span className="text-[10px] text-sb-muted">
             {receipts.length} receipt{receipts.length !== 1 ? 's' : ''}
           </span>
+          <span className="flex-1" />
           <span className="text-sb-green text-sm font-semibold tabular-nums">${total.toFixed(2)}</span>
         </button>
         {!selectMode && onEnterSelectMode && (
