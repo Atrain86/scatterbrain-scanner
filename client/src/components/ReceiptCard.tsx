@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Trash2, Check, Pencil, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut, ChevronDown, SplitSquareHorizontal } from 'lucide-react';
+import { Trash2, Check, Pencil, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut, ChevronDown } from 'lucide-react';
 import type { Receipt } from '../utils/types';
 import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
 import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
@@ -564,13 +564,23 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
 
               </div>
 
-              {/* Line 2: date · [edit · split · share] · trash — action row */}
+              {/* Line 2: date · [Split] · [Edit · Share] · trash — action row */}
               {!splitMode && (
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-sb-muted flex-shrink-0">{dateDisplay}</span>
                   <div className="flex-1" />
 
-                  {/* Tool cluster [Edit · Split · Share] — equal-weight outline peers */}
+                  {/* Split — prominent outline peer, text only, sits left of Edit */}
+                  {productItems.length > 1 && !editingItems && (
+                    <button
+                      onClick={() => enterSplitMode()}
+                      className="h-8 px-4 rounded-lg border border-sb-green text-sb-green text-[13px] font-semibold hover:bg-sb-green/10 transition"
+                      title="Split receipt">
+                      Split
+                    </button>
+                  )}
+
+                  {/* Tool cluster [Edit · Share] — outline peers */}
                   <div className="flex items-center gap-1.5">
                     {/* Edit (pencil) */}
                     <button
@@ -587,17 +597,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                       }
                       <span>{editingItems ? 'Save' : 'Edit'}</span>
                     </button>
-
-                    {/* Split — outline peer */}
-                    {productItems.length > 1 && !editingItems && (
-                      <button
-                        onClick={() => enterSplitMode()}
-                        className="h-7 px-2 rounded-lg border border-sb-green text-sb-green text-[11px] font-medium flex items-center gap-1 hover:bg-sb-green/10 transition"
-                        title="Split receipt">
-                        <SplitSquareHorizontal size={12} />
-                        <span>Split</span>
-                      </button>
-                    )}
 
                     {/* Share */}
                     <button onClick={() => setShareOpen(true)}
