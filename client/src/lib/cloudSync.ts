@@ -343,6 +343,7 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
     // Push: local receipts whose UUID is not on Drive
     for (const receipt of allReceipts) {
       if (!receipt.uuid || driveUuids.has(receipt.uuid.toLowerCase())) continue;
+      if (receipt.uuid.startsWith('demo-')) continue; // preview-only seeded data, never push
       try {
         await pushReceiptToDrive(receipt, accessToken);
         driveUuids.add(receipt.uuid.toLowerCase()); // prevent re-upload in same run
@@ -449,6 +450,9 @@ export async function deleteReceiptFromDrive(uuid: string, userId: string): Prom
 
 // Push a single receipt immediately after save — fast path, called from ScanModal
 export async function pushReceiptNow(receipt: Receipt, userId: string): Promise<void> {
+  // Never push demo receipts (preview-only seeded data) to Drive
+  if (receipt.uuid?.startsWith('demo-')) return;
+
   const settings = loadCloudSettings(userId);
   const provider = settings.primaryProvider;
   if (!provider) return;
