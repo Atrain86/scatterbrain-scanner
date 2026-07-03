@@ -16,14 +16,14 @@ const OLD_TABS = [
   { to: '/settings',  icon: Settings,        label: 'Settings',  activeColor: '#94a3b8' },
 ] as const;
 
-// ─── New nav — Home · Export · Scan · Library · Settings ──────────────────────
+// ─── New nav — Home · Library · Scan · Export · Settings ──────────────────────
 const NEW_LEFT_TABS = [
-  { to: '/home',    icon: Home,             label: 'Home',    activeColor: '#4ade80' },
-  { to: '/export',  icon: FileSpreadsheet,  label: 'Export',  activeColor: '#f97316' },
+  { to: '/home',    icon: Home,       label: 'Home',    activeColor: '#4ade80' },
+  { to: '/library', icon: FolderOpen, label: 'Library', activeColor: '#4ade80' },
 ] as const;
 const NEW_RIGHT_TABS = [
-  { to: '/library',  icon: FolderOpen, label: 'Library',  activeColor: '#4ade80' },
-  { to: '/settings', icon: Settings,   label: 'Settings', activeColor: '#94a3b8' },
+  { to: '/export',   icon: FileSpreadsheet, label: 'Export',   activeColor: '#f97316' },
+  { to: '/settings', icon: Settings,        label: 'Settings', activeColor: '#94a3b8' },
 ] as const;
 
 const SCAN_COLOR = '#e05a7d';
