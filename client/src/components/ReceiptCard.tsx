@@ -453,15 +453,15 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
             </div>
             <span className="w-1 rounded-l-xl flex-shrink-0 self-stretch" style={{ backgroundColor: catColor, minHeight: 52 }} />
             <CollapsedBadges />
-            <div className="flex flex-col items-center justify-between px-3 py-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+            <div className="flex flex-col items-end justify-between px-3 py-2 flex-shrink-0 gap-1" onClick={e => e.stopPropagation()}>
+              <span className="text-sb-green font-bold text-sm leading-tight">${receipt.total.toFixed(2)}</span>
               {confirmDelete ? (
                 <button onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }} onBlur={() => setConfirmDelete(false)}
-                  className="text-red-400 bg-red-950/40 rounded-lg p-1 transition"><Trash2 size={14} /></button>
+                  className="bg-red-950/40 rounded-lg p-1 transition"><Trash2 size={14} color="#ef4444" /></button>
               ) : (
                 <button onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
-                  className="text-sb-muted hover:text-red-400 transition p-1"><Trash2 size={14} /></button>
+                  className="hover:bg-red-950/30 rounded-lg p-1 transition"><Trash2 size={14} color="#ef4444" /></button>
               )}
-              <span className="text-sb-green font-bold text-sm leading-tight mt-1">${receipt.total.toFixed(2)}</span>
             </div>
           </div>
         )}
