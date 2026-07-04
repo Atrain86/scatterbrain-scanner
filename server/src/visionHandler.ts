@@ -1,5 +1,107 @@
 import sharp from 'sharp';
 
+// ── Auto-crop (Sharp .trim()) — display image only, never OCR ────────────────
+//
+// PIPELINE ORDERING RULE — DO NOT REORDER:
+//   OCR runs on the pre-trim buffer; Drive stores the post-trim image.
+//   The trim is a leaf operation. It never feeds parsing/Vision/GPT.
+//   `trimImageForDisplay()` returns a Buffer independent of the OCR path.
+//   The caller MUST feed the ORIGINAL buffer to `extractReceiptLineItems`
+//   and the TRIMMED buffer only to whatever will be stored (Drive, R2, etc.).
+//   Never let a trimmed buffer flow back into extractReceiptLineItems.
+
+/** Area floor: if the trim shrinks the image below this fraction of the
+ *  original, discard the trim and keep the original. Guards against .trim()'s
+ *  worst failure — a light receipt on a light background eating into the paper. */
+const TRIM_AREA_FLOOR = 0.40;
+
+/** Sharp .trim() threshold. 0 = only truly identical pixels; higher = more
+ *  aggressive. 30 is the recommended starting point per the spec. */
+const TRIM_THRESHOLD = 30;
+
+export type TrimOutcome = 'applied' | 'no-op' | 'skipped-guard' | 'errored' | 'disabled';
+
+export interface TrimResult {
+  buffer: Buffer;   // always usable — original buffer if anything went wrong
+  outcome: TrimOutcome;
+  originalDims?: { width: number; height: number };
+  trimmedDims?: { width: number; height: number };
+  areaRatio?: number;
+}
+
+/**
+ * Trim uniform borders off a receipt image for display/storage purposes.
+ * NEVER feed the returned trimmed buffer back into the OCR pipeline —
+ * OCR always runs on the pre-trim buffer.
+ *
+ * Behavior:
+ *  - If .trim() produces a crop below TRIM_AREA_FLOOR of original area → discard trim, return original
+ *  - If .trim() throws → return original, mark as 'errored'
+ *  - If .trim() finds nothing to trim → returns the input roughly unchanged, marked 'no-op'
+ *  - Otherwise returns the trimmed buffer, marked 'applied'
+ */
+export async function trimImageForDisplay(inputBuffer: Buffer): Promise<TrimResult> {
+  if (process.env.ENABLE_AUTO_CROP !== 'true') {
+    return { buffer: inputBuffer, outcome: 'disabled' };
+  }
+
+  try {
+    const orig = sharp(inputBuffer);
+    const origMeta = await orig.metadata();
+    const origW = origMeta.width ?? 0;
+    const origH = origMeta.height ?? 0;
+    if (!origW || !origH) {
+      return { buffer: inputBuffer, outcome: 'errored' };
+    }
+
+    const trimmedBuffer = await sharp(inputBuffer)
+      .rotate() // honor EXIF orientation first, same as everywhere else
+      .trim({ threshold: TRIM_THRESHOLD })
+      .toBuffer();
+
+    const trimmedMeta = await sharp(trimmedBuffer).metadata();
+    const trimmedW = trimmedMeta.width ?? origW;
+    const trimmedH = trimmedMeta.height ?? origH;
+
+    const origArea = origW * origH;
+    const trimmedArea = trimmedW * trimmedH;
+    const areaRatio = trimmedArea / origArea;
+
+    // Guard: over-aggressive trim → keep original
+    if (areaRatio < TRIM_AREA_FLOOR) {
+      return {
+        buffer: inputBuffer,
+        outcome: 'skipped-guard',
+        originalDims: { width: origW, height: origH },
+        trimmedDims: { width: trimmedW, height: trimmedH },
+        areaRatio,
+      };
+    }
+
+    // Effectively no-op: within 2% of original size means .trim() found no border
+    if (areaRatio > 0.98) {
+      return {
+        buffer: trimmedBuffer,
+        outcome: 'no-op',
+        originalDims: { width: origW, height: origH },
+        trimmedDims: { width: trimmedW, height: trimmedH },
+        areaRatio,
+      };
+    }
+
+    return {
+      buffer: trimmedBuffer,
+      outcome: 'applied',
+      originalDims: { width: origW, height: origH },
+      trimmedDims: { width: trimmedW, height: trimmedH },
+      areaRatio,
+    };
+  } catch (err) {
+    console.warn('[trim] failed, keeping original:', (err as Error).message);
+    return { buffer: inputBuffer, outcome: 'errored' };
+  }
+}
+
 export interface ReceiptLineItem {
   description: string;
   amount: number;

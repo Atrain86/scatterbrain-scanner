@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
-import { extractReceiptLineItems } from './visionHandler.js';
+import { extractReceiptLineItems, trimImageForDisplay } from './visionHandler.js';
 import { sendReceiptEmail } from './email.js';
 import authRouter from './auth.js';
 
@@ -91,9 +91,43 @@ router.get('/admin/google-setup/callback', async (req: Request, res: Response) =
 
 router.post('/ocr/receipt', upload.single('receipt'), async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+  const originalBuffer = req.file.buffer;
+
   try {
-    const result = await extractReceiptLineItems(req.file.buffer, req.file.originalname);
-    res.json(result);
+    // PIPELINE ORDER — see visionHandler.ts:
+    //   1) OCR runs on the ORIGINAL buffer (untouched).
+    //   2) Trim runs on the SAME original buffer, independently.
+    //   3) The trimmed buffer is returned to the client for storage only.
+    //      It must never be re-fed into the OCR call.
+    const [ocrResult, trim] = await Promise.all([
+      extractReceiptLineItems(originalBuffer, req.file.originalname),
+      trimImageForDisplay(originalBuffer),
+    ]);
+
+    // Observability: log how trim performed so we can see across real scans
+    // whether the guard is firing often (signal that OpenCV upgrade might help).
+    console.log(
+      `[trim] outcome=${trim.outcome}` +
+      (trim.areaRatio !== undefined ? ` area=${(trim.areaRatio * 100).toFixed(1)}%` : '') +
+      (trim.originalDims ? ` orig=${trim.originalDims.width}x${trim.originalDims.height}` : '') +
+      (trim.trimmedDims ? ` trimmed=${trim.trimmedDims.width}x${trim.trimmedDims.height}` : '')
+    );
+
+    // Only send the trimmed image back when trim was actually enabled + non-erroring.
+    // If disabled or errored, we omit the field entirely and the client falls back
+    // to its current behavior (compressForStorage on the original file).
+    const displayImageBase64 =
+      trim.outcome === 'disabled' || trim.outcome === 'errored'
+        ? null
+        : trim.buffer.toString('base64');
+
+    res.json({
+      ...ocrResult,
+      displayImageBase64,
+      displayImageMimeType: displayImageBase64 ? 'image/jpeg' : null,
+      trimOutcome: trim.outcome,
+      trimAreaRatio: trim.areaRatio ?? null,
+    });
   } catch (err) {
     console.error('OCR error:', err);
     res.status(500).json({ error: 'OCR failed' });
