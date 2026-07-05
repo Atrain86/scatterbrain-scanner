@@ -89,7 +89,7 @@ function ClientPicker({
         onClick={e => { e.stopPropagation(); setOpen(p => !p); }}
         className={
           large
-            ? `w-full flex items-center justify-between rounded-xl border transition hover:bg-white/5 px-3 h-9`
+            ? `w-full min-w-0 flex items-center justify-between gap-2 rounded-xl border transition hover:bg-white/5 px-3 h-9`
             : `flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap transition hover:brightness-125`
         }
         style={value
@@ -97,10 +97,10 @@ function ClientPicker({
           : { backgroundColor: 'rgba(255,255,255,0.03)', color: '#ffffff', borderColor: 'rgba(255,255,255,0.12)' }
         }
       >
-        <span className={large ? 'text-sm font-medium' : 'text-[10px]'}>
+        <span className={large ? 'text-sm font-medium truncate whitespace-nowrap min-w-0' : 'text-[10px] whitespace-nowrap'}>
           {value || (large ? 'Choose client' : '+ client')}
         </span>
-        <ChevronDown size={large ? 14 : 8} color="#60a5fa" />
+        <ChevronDown size={large ? 14 : 8} color="#60a5fa" className="flex-shrink-0" />
       </button>
 
       {open && (
@@ -182,7 +182,7 @@ function CatPicker({
         onClick={e => { e.stopPropagation(); setOpen(p => !p); }}
         className={
           large
-            ? `w-full flex items-center justify-between rounded-xl border transition hover:bg-white/5 px-3 h-9`
+            ? `w-full min-w-0 flex items-center justify-between gap-2 rounded-xl border transition hover:bg-white/5 px-3 h-9`
             : `flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125`
         }
         style={large
@@ -190,11 +190,15 @@ function CatPicker({
           : { backgroundColor: color + '22', color, border: `1px solid ${color}44` }
         }
       >
-        <span className={large ? 'flex items-center gap-2 text-sm font-medium' : ''}>
-          {large && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />}
-          {value || (large ? 'Choose category' : '+ cat')}
-        </span>
-        <ChevronDown size={large ? 14 : 8} color="#EC4899" />
+        {large ? (
+          <span className="flex items-center gap-2 text-sm font-medium min-w-0">
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+            <span className="truncate whitespace-nowrap">{value || 'Choose category'}</span>
+          </span>
+        ) : (
+          <span className="whitespace-nowrap">{value || '+ cat'}</span>
+        )}
+        <ChevronDown size={large ? 14 : 8} color="#EC4899" className="flex-shrink-0" />
       </button>
 
       {open && (
@@ -551,29 +555,33 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                 />
               </div>
 
-              {/* Line 2: date · [Split] · [Edit · Share] · trash — action row */}
+              {/* Line 3: action row — date (left) · SPLIT centered solid-green · Edit + Share (right)
+                  Split is deliberately the signature action here — it gets solid green,
+                  breaking the "one commit-fill per surface" rule because it opens the
+                  primary commit flow of the app. */}
               {!splitMode && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-sb-muted flex-shrink-0">{dateDisplay}</span>
-                  <div className="flex-1" />
+                <div className="grid grid-cols-3 items-center gap-2">
+                  <div className="flex items-center">
+                    <span className="text-[11px] text-sb-muted">{dateDisplay}</span>
+                  </div>
 
-                  {/* Split — prominent outline peer, text only, sits left of Edit */}
-                  {productItems.length > 1 && !editingItems && (
-                    <button
-                      onClick={() => enterSplitMode()}
-                      className="h-8 px-4 rounded-lg border border-sb-green text-sb-green text-[13px] font-semibold hover:bg-sb-green/10 transition"
-                      title="Split receipt">
-                      Split
-                    </button>
-                  )}
+                  <div className="flex justify-center">
+                    {productItems.length > 1 && !editingItems ? (
+                      <button
+                        onClick={() => enterSplitMode()}
+                        className="h-11 px-6 rounded-xl bg-sb-green text-black text-[14px] font-semibold hover:brightness-110 transition active:scale-[0.98] whitespace-nowrap"
+                        title="Split receipt">
+                        Split
+                      </button>
+                    ) : null}
+                  </div>
 
-                  {/* Tool cluster [Edit · Share] — outline peers */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center justify-end gap-1.5">
                     {/* Edit — pencil is a MODE TOGGLE. Enter shows checkboxes;
                         every toggle autosaves; tap again to exit back to viewing. */}
                     <button
                       onClick={() => editingItems ? setEditingItems(false) : enterPencilMode()}
-                      className={`h-7 px-2 rounded-lg border text-[11px] font-medium flex items-center gap-1 transition ${
+                      className={`h-8 px-2.5 rounded-lg border text-[11px] font-medium flex items-center gap-1 transition ${
                         editingItems
                           ? 'border-sb-green text-sb-green bg-sb-green/15'
                           : 'border-white/15 text-white hover:bg-white/5'
@@ -583,14 +591,11 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                       <span>Edit</span>
                     </button>
 
-                    {/* Share */}
                     <button onClick={() => setShareOpen(true)}
-                      className="h-7 px-2 rounded-lg border border-white/15 text-white hover:bg-white/5 flex items-center transition" title="Share">
+                      className="h-8 w-8 rounded-lg border border-white/15 text-white hover:bg-white/5 flex items-center justify-center transition" title="Share">
                       <ShareArrow size={13} color="#ffffff" />
                     </button>
                   </div>
-
-                  {/* Trash was moved to the top-right of the header (line 1). */}
                 </div>
               )}
             </div>

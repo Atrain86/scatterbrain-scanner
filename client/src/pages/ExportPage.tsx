@@ -53,8 +53,40 @@ export default function ExportPage() {
 
   const exportTotal = exportReceipts.reduce((s, r) => s + r.total, 0);
 
+  /**
+   * Sanitize a raw category name into a valid Excel worksheet tab name.
+   * Excel/SheetJS forbids: : \ / ? * [ ]  in tab names, and caps them at 31
+   * characters. We also strip leading/trailing whitespace and single quotes
+   * (Excel also disallows leading/trailing apostrophes).
+   * Callers pass a Set<string> to track used names and get a suffix ("(2)")
+   * on collision so two originals that sanitize to the same string still
+   * produce distinct sheets.
+   *
+   * The category's REAL name is unchanged everywhere else (UI + sheet contents).
+   */
+  function safeSheetName(raw: string, used: Set<string>): string {
+    // Replace illegal chars with '-'
+    let name = raw.replace(/[:\\/?*\[\]]/g, '-').trim();
+    if (!name) name = 'Category';
+    // Strip leading/trailing apostrophes
+    name = name.replace(/^'+|'+$/g, '');
+    // Cap at 31 to leave nothing for the collision suffix; we'll re-trim below.
+    let candidate = name.slice(0, 31);
+    if (!used.has(candidate.toLowerCase())) { used.add(candidate.toLowerCase()); return candidate; }
+    // Collision: append " (n)" and truncate the base to fit.
+    for (let n = 2; n < 1000; n++) {
+      const suffix = ` (${n})`;
+      const base = name.slice(0, 31 - suffix.length);
+      candidate = `${base}${suffix}`;
+      if (!used.has(candidate.toLowerCase())) { used.add(candidate.toLowerCase()); return candidate; }
+    }
+    // Should never hit this — fall back to a generic name.
+    return `Category${used.size}`.slice(0, 31);
+  }
+
   function buildWorkbook(rows: Receipt[], clientLabel: string | null) {
     const wb = XLSX.utils.book_new();
+    const usedSheetNames = new Set<string>(['summary']); // reserve Summary
 
     // ── Summary sheet ──────────────────────────────────────────────────────────
     const byCat: Record<string, { count: number; subtotal: number; tax: number; total: number }> = {};
@@ -128,8 +160,9 @@ export default function ExportPage() {
         });
       }
       sheet['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 16 }, { wch: 40 }, { wch: 10 }, { wch: 8 }, { wch: 10 }];
-      // Sheet names max 31 chars
-      XLSX.utils.book_append_sheet(wb, sheet, cat.slice(0, 31));
+      // Sanitize category name for the WORKSHEET TAB (illegal chars, 31-char cap,
+      // dedupe on collision). Sheet CONTENTS still show the original cat name.
+      XLSX.utils.book_append_sheet(wb, sheet, safeSheetName(cat, usedSheetNames));
     });
 
     return wb;

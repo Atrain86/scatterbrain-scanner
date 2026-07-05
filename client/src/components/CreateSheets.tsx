@@ -54,6 +54,9 @@ export function CreateClientSheet({ open, onClose, userId, onCreated }: ClientSh
           onChange={e => { setName(e.target.value); if (err) setErr(''); }}
           onKeyDown={e => { if (e.key === 'Enter') commit(); }}
           placeholder="Client name"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           className="w-full bg-sb-card2 border border-sb-border rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-sb-green transition"
         />
         {err && <p className="text-red-400 text-xs mt-2">{err}</p>}
@@ -120,6 +123,9 @@ export function CreateCategorySheet({ open, onClose, userId, onCreated }: Catego
           onChange={e => { setName(e.target.value); if (err) setErr(''); }}
           onKeyDown={e => { if (e.key === 'Enter') commit(); }}
           placeholder="Category name"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           className="w-full bg-sb-card2 border border-sb-border rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-sb-green transition"
         />
         {err && <p className="text-red-400 text-xs mt-2">{err}</p>}

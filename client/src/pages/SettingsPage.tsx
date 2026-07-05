@@ -4,14 +4,14 @@ import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
 import { backgroundSync, restoreFromGoogleDrive, cleanupDriveDuplicates, type RestoreResult, type SyncResult, type CleanupResult } from '../lib/cloudSync';
-import { loadClients, addClient, removeClient } from '../utils/clients';
+import { loadClients, removeClient } from '../utils/clients';
 import {
   loadCategories,
-  addCategory as addCategoryToStore,
   removeCategory as removeCategoryFromStore,
   type UserCategory,
 } from '../utils/categories';
 import { useAuth } from '../contexts/AuthContext';
+import { CreateClientSheet, CreateCategorySheet } from '../components/CreateSheets';
 import React from 'react';
 
 export const APP_VERSION = '0.10.0';
@@ -171,13 +171,10 @@ export default function SettingsPage() {
   }
 
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>(() => loadCategories(userId));
-  const [newCatName, setNewCatName]   = useState('');
-  const [newCatColor, setNewCatColor] = useState(PALETTE_COLORS[0]);
-  const [catError, setCatError]       = useState('');
+  const [catSheetOpen, setCatSheetOpen] = useState(false);
 
   const [clients, setClients]         = useState<string[]>(() => loadClients(userId));
-  const [newClientName, setNewClientName] = useState('');
-  const [clientError, setClientError] = useState('');
+  const [clientSheetOpen, setClientSheetOpen] = useState(false);
 
   const [taxRegion, setTaxRegion] = useState<TaxRegion>(() => loadTaxRegion(userId));
   const [manualVat, setManualVat] = useState(() => { const t = loadTaxRegion(userId); return t.vat > 0 ? String(t.vat) : ''; });
@@ -194,33 +191,9 @@ export default function SettingsPage() {
     };
   }, [userId]);
 
-  function addCategory() {
-    const trimmed = newCatName.trim();
-    if (!trimmed) { setCatError('Enter a category name'); return; }
-    if (customCategories.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
-      setCatError('That category already exists');
-      return;
-    }
-    setCatError('');
-    const updated = addCategoryToStore(userId, trimmed, newCatColor);
-    setCustomCategories(updated);
-    setNewCatName('');
-  }
-
   function removeCategory(name: string) {
     const updated = removeCategoryFromStore(userId, name);
     setCustomCategories(updated);
-  }
-
-  function handleAddClient() {
-    const trimmed = newClientName.trim();
-    if (!trimmed) { setClientError('Enter a client name'); return; }
-    if (clients.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
-      setClientError('That client already exists'); return;
-    }
-    setClientError('');
-    setClients(addClient(userId, trimmed));
-    setNewClientName('');
   }
 
   function handleRemoveClient(name: string) {
@@ -263,7 +236,7 @@ export default function SettingsPage() {
         <Section icon={<Users size={16} />} title="Clients" defaultOpen={false}>
           <div className="space-y-1.5 mb-4">
             {clients.length === 0 ? (
-              <p className="text-xs text-sb-muted italic">No clients yet. Add one below.</p>
+              <p className="text-xs text-sb-muted italic">No clients yet.</p>
             ) : (
               clients.map(client => (
                 <div key={client} className="flex items-center justify-between bg-sb-card2 border border-sb-border rounded-xl px-3 py-2">
@@ -275,31 +248,27 @@ export default function SettingsPage() {
               ))
             )}
           </div>
-          <div className="border border-sb-border rounded-xl p-3 space-y-2">
-            <p className="text-xs text-sb-muted font-medium">Add client</p>
-            <input
-              value={newClientName}
-              onChange={e => { setNewClientName(e.target.value); setClientError(''); }}
-              onKeyDown={e => e.key === 'Enter' && handleAddClient()}
-              placeholder="Client name"
-              className="sb-input"
-            />
-            {clientError && <p className="text-red-400 text-xs">{clientError}</p>}
-            <button
-              onClick={handleAddClient}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted transition"
-            >
-              <Plus size={15} /> Add Client
-            </button>
-          </div>
+          {/* New client — opens shared bottom sheet */}
+          <button
+            onClick={() => setClientSheetOpen(true)}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-sb-green text-black text-sm font-semibold hover:brightness-110 transition active:scale-[0.98]"
+          >
+            <Plus size={16} /> New client
+          </button>
+          <CreateClientSheet
+            open={clientSheetOpen}
+            onClose={() => setClientSheetOpen(false)}
+            userId={userId}
+            onCreated={() => setClients(loadClients(userId))}
+          />
         </Section>
 
         {/* Categories */}
         <Section icon={<Tag size={16} />} title="Categories" defaultOpen={false}>
-          {/* All categories — custom ones are deletable */}
+          {/* All categories — deletable */}
           <div className="space-y-1.5 mb-4">
             {customCategories.length === 0 ? (
-              <p className="text-xs text-sb-muted italic">No categories yet. Add one below.</p>
+              <p className="text-xs text-sb-muted italic">No categories yet.</p>
             ) : (
               customCategories.map(cat => (
                 <div key={cat.name} className="flex items-center justify-between bg-sb-card2 border border-sb-border rounded-xl px-3 py-2">
@@ -315,46 +284,19 @@ export default function SettingsPage() {
             )}
           </div>
 
-          {/* Add category form */}
-          <div className="border border-sb-border rounded-xl p-3 space-y-3">
-            <p className="text-xs text-sb-muted font-medium">Add category</p>
-            <input
-              value={newCatName}
-              onChange={e => { setNewCatName(e.target.value); setCatError(''); }}
-              onKeyDown={e => e.key === 'Enter' && addCategory()}
-              placeholder="Category name"
-              className="sb-input"
-            />
-            {/* Visual color grid */}
-            <div>
-              <p className="text-xs text-sb-muted mb-2">
-                Color
-                <span className="ml-2 inline-block w-4 h-4 rounded-full align-middle border border-white/20" style={{ backgroundColor: newCatColor }} />
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {PALETTE_COLORS.map(color => (
-                  <button
-                    key={color}
-                    onClick={() => setNewCatColor(color)}
-                    title={color}
-                    className="w-8 h-8 rounded-full transition hover:scale-110 active:scale-95 flex-shrink-0"
-                    style={{
-                      backgroundColor: color,
-                      outline: newCatColor === color ? '2px solid white' : '2px solid transparent',
-                      outlineOffset: '2px',
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-            {catError && <p className="text-red-400 text-xs">{catError}</p>}
-            <button
-              onClick={addCategory}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted transition"
-            >
-              <Plus size={15} /> {newCatName.trim() ? 'Save Category' : 'Add Category'}
-            </button>
-          </div>
+          {/* New category — opens shared bottom sheet */}
+          <button
+            onClick={() => setCatSheetOpen(true)}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-sb-green text-black text-sm font-semibold hover:brightness-110 transition active:scale-[0.98]"
+          >
+            <Plus size={16} /> New category
+          </button>
+          <CreateCategorySheet
+            open={catSheetOpen}
+            onClose={() => setCatSheetOpen(false)}
+            userId={userId}
+            onCreated={() => setCustomCategories(loadCategories(userId))}
+          />
         </Section>
 
         {/* Tax Settings */}
