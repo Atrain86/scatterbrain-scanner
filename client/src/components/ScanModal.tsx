@@ -6,6 +6,7 @@ import { addReceipt } from '../lib/db';
 import { useAuth } from '../contexts/AuthContext';
 import LineItemSelector from './LineItemSelector';
 import type { ScannedReceiptData } from '../utils/types';
+import { ensureCategoryFromReceipt } from '../utils/categories';
 
 interface Props {
   onClose: () => void;
@@ -132,6 +133,10 @@ export default function ScanModal({ onClose, onSaved }: Props) {
 
     const now = new Date().toISOString();
     console.log('[Save] step 3: writing to IndexedDB, userId:', userId);
+
+    // If the AI (or user) tagged this receipt with a category, ensure it exists in
+    // the user's canonical category store so it appears in Settings + pickers.
+    if (payload.category) ensureCategoryFromReceipt(userId, payload.category);
 
     try {
       const receipt = await addReceipt(userId, {

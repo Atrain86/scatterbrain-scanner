@@ -38,6 +38,11 @@ export interface ScannedReceiptData {
   method: string;
 }
 
+// AI's INTERNAL vocabulary — used for chart color fallback + category recognition.
+// This list is decoupled from the user's editable list (see utils/categories.ts).
+// New users do NOT get these preloaded into their editable list. Instead, when the
+// AI tags a receipt with one of these names, ensureCategoryFromReceipt() adds it
+// to the user's canonical store on the fly.
 export const CATEGORIES = [
   { name: 'Comm',                 color: '#2DD4BF', tailwind: 'cat-comm' },
   { name: 'Loan/Interest',        color: '#F44747', tailwind: 'cat-loan' },
@@ -58,21 +63,38 @@ export function getCategoryColor(name: string): string {
   return CATEGORIES.find(c => c.name === name)?.color ?? '#6B7280';
 }
 
+/**
+ * Returns the USER'S editable category list from the canonical store.
+ * Callers that need to render a color for a name not yet in the list should
+ * use getCategoryColorDynamic() instead — it falls back through the AI vocab.
+ */
 export function getAllCategories(userId?: string): { name: string; color: string }[] {
-  const builtin = CATEGORIES.map(c => ({ name: c.name, color: c.color }));
-  const builtinNames = new Set(builtin.map(c => c.name.toLowerCase()));
+  if (!userId) return [];
   try {
-    const storageKey = userId ? `sb_u${userId}_custom_categories` : 'sb_custom_categories';
-    const custom = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    const unique = (Array.isArray(custom) ? custom : []).filter(
-      (c: { name: string }) => !builtinNames.has(c.name.toLowerCase())
-    );
-    return [...builtin, ...unique];
-  } catch { return builtin; }
+    // Read the canonical store directly (avoid circular import).
+    const raw = localStorage.getItem(`sb_u${userId}_categories_v3`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter(c => c && typeof c.name === 'string');
+    }
+  } catch {}
+  return [];
 }
 
+/**
+ * Color lookup that tries in order:
+ *   1) User's canonical store (their picked color)
+ *   2) Built-in AI vocabulary (matches the AI's known names)
+ *   3) Generic grey
+ */
 export function getCategoryColorDynamic(name: string, userId?: string): string {
-  return getAllCategories(userId).find(c => c.name === name)?.color ?? '#6B7280';
+  if (userId) {
+    const userMatch = getAllCategories(userId).find(c => c.name === name);
+    if (userMatch) return userMatch.color;
+  }
+  const builtin = CATEGORIES.find(c => c.name === name);
+  if (builtin) return builtin.color;
+  return '#6B7280';
 }
 
 export type CloudProvider = 'google-drive' | 'dropbox';

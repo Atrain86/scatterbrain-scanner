@@ -5,15 +5,19 @@ import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
 import { backgroundSync, restoreFromGoogleDrive, cleanupDriveDuplicates, type RestoreResult, type SyncResult, type CleanupResult } from '../lib/cloudSync';
 import { loadClients, addClient, removeClient } from '../utils/clients';
+import {
+  loadCategories,
+  addCategory as addCategoryToStore,
+  removeCategory as removeCategoryFromStore,
+  type UserCategory,
+} from '../utils/categories';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
 export const APP_VERSION = '0.10.0';
 
-interface CustomCategory {
-  name: string;
-  color: string;
-}
+// Alias to the canonical UserCategory so existing types-referencing code still compiles.
+type CustomCategory = UserCategory;
 
 // Full-spectrum color palette — displayed as visual circles
 const PALETTE_COLORS: string[] = [
@@ -42,41 +46,11 @@ const PALETTE_COLORS: string[] = [
   '#64748B', '#6B7280', '#888888', '#9CA3AF', '#4B5563',
 ];
 
-const DEFAULT_CATEGORIES: CustomCategory[] = [
-  { name: 'Comm',                color: '#2DD4BF' },
-  { name: 'Loan/Interest',       color: '#F44747' },
-  { name: 'Meals',               color: '#4ade80' },
-  { name: 'Medical',             color: '#60a5fa' },
-  { name: 'Postage',             color: '#E67E22' },
-  { name: 'Supplies & Hardware', color: '#eab308' },
-  { name: 'AI Services',         color: '#a855f7' },
-  { name: 'Insurance',           color: '#888888' },
-  { name: 'Rent',                color: '#0C87C1' },
-  { name: 'Travel',              color: '#4ECDC4' },
-  { name: 'Subscriptions',       color: '#f472b6' },
-];
+// Categories are now managed in utils/categories.ts (canonical store).
+// New users start with an empty editable list; the list grows as the AI tags
+// receipts (ensureCategoryFromReceipt) or as the user creates categories.
 
-function catStorageKey(userId: string)        { return `sb_u${userId}_custom_categories`; }
-function catVersionKey(userId: string)        { return `sb_u${userId}_category_version`; }
-function taxStorageKey(userId: string)        { return `sb_u${userId}_tax_region`; }
-const CURRENT_CATEGORY_VERSION = '2';
-
-function loadCustomCategories(userId: string): CustomCategory[] {
-  try {
-    const storedVersion = localStorage.getItem(catVersionKey(userId));
-    if (storedVersion !== CURRENT_CATEGORY_VERSION) {
-      localStorage.setItem(catStorageKey(userId), JSON.stringify(DEFAULT_CATEGORIES));
-      localStorage.setItem(catVersionKey(userId), CURRENT_CATEGORY_VERSION);
-      return DEFAULT_CATEGORIES;
-    }
-    const raw = localStorage.getItem(catStorageKey(userId));
-    if (!raw) {
-      localStorage.setItem(catStorageKey(userId), JSON.stringify(DEFAULT_CATEGORIES));
-      return DEFAULT_CATEGORIES;
-    }
-    return JSON.parse(raw) as CustomCategory[];
-  } catch { return DEFAULT_CATEGORIES; }
-}
+function taxStorageKey(userId: string) { return `sb_u${userId}_tax_region`; }
 
 interface TaxRegion {
   province: string;
@@ -196,7 +170,7 @@ export default function SettingsPage() {
     }
   }
 
-  const [customCategories, setCustomCategories] = useState<CustomCategory[]>(() => loadCustomCategories(userId));
+  const [customCategories, setCustomCategories] = useState<CustomCategory[]>(() => loadCategories(userId));
   const [newCatName, setNewCatName]   = useState('');
   const [newCatColor, setNewCatColor] = useState(PALETTE_COLORS[0]);
   const [catError, setCatError]       = useState('');
@@ -208,10 +182,17 @@ export default function SettingsPage() {
   const [taxRegion, setTaxRegion] = useState<TaxRegion>(() => loadTaxRegion(userId));
   const [manualVat, setManualVat] = useState(() => { const t = loadTaxRegion(userId); return t.vat > 0 ? String(t.vat) : ''; });
 
-  function saveCustomCategories(cats: CustomCategory[]) {
-    setCustomCategories(cats);
-    localStorage.setItem(catStorageKey(userId), JSON.stringify(cats));
-  }
+  // Keep in sync when categories/clients change elsewhere (receipt picker, AI-tagged scan).
+  useEffect(() => {
+    function refreshCats() { setCustomCategories(loadCategories(userId)); }
+    function refreshClients() { setClients(loadClients(userId)); }
+    window.addEventListener('categories-updated', refreshCats);
+    window.addEventListener('clients-updated', refreshClients);
+    return () => {
+      window.removeEventListener('categories-updated', refreshCats);
+      window.removeEventListener('clients-updated', refreshClients);
+    };
+  }, [userId]);
 
   function addCategory() {
     const trimmed = newCatName.trim();
@@ -221,12 +202,14 @@ export default function SettingsPage() {
       return;
     }
     setCatError('');
-    saveCustomCategories([...customCategories, { name: trimmed, color: newCatColor }]);
+    const updated = addCategoryToStore(userId, trimmed, newCatColor);
+    setCustomCategories(updated);
     setNewCatName('');
   }
 
   function removeCategory(name: string) {
-    saveCustomCategories(customCategories.filter(c => c.name !== name));
+    const updated = removeCategoryFromStore(userId, name);
+    setCustomCategories(updated);
   }
 
   function handleAddClient() {

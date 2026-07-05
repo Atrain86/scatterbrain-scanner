@@ -1,6 +1,7 @@
 import type { CloudProvider, CloudProviderState, CloudSettings, Receipt } from '../utils/types';
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
 import { addReceipt, getAllReceipts, getReceiptByUuid, updateReceipt, getDeletedUuids, clearDeletedUuid } from './db';
+import { ensureCategoryFromReceipt } from '../utils/categories';
 
 // ── Token management ──────────────────────────────────────────────────────────
 
@@ -377,13 +378,14 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
           // Last-write-wins: only overwrite local if Drive version is strictly newer
           if (!driveUpdatedAt || (local.updatedAt && local.updatedAt >= driveUpdatedAt)) continue;
 
+          const cat = String(meta.category ?? local.category);
           await updateReceipt(userId, local.id, {
             storeName:    String(meta.storeName    ?? local.storeName),
             receiptDate:  String(meta.receiptDate  ?? local.receiptDate),
             subtotal:     Number(meta.subtotal     ?? local.subtotal),
             taxAmount:    Number(meta.taxAmount    ?? local.taxAmount),
             total:        Number(meta.total        ?? local.total),
-            category:     String(meta.category     ?? local.category),
+            category:     cat,
             clientName:   meta.clientName != null ? String(meta.clientName) : local.clientName,
             lineItems:    typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
             rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
@@ -392,9 +394,11 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
             notes:        meta.notes    != null ? String(meta.notes)    : local.notes,
             updatedAt:    driveUpdatedAt,
           });
+          if (cat) ensureCategoryFromReceipt(userId, cat);
           updated += 1;
         } else {
           // New receipt — add it
+          const cat = String(meta.category ?? 'Other');
           await addReceipt(userId, {
             uuid,
             storeName:    String(meta.storeName    ?? ''),
@@ -402,7 +406,7 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
             subtotal:     Number(meta.subtotal     ?? 0),
             taxAmount:    Number(meta.taxAmount    ?? 0),
             total:        Number(meta.total        ?? 0),
-            category:     String(meta.category     ?? 'Other'),
+            category:     cat,
             clientName:   meta.clientName != null ? String(meta.clientName) : null,
             lineItems:    typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
             rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
@@ -413,6 +417,7 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
             createdAt:    String(meta.createdAt ?? now),
             updatedAt:    driveUpdatedAt || now,
           });
+          if (cat) ensureCategoryFromReceipt(userId, cat);
           result.pulled += 1;
         }
       } catch (err) {

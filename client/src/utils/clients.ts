@@ -9,6 +9,8 @@ export function loadClients(userId: string): string[] {
 
 export function saveClients(userId: string, clients: string[]): void {
   localStorage.setItem(key(userId, 'clients'), JSON.stringify(clients));
+  // Notify listeners (Settings, receipt pickers) so they can refresh.
+  try { window.dispatchEvent(new CustomEvent('clients-updated', { detail: { userId } })); } catch {}
 }
 
 export function addClient(userId: string, name: string): string[] {

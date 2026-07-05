@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
-import { Trash2, Check, Pencil, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut, ChevronDown } from 'lucide-react';
+import { Trash2, Check, Pencil, Image as ImageIcon, X, ZoomIn, ZoomOut, ChevronDown, Plus } from 'lucide-react';
 import type { Receipt } from '../utils/types';
-import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
+import { getCategoryColorDynamic } from '../utils/types';
+import { loadCategories } from '../utils/categories';
 import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
-import { loadClients, addClient, setLastClient } from '../utils/clients';
+import { loadClients, setLastClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import ShareModal from './ShareModal';
+import { CreateClientSheet, CreateCategorySheet } from './CreateSheets';
+import { toast } from './Toast';
 import { addReceipt } from '../lib/db';
 import { pushReceiptNow } from '../lib/cloudSync';
 
@@ -43,14 +46,29 @@ function ShareArrow({ size = 16, color = '#3b82f6' }: { size?: number; color?: s
   );
 }
 
-// Inline client picker dropdown (reusable for split mode)
+// ─── ClientPicker — working-surface variant (expanded card + split mode) ─────
+// Larger tap target, "CLIENT" descriptor above, blue chevron cue, pinned green
+// "+ New client" row at the bottom that opens the shared BottomSheet.
 function ClientPicker({
-  value, userId, onChange,
-}: { value: string | null; userId: string; onChange: (v: string | null) => void }) {
+  value, userId, onChange, size = 'large',
+}: {
+  value: string | null;
+  userId: string;
+  onChange: (v: string | null) => void;
+  /** 'large' = expanded receipt (with descriptor). 'small' = split-mode per-item row. */
+  size?: 'large' | 'small';
+}) {
   const [open, setOpen] = useState(false);
-  const [clients, setClients] = useState(() => loadClients(userId));
-  const [input, setInput] = useState('');
+  const [clients, setClients] = useState<string[]>(() => loadClients(userId));
+  const [sheetOpen, setSheetOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Refresh list when the sheet commits or when any other surface changes clients.
+  useEffect(() => {
+    function refresh() { setClients(loadClients(userId)); }
+    window.addEventListener('clients-updated', refresh);
+    return () => window.removeEventListener('clients-updated', refresh);
+  }, [userId]);
 
   useEffect(() => {
     function h(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
@@ -58,63 +76,92 @@ function ClientPicker({
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  function pick(name: string | null) { onChange(name); setOpen(false); setInput(''); }
+  function pick(name: string | null) { onChange(name); setOpen(false); }
 
-  function addNew() {
-    const t = input.trim(); if (!t) return;
-    const updated = addClient(userId, t); setClients(updated); pick(t);
-  }
+  const large = size === 'large';
 
   return (
     <div className="relative" ref={ref}>
+      {large && (
+        <label className="block text-[10px] uppercase tracking-wider text-sb-muted mb-1">Client</label>
+      )}
       <button
         onClick={e => { e.stopPropagation(); setOpen(p => !p); }}
-        className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full border whitespace-nowrap transition hover:brightness-125"
+        className={
+          large
+            ? `w-full flex items-center justify-between rounded-xl border transition hover:bg-white/5 px-3 h-9`
+            : `flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap transition hover:brightness-125`
+        }
         style={value
-          ? { backgroundColor: 'rgba(59,130,246,0.15)', color: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)' }
-          : { backgroundColor: 'rgba(255,255,255,0.05)', color: '#6b7280', borderColor: 'rgba(255,255,255,0.1)' }
+          ? { backgroundColor: 'rgba(59,130,246,0.10)', color: '#ffffff', borderColor: 'rgba(59,130,246,0.45)' }
+          : { backgroundColor: 'rgba(255,255,255,0.03)', color: '#ffffff', borderColor: 'rgba(255,255,255,0.12)' }
         }
       >
-        {value || '+ client'}<ChevronDown size={7} />
+        <span className={large ? 'text-sm font-medium' : 'text-[10px]'}>
+          {value || (large ? 'Choose client' : '+ client')}
+        </span>
+        <ChevronDown size={large ? 14 : 8} color="#60a5fa" />
       </button>
+
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-40 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-50 shadow-2xl">
-          <button onClick={() => pick(null)} className="w-full px-3 py-2 text-xs text-left text-sb-muted hover:bg-white/5 flex items-center gap-2">
-            <X size={9} /> No client
-          </button>
-          {clients.length > 0 && <div className="border-t border-sb-border" />}
-          <div className="max-h-32 overflow-y-auto">
+        <div className={`absolute top-full mt-1 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-50 shadow-2xl ${large ? 'left-0 right-0 min-w-[220px]' : 'left-0 w-44'}`}>
+          <div className="max-h-64 overflow-y-auto">
+            <button onClick={() => pick(null)}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left text-sb-muted hover:bg-white/5">
+              <X size={11} /> No client
+            </button>
+            {clients.length > 0 && <div className="border-t border-sb-border" />}
             {clients.map(c => (
               <button key={c} onClick={() => pick(c)}
-                className={`w-full flex items-center justify-between px-3 py-2 text-xs text-left hover:bg-white/5 ${c === value ? 'bg-white/5' : ''}`}>
+                className={`w-full flex items-center justify-between px-3 py-2.5 text-xs text-left hover:bg-white/5 transition ${c === value ? 'bg-white/5' : ''}`}>
                 <span className="text-white">{c}</span>
-                {c === value && <Check size={9} className="text-sb-green" />}
+                {c === value && <Check size={11} className="text-sb-green" />}
               </button>
             ))}
           </div>
-          <div className="border-t border-sb-border px-2 py-1.5 flex gap-1">
-            <input value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNew(); }}
-              onClick={e => e.stopPropagation()}
-              placeholder="+ new client"
-              className="flex-1 bg-transparent border-b border-sb-border text-[10px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
-            <button onClick={e => { e.stopPropagation(); addNew(); }} disabled={!input.trim()}
-              className="text-sb-green disabled:opacity-30"><Plus size={11} /></button>
+          {/* Pinned "New client" — never scrolls away */}
+          <div className="border-t border-sb-border">
+            <button
+              onClick={e => { e.stopPropagation(); setOpen(false); setSheetOpen(true); }}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left text-sb-green hover:bg-sb-green/10 transition font-medium">
+              <Plus size={12} /> New client
+            </button>
           </div>
         </div>
       )}
+
+      <CreateClientSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        userId={userId}
+        onCreated={name => { pick(name); window.dispatchEvent(new CustomEvent('clients-updated')); }}
+      />
     </div>
   );
 }
 
-// Inline category picker dropdown (reusable for split mode)
+// ─── CatPicker — working-surface variant (expanded card + split mode) ────────
+// Larger tap target, "CATEGORY" descriptor above, pink chevron cue, pinned
+// green "+ New category" row at the bottom that opens the shared BottomSheet.
 function CatPicker({
-  value, userId, onChange,
-}: { value: string; userId: string; onChange: (v: string) => void }) {
+  value, userId, onChange, size = 'large',
+}: {
+  value: string;
+  userId: string;
+  onChange: (v: string) => void;
+  size?: 'large' | 'small';
+}) {
   const [open, setOpen] = useState(false);
-  const [input, setInput] = useState('');
+  const [cats, setCats] = useState(() => loadCategories(userId));
+  const [sheetOpen, setSheetOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const color = getCategoryColorDynamic(value, userId);
+
+  useEffect(() => {
+    function refresh() { setCats(loadCategories(userId)); }
+    window.addEventListener('categories-updated', refresh);
+    return () => window.removeEventListener('categories-updated', refresh);
+  }, [userId]);
 
   useEffect(() => {
     function h(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
@@ -122,51 +169,67 @@ function CatPicker({
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  function pick(name: string) { onChange(name); setOpen(false); setInput(''); }
+  function pick(name: string) { onChange(name); setOpen(false); }
 
-  function addNew() {
-    const t = input.trim(); if (!t) return;
-    const all = getAllCategories(userId);
-    const existing = all.find(c => c.name.toLowerCase() === t.toLowerCase());
-    if (existing) { pick(existing.name); return; }
-    const key = `sb_u${userId}_custom_categories`;
-    const stored = JSON.parse(localStorage.getItem(key) || '[]');
-    localStorage.setItem(key, JSON.stringify([...stored, { name: t, color: '#6B7280' }]));
-    pick(t);
-  }
+  const large = size === 'large';
 
   return (
     <div className="relative" ref={ref}>
+      {large && (
+        <label className="block text-[10px] uppercase tracking-wider text-sb-muted mb-1">Category</label>
+      )}
       <button
         onClick={e => { e.stopPropagation(); setOpen(p => !p); }}
-        className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
-        style={{ backgroundColor: color + '22', color, border: `1px solid ${color}44` }}
+        className={
+          large
+            ? `w-full flex items-center justify-between rounded-xl border transition hover:bg-white/5 px-3 h-9`
+            : `flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125`
+        }
+        style={large
+          ? { backgroundColor: color + '15', color: '#ffffff', borderColor: color + '55' }
+          : { backgroundColor: color + '22', color, border: `1px solid ${color}44` }
+        }
       >
-        {value || '+ cat'}<ChevronDown size={7} />
+        <span className={large ? 'flex items-center gap-2 text-sm font-medium' : ''}>
+          {large && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />}
+          {value || (large ? 'Choose category' : '+ cat')}
+        </span>
+        <ChevronDown size={large ? 14 : 8} color="#EC4899" />
       </button>
+
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-44 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-50 shadow-2xl">
-          <div className="max-h-44 overflow-y-auto">
-            {getAllCategories(userId).map(cat => (
-              <button key={cat.name} onClick={() => pick(cat.name)}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-white/5 ${cat.name === value ? 'bg-white/5' : ''}`}>
-                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                <span className="text-white flex-1">{cat.name}</span>
-                {cat.name === value && <Check size={9} className="text-sb-green" />}
-              </button>
-            ))}
+        <div className={`absolute top-full mt-1 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-50 shadow-2xl ${large ? 'left-0 right-0 min-w-[220px]' : 'left-0 w-48'}`}>
+          <div className="max-h-64 overflow-y-auto">
+            {cats.length === 0 ? (
+              <p className="px-3 py-3 text-[11px] text-sb-muted italic">No categories yet.</p>
+            ) : (
+              cats.map(cat => (
+                <button key={cat.name} onClick={() => pick(cat.name)}
+                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left hover:bg-white/5 transition ${cat.name === value ? 'bg-white/5' : ''}`}>
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                  <span className="text-white flex-1">{cat.name}</span>
+                  {cat.name === value && <Check size={11} className="text-sb-green" />}
+                </button>
+              ))
+            )}
           </div>
-          <div className="border-t border-sb-border px-2 py-1.5 flex gap-1">
-            <input value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNew(); }}
-              onClick={e => e.stopPropagation()}
-              placeholder="+ new category"
-              className="flex-1 bg-transparent border-b border-sb-border text-[10px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
-            <button onClick={e => { e.stopPropagation(); addNew(); }} disabled={!input.trim()}
-              className="text-sb-green disabled:opacity-30"><Plus size={11} /></button>
+          {/* Pinned "New category" */}
+          <div className="border-t border-sb-border">
+            <button
+              onClick={e => { e.stopPropagation(); setOpen(false); setSheetOpen(true); }}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left text-sb-green hover:bg-sb-green/10 transition font-medium">
+              <Plus size={12} /> New category
+            </button>
           </div>
         </div>
       )}
+
+      <CreateCategorySheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        userId={userId}
+        onCreated={name => { pick(name); }}
+      />
     </div>
   );
 }
@@ -183,11 +246,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const [imgFullscreen,    setImgFullscreen]    = useState(false);
   const [shareOpen,        setShareOpen]        = useState(false);
   const [confirmDelete,    setConfirmDelete]    = useState(false);
-  const [showCatPicker,    setShowCatPicker]    = useState(false);
-  const [showClientPicker, setShowClientPicker] = useState(false);
-  const [clients,          setClients]          = useState<string[]>(() => loadClients(userId));
-  const [newClientInput,   setNewClientInput]   = useState('');
-  const [newCatInput,      setNewCatInput]      = useState('');
 
   const allLineItems: { description: string; amount: number }[] = receipt.lineItems
     ? JSON.parse(receipt.lineItems) : [];
@@ -209,8 +267,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const [splitClients,   setSplitClients]   = useState<Record<number, string | null>>({});
   const [splitCats,      setSplitCats]      = useState<Record<number, string>>({});
 
-  const catPickerRef    = useRef<HTMLDivElement>(null);
-  const clientPickerRef = useRef<HTMLDivElement>(null);
   const storeInputRef   = useRef<HTMLInputElement>(null);
 
   const catColor     = getCategoryColorDynamic(receipt.category, userId);
@@ -234,8 +290,8 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     month: 'short', day: 'numeric', year: 'numeric',
   });
 
-  const anyPickerOpen = showCatPicker || showClientPicker;
-  const anyEditActive = editingStore || editingItems || splitMode || anyPickerOpen;
+  // "Active" edit modes disable tap-to-close on the expanded card.
+  const anyEditActive = editingStore || editingItems || splitMode;
 
   useEffect(() => {
     if (editingStore) {
@@ -243,17 +299,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
       setTimeout(() => storeInputRef.current?.focus(), 50);
     }
   }, [editingStore, receipt.storeName]);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (showCatPicker && catPickerRef.current && !catPickerRef.current.contains(e.target as Node))
-        setShowCatPicker(false);
-      if (showClientPicker && clientPickerRef.current && !clientPickerRef.current.contains(e.target as Node))
-        setShowClientPicker(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [showCatPicker, showClientPicker]);
 
   function saveStoreName() {
     const trimmed = editStore.trim();
@@ -268,62 +313,37 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     setEditingStore(false);
   }
 
-  function pickCategory(name: string) {
-    onUpdateCategory(receipt.id, name);
-    setShowCatPicker(false);
-    setNewCatInput('');
-  }
+  // Client + category assignment now flows through the <ClientPicker /> and
+  // <CatPicker /> components, which own their own dropdown state and delegate
+  // creation to the shared CreateSheets.
 
-  function addNewCategory() {
-    const trimmed = newCatInput.trim(); if (!trimmed) return;
-    const all = getAllCategories(userId);
-    if (all.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) {
-      pickCategory(all.find(c => c.name.toLowerCase() === trimmed.toLowerCase())!.name); return;
-    }
-    const key = `sb_u${userId}_custom_categories`;
-    const existing = JSON.parse(localStorage.getItem(key) || '[]');
-    localStorage.setItem(key, JSON.stringify([...existing, { name: trimmed, color: '#6B7280' }]));
-    pickCategory(trimmed);
-  }
-
-  function pickClient(name: string) {
-    setLastClient(userId, name);
-    onReEdit(receipt.id, {
-      storeName: receipt.storeName, lineItems: receipt.lineItems ?? '[]',
-      taxLines: receipt.taxLines ?? '[]', subtotal: receipt.subtotal,
-      taxAmount: receipt.taxAmount, total: receipt.total,
-      clientName: name || null, category: receipt.category,
-    });
-    setShowClientPicker(false);
-    setNewClientInput('');
-  }
-
-  function addNewClient() {
-    const trimmed = newClientInput.trim(); if (!trimmed) return;
-    const updated = addClient(userId, trimmed);
-    setClients(updated);
-    pickClient(trimmed);
-  }
-
-  function saveItems() {
+  /**
+   * Autosave: every checkbox toggle in pencil mode commits the new set to Dexie
+   * immediately. Recompute proportional tax on the fly and persist the whole
+   * receipt shape so nothing drifts. Toast fires once per toggle so the user
+   * sees "Saved".
+   */
+  function commitCheckedItems(nextSet: Set<number>) {
+    setCheckedItems(nextSet);
+    const totals = computeReceiptTotals(allLineItems, nextSet);
     const selectedProducts = allLineItems.filter((item, i) =>
-      !isTaxLine(item.description) && checkedItems.has(i)
+      !isTaxLine(item.description) && nextSet.has(i)
     );
     onReEdit(receipt.id, {
       storeName: receipt.storeName,
       lineItems: JSON.stringify([...selectedProducts, ...taxItems]),
-      taxLines: JSON.stringify(liveTotals.proportionalTaxes),
-      subtotal: liveTotals.selectedSubtotal,
-      taxAmount: liveTotals.totalTax,
-      total: liveTotals.total,
+      taxLines: JSON.stringify(totals.proportionalTaxes),
+      subtotal: totals.selectedSubtotal,
+      taxAmount: totals.totalTax,
+      total: totals.total,
       clientName: receipt.clientName,
       category: receipt.category,
     });
-    setEditingItems(false);
+    toast('Saved');
   }
 
   function enterPencilMode() {
-    // Reset checked to current saved items
+    // Reset checked to current saved items (i.e. what the receipt currently shows).
     const saved: { description: string; amount: number }[] = receipt.lineItems
       ? JSON.parse(receipt.lineItems) : [];
     const savedDescs = new Set(saved.filter(i => !isTaxLine(i.description)).map(i => i.description));
@@ -333,7 +353,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     });
     setCheckedItems(s);
     setEditingItems(true);
-    setEditingStore(true);
+    // Note: store name edit is a separate action (tap the store name text).
   }
 
   function enterSplitMode() {
@@ -475,93 +495,60 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               <div className="w-10 h-1 rounded-full bg-white/15" />
             </div>
 
-            {/* ── Header ── */}
+            {/* ── Header — expanded working surface ── */}
             <div className="px-3 pt-2 pb-2.5" onClick={e => e.stopPropagation()}>
 
-              {/* Line 1: store name · client · category · trash */}
-              <div className="flex items-center gap-1.5 min-w-0 mb-1.5">
+              {/* Line 1: store name (large, tappable to edit) + trash top-right */}
+              <div className="flex items-start gap-2 mb-3">
                 <div className="flex-1 min-w-0">
                   {editingStore ? (
                     <input ref={storeInputRef} value={editStore}
                       onChange={e => setEditStore(e.target.value)}
                       onBlur={saveStoreName}
                       onKeyDown={e => { if (e.key === 'Enter') saveStoreName(); if (e.key === 'Escape') setEditingStore(false); }}
-                      className="w-full bg-transparent border-b border-sb-green text-white font-semibold text-sm focus:outline-none pb-0.5" />
+                      className="w-full bg-transparent border-b border-sb-green text-white font-semibold text-lg focus:outline-none pb-0.5" />
                   ) : (
-                    <span className="text-white font-semibold text-sm leading-tight truncate block">
+                    <button
+                      onClick={() => setEditingStore(true)}
+                      className="text-white font-semibold text-lg leading-tight truncate block text-left w-full hover:text-white/80 transition">
                       {receipt.storeName || 'Unknown Store'}
-                    </span>
+                    </button>
                   )}
                 </div>
+                {/* Trash — top right corner, on its own */}
+                <button
+                  onClick={() => confirmDelete ? (onDelete(receipt.id), setConfirmDelete(false)) : setConfirmDelete(true)}
+                  onBlur={() => setConfirmDelete(false)}
+                  className={`h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 transition ${confirmDelete ? 'bg-red-950/40' : 'hover:bg-red-950/30'}`}
+                  title="Delete">
+                  <Trash2 size={15} color="#ef4444" />
+                </button>
+              </div>
 
-                {/* Client badge */}
-                <div className="relative flex-shrink-0" ref={clientPickerRef}>
-                  <button onClick={() => setShowClientPicker(p => !p)}
-                    className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap transition hover:brightness-125"
-                    style={receipt.clientName
-                      ? { backgroundColor: 'rgba(59,130,246,0.15)', color: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)' }
-                      : { backgroundColor: 'rgba(255,255,255,0.05)', color: '#6b7280', borderColor: 'rgba(255,255,255,0.1)' }
-                    }>
-                    {receipt.clientName || '+ client'}<ChevronDown size={8} />
-                  </button>
-                  {showClientPicker && (
-                    <div className="absolute top-full left-0 mt-1 w-44 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl">
-                      <button onClick={() => pickClient('')} className="w-full px-3 py-2.5 text-xs text-left text-sb-muted hover:bg-white/5 flex items-center gap-2">
-                        <X size={10} /> No client
-                      </button>
-                      {clients.length > 0 && <div className="border-t border-sb-border" />}
-                      <div className="max-h-36 overflow-y-auto">
-                        {clients.map(c => (
-                          <button key={c} onClick={() => pickClient(c)}
-                            className={`w-full flex items-center justify-between px-3 py-2.5 text-xs text-left hover:bg-white/5 transition ${c === receipt.clientName ? 'bg-white/5' : ''}`}>
-                            <span className="text-white">{c}</span>
-                            {c === receipt.clientName && <Check size={10} className="text-sb-green" />}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="border-t border-sb-border px-2 py-1.5 flex gap-1" onClick={e => e.stopPropagation()}>
-                        <input value={newClientInput} onChange={e => setNewClientInput(e.target.value)}
-                          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewClient(); }}
-                          placeholder="+ new client"
-                          className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
-                        <button onClick={() => addNewClient()}
-                          className={`p-1 transition ${newClientInput.trim() ? 'text-sb-green' : 'text-white/20'}`}><Plus size={12} /></button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Category badge */}
-                <div className="relative flex-shrink-0" ref={catPickerRef}>
-                  <button onClick={() => setShowCatPicker(p => !p)}
-                    className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
-                    style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}>
-                    {receipt.category || '+ cat'}<ChevronDown size={8} />
-                  </button>
-                  {showCatPicker && (
-                    <div className="absolute top-full left-0 mt-1 w-48 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl">
-                      <div className="max-h-48 overflow-y-auto">
-                        {getAllCategories(userId).map(cat => (
-                          <button key={cat.name} onClick={() => pickCategory(cat.name)}
-                            className={`w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left hover:bg-white/5 transition ${cat.name === receipt.category ? 'bg-white/5' : ''}`}>
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                            <span className="text-white flex-1">{cat.name}</span>
-                            {cat.name === receipt.category && <Check size={10} className="text-sb-green" />}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="border-t border-sb-border px-2 py-1.5 flex gap-1" onClick={e => e.stopPropagation()}>
-                        <input value={newCatInput} onChange={e => setNewCatInput(e.target.value)}
-                          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewCategory(); }}
-                          placeholder="+ new category"
-                          className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
-                        <button onClick={() => addNewCategory()}
-                          className={`p-1 transition ${newCatInput.trim() ? 'text-sb-green' : 'text-white/20'}`}><Plus size={12} /></button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
+              {/* Line 2: pickers row — Client (left) + Category (right) */}
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <ClientPicker
+                  value={receipt.clientName}
+                  userId={userId}
+                  onChange={name => {
+                    if (name) setLastClient(userId, name);
+                    onReEdit(receipt.id, {
+                      storeName: receipt.storeName,
+                      lineItems: receipt.lineItems ?? '[]',
+                      taxLines: receipt.taxLines ?? '[]',
+                      subtotal: receipt.subtotal,
+                      taxAmount: receipt.taxAmount,
+                      total: receipt.total,
+                      clientName: name || null,
+                      category: receipt.category,
+                    });
+                  }}
+                />
+                <CatPicker
+                  value={receipt.category}
+                  userId={userId}
+                  onChange={name => onUpdateCategory(receipt.id, name)}
+                />
               </div>
 
               {/* Line 2: date · [Split] · [Edit · Share] · trash — action row */}
@@ -582,20 +569,18 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
 
                   {/* Tool cluster [Edit · Share] — outline peers */}
                   <div className="flex items-center gap-1.5">
-                    {/* Edit (pencil) */}
+                    {/* Edit — pencil is a MODE TOGGLE. Enter shows checkboxes;
+                        every toggle autosaves; tap again to exit back to viewing. */}
                     <button
-                      onClick={() => editingItems ? saveItems() : enterPencilMode()}
+                      onClick={() => editingItems ? setEditingItems(false) : enterPencilMode()}
                       className={`h-7 px-2 rounded-lg border text-[11px] font-medium flex items-center gap-1 transition ${
                         editingItems
-                          ? 'border-sb-green text-sb-green bg-sb-green/10'
+                          ? 'border-sb-green text-sb-green bg-sb-green/15'
                           : 'border-white/15 text-white hover:bg-white/5'
                       }`}
-                      title={editingItems ? 'Save' : 'Edit items'}>
-                      {editingItems
-                        ? <Check size={12} strokeWidth={2.5} />
-                        : <Pencil size={12} />
-                      }
-                      <span>{editingItems ? 'Save' : 'Edit'}</span>
+                      title={editingItems ? 'Done editing' : 'Edit items'}>
+                      <Pencil size={12} />
+                      <span>Edit</span>
                     </button>
 
                     {/* Share */}
@@ -605,14 +590,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                     </button>
                   </div>
 
-                  {/* Trash — set slightly apart from the tool cluster */}
-                  <button
-                    onClick={() => confirmDelete ? (onDelete(receipt.id), setConfirmDelete(false)) : setConfirmDelete(true)}
-                    onBlur={() => setConfirmDelete(false)}
-                    className={`ml-2 h-7 w-7 rounded-lg flex items-center justify-center transition ${confirmDelete ? 'bg-red-950/40' : 'hover:bg-red-950/30'}`}
-                    title="Delete">
-                    <Trash2 size={13} color="#ef4444" />
-                  </button>
+                  {/* Trash was moved to the top-right of the header (line 1). */}
                 </div>
               )}
             </div>
@@ -628,11 +606,10 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                     <div key={i}
                       onClick={() => {
                         if (!editingItems) return;
-                        setCheckedItems(prev => {
-                          const next = new Set(prev);
-                          next.has(originalIndex) ? next.delete(originalIndex) : next.add(originalIndex);
-                          return next;
-                        });
+                        // Autosave: build the next set + persist immediately.
+                        const next = new Set(checkedItems);
+                        next.has(originalIndex) ? next.delete(originalIndex) : next.add(originalIndex);
+                        commitCheckedItems(next);
                       }}
                       className={`flex items-center gap-2 py-1 rounded transition ${editingItems ? 'cursor-pointer hover:bg-white/5 active:bg-white/10' : ''}`}>
                       <div className={`transition-all duration-150 overflow-hidden flex-shrink-0 ${editingItems ? 'w-5 opacity-100' : 'w-0 opacity-0'}`}>
@@ -700,15 +677,17 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                         </div>
                         <span className="flex-1 text-xs text-white leading-snug">{item.description}</span>
                         <span className="text-xs text-white flex-shrink-0">${item.amount.toFixed(2)}</span>
-                        {/* Per-item client + category — only show when checked */}
+                        {/* Per-item client + category — small variant, only when checked */}
                         {checked && (
                           <div className="flex items-center gap-1 ml-1" onClick={e => e.stopPropagation()}>
                             <ClientPicker
+                              size="small"
                               value={splitClients[originalIndex] ?? null}
                               userId={userId}
                               onChange={v => setSplitClients(prev => ({ ...prev, [originalIndex]: v }))}
                             />
                             <CatPicker
+                              size="small"
                               value={splitCats[originalIndex] ?? receipt.category}
                               userId={userId}
                               onChange={v => setSplitCats(prev => ({ ...prev, [originalIndex]: v }))}

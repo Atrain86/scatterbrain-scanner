@@ -8,6 +8,7 @@ import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 import BottomNav from './components/BottomNav';
+import { ToastHost } from './components/Toast';
 import { backgroundSync } from './lib/cloudSync';
 import { loadCloudSettings, saveCloudSettings } from './hooks/useCloudAuth';
 import type { CloudProvider } from './utils/types';
@@ -114,6 +115,7 @@ export default function App() {
       <AuthProvider>
         <CloudAuthHandler />
         <AuthenticatedApp />
+        <ToastHost />
       </AuthProvider>
     </BrowserRouter>
   );

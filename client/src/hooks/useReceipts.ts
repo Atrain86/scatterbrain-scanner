@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getAllReceipts, deleteReceipt, updateReceipt } from '../lib/db';
 import { deleteReceiptFromDrive, pushReceiptNow } from '../lib/cloudSync';
 import { useAuth } from '../contexts/AuthContext';
+import { ensureCategoryFromReceipt } from '../utils/categories';
 import type { Receipt } from '../utils/types';
 
 export function useReceipts() {
@@ -46,6 +47,9 @@ export function useReceipts() {
   const update = useCallback(async (id: number, changes: Partial<Receipt>) => {
     const updated = await updateReceipt(userId, id, changes);
     setReceipts(prev => prev.map(r => r.id === id ? updated : r));
+    // Any category name that lands on a receipt should also appear in the user's
+    // editable list. Idempotent — no-op if already there.
+    if (changes.category) ensureCategoryFromReceipt(userId, changes.category);
     // Push edit to Drive immediately so other devices see the updated version
     void pushReceiptNow(updated, userId);
     return updated;
@@ -53,7 +57,8 @@ export function useReceipts() {
 
   const add = useCallback((receipt: Receipt) => {
     setReceipts(prev => [receipt, ...prev]);
-  }, []);
+    if (receipt.category) ensureCategoryFromReceipt(userId, receipt.category);
+  }, [userId]);
 
   return { receipts, isLoading, reload: load, remove, update, add };
 }
