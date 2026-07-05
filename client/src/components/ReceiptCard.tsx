@@ -438,23 +438,28 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   function CollapsedBadges() {
     return (
       <div className="flex-1 min-w-0 px-3 py-3">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <p className="text-white font-semibold text-sm leading-tight truncate">
+        {/* Line 1: store name + category (right of store). Price sits in the trailing column. */}
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="text-white font-semibold text-sm leading-tight truncate min-w-0">
             {receipt.storeName || 'Unknown Store'}
           </p>
-          {receipt.clientName && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-none">
-              {receipt.clientName}
-            </span>
-          )}
           {receipt.category && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full leading-none"
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full leading-none flex-shrink-0 whitespace-nowrap"
               style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}>
               {receipt.category}
             </span>
           )}
         </div>
-        <p className="text-[11px] text-sb-muted leading-snug mt-0.5">{dateDisplay}</p>
+        {/* Line 2: client (own line, only if set) */}
+        {receipt.clientName && (
+          <div className="mt-1">
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-none">
+              {receipt.clientName}
+            </span>
+          </div>
+        )}
+        {/* Line 3: date */}
+        <p className="text-[11px] text-sb-muted leading-snug mt-1">{dateDisplay}</p>
       </div>
     );
   }
@@ -483,7 +488,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                   className="bg-red-950/40 rounded-lg p-1 transition"><Trash2 size={14} color="#ef4444" /></button>
               ) : (
                 <button onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
-                  className="hover:bg-red-950/30 rounded-lg p-1 transition"><Trash2 size={14} color="#ef4444" /></button>
+                  className="hover:bg-white/5 rounded-lg p-1 transition"><Trash2 size={14} color="#9ca3af" /></button>
               )}
             </div>
           </div>
@@ -527,13 +532,14 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                     </button>
                   )}
                 </div>
-                {/* Trash — top right corner, on its own */}
+                {/* Trash — top right corner, on its own. Silver default;
+                    turns red on confirm-tap so the danger step is unambiguous. */}
                 <button
                   onClick={() => confirmDelete ? (onDelete(receipt.id), setConfirmDelete(false)) : setConfirmDelete(true)}
                   onBlur={() => setConfirmDelete(false)}
-                  className={`h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 transition ${confirmDelete ? 'bg-red-950/40' : 'hover:bg-red-950/30'}`}
+                  className={`h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 transition ${confirmDelete ? 'bg-red-950/40' : 'hover:bg-white/5'}`}
                   title="Delete">
-                  <Trash2 size={15} color="#ef4444" />
+                  <Trash2 size={15} color={confirmDelete ? '#ef4444' : '#9ca3af'} />
                 </button>
               </div>
 
@@ -577,7 +583,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                     {productItems.length > 1 && !editingItems ? (
                       <button
                         onClick={() => enterSplitMode()}
-                        className="h-11 px-6 rounded-xl bg-sb-green text-black text-[14px] font-semibold hover:brightness-110 transition active:scale-[0.98] whitespace-nowrap"
+                        className="h-8 px-8 rounded-lg bg-sb-green text-black text-[13px] font-semibold hover:brightness-110 transition active:scale-[0.98] whitespace-nowrap"
                         title="Split receipt">
                         Split
                       </button>

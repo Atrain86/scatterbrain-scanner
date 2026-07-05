@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Receipt, BarChart2, FileSpreadsheet, Settings, ScanLine, Home, FolderOpen } from 'lucide-react';
+import { Receipt, BarChart2, FileSpreadsheet, Settings, ScanLine, Scan, Home, FolderOpen } from 'lucide-react';
 import ScanModal from './ScanModal';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -26,7 +26,7 @@ const NEW_RIGHT_TABS = [
   { to: '/settings', icon: Settings,        label: 'Settings', activeColor: '#94a3b8' },
 ] as const;
 
-const SCAN_COLOR = '#e05a7d';
+const SCAN_COLOR = '#D62828';
 
 export default function BottomNav() {
   const [scanOpen, setScanOpen] = useState(false);
@@ -85,20 +85,25 @@ export default function BottomNav() {
           <div className="flex items-stretch justify-around px-1 pt-1 pb-1.5 max-w-2xl mx-auto w-full">
             {NEW_LEFT_TABS.map(t => renderTab(t.to, t.icon, t.label, t.activeColor))}
 
-            {/* Center Scan — enlarged icon centered on the same midline as siblings,
-                but larger so it POKES above the row and hangs below (no FAB shape). */}
+            {/* Center Scan — enlarged Scan icon (corner brackets only, no dash).
+                "Scan" text sits INSIDE the empty middle of the brackets. Icon still
+                pokes above and hangs below its siblings for FAB-like prominence.
+                No bottom label — Scan breaks form; the word lives inside the icon. */}
             <button
               onClick={() => setScanOpen(true)}
               className="flex-1 flex flex-col items-center px-1 rounded-lg transition-all"
             >
-              <div className="flex items-center justify-center" style={{ height: ICON_BAND }}>
-                <ScanLine size={SCAN_ICON} strokeWidth={1.8} style={{ color: SCAN_COLOR }} />
-              </div>
-              <div className="flex items-start justify-center" style={{ height: LABEL_BAND }}>
-                <span className="text-[9px] font-medium tracking-wide text-white leading-none">
+              <div className="flex items-center justify-center relative" style={{ height: ICON_BAND }}>
+                <Scan size={SCAN_ICON} strokeWidth={1.8} style={{ color: SCAN_COLOR }} />
+                <span
+                  className="absolute text-[10px] font-semibold tracking-wide leading-none pointer-events-none"
+                  style={{ color: SCAN_COLOR }}
+                >
                   Scan
                 </span>
               </div>
+              {/* Spacer to align the icon-band midline with sibling tabs. No visible label. */}
+              <div style={{ height: LABEL_BAND }} />
             </button>
 
             {NEW_RIGHT_TABS.map(t => renderTab(t.to, t.icon, t.label, t.activeColor))}
