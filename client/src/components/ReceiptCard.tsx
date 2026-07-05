@@ -493,10 +493,18 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
         {expanded && (
           <div className="animate-fade-in">
 
-            {/* Tap-to-close strip at top */}
-            <div className="flex justify-center pt-2 pb-0 cursor-pointer"
-              onClick={() => { if (!anyEditActive) setExpanded(false); }}>
-              <div className="w-10 h-1 rounded-full bg-white/15" />
+            {/* Tap-to-close strip at top — visible pill plus a generous invisible
+                hitbox around it. Tapping ANYWHERE in this strip collapses the card.
+                If store-edit is active, the input's onBlur commits the new name first,
+                so this is still a one-tap escape from either state. */}
+            <div
+              className="flex justify-center items-center cursor-pointer active:opacity-70"
+              onClick={() => setExpanded(false)}
+              style={{ height: 32 }}
+              role="button"
+              aria-label="Collapse receipt"
+            >
+              <div className="w-14 h-1.5 rounded-full bg-white/30" />
             </div>
 
             {/* ── Header — expanded working surface ── */}
