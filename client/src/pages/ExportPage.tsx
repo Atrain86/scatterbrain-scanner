@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Download, CheckCircle, FileSpreadsheet, User } from 'lucide-react';
+import { Download, CheckCircle, FileSpreadsheet, User, Shield } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useReceipts } from '../hooks/useReceipts';
 import type { Receipt } from '../utils/types';
@@ -53,8 +53,41 @@ export default function ExportPage() {
 
   const exportTotal = exportReceipts.reduce((s, r) => s + r.total, 0);
 
+  /**
+   * Sanitize a category name for use as an Excel worksheet TAB.
+   * Excel forbids: : \ / ? * [ ] in tab names, and caps them at 31 chars.
+   * We also trim whitespace / apostrophes (leading/trailing apostrophes
+   * are also disallowed).
+   *
+   * The category's REAL name is preserved everywhere else (sheet contents,
+   * summary rows, headers). Only the tab label is sanitized.
+   *
+   * De-dupes with a "(N)" suffix if two categories sanitize to the same tab
+   * name (e.g. "A/B" and "A B" both become "A-B" without dedupe).
+   *
+   * NEVER silently drops a row — this only affects TAB LABELS, not the data
+   * inside the sheet.
+   */
+  function safeSheetName(raw: string, used: Set<string>): string {
+    let name = raw.replace(/[:\\/?*\[\]]/g, '-').trim();
+    if (!name) name = 'Category';
+    name = name.replace(/^'+|'+$/g, '');
+    let candidate = name.slice(0, 31);
+    if (!used.has(candidate.toLowerCase())) { used.add(candidate.toLowerCase()); return candidate; }
+    for (let n = 2; n < 1000; n++) {
+      const suffix = ` (${n})`;
+      const base = name.slice(0, 31 - suffix.length);
+      candidate = `${base}${suffix}`;
+      if (!used.has(candidate.toLowerCase())) { used.add(candidate.toLowerCase()); return candidate; }
+    }
+    return `Category${used.size}`.slice(0, 31);
+  }
+
   function buildWorkbook(rows: Receipt[], clientLabel: string | null) {
     const wb = XLSX.utils.book_new();
+    // Track used tab names — start with "summary" reserved so no category
+    // can accidentally clash with the Summary tab.
+    const usedSheetNames = new Set<string>(['summary']);
 
     // ── Summary sheet ──────────────────────────────────────────────────────────
     const byCat: Record<string, { count: number; subtotal: number; tax: number; total: number }> = {};
@@ -128,8 +161,9 @@ export default function ExportPage() {
         });
       }
       sheet['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 16 }, { wch: 40 }, { wch: 10 }, { wch: 8 }, { wch: 10 }];
-      // Sheet names max 31 chars
-      XLSX.utils.book_append_sheet(wb, sheet, cat.slice(0, 31));
+      // Sanitize category name for the WORKSHEET TAB. Excel forbids
+      // : \ / ? * [ ] and caps at 31 chars. Row data is untouched.
+      XLSX.utils.book_append_sheet(wb, sheet, safeSheetName(cat, usedSheetNames));
     });
 
     return wb;
@@ -153,6 +187,43 @@ export default function ExportPage() {
       setDone(true);
     } catch (err) {
       setError((err as Error).message || 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  // ── COMPLETE BACKUP — everything in IndexedDB, ignoring year/client filters ─
+  //
+  // Emergency full-fidelity export: every receipt + every image (base64 inline)
+  // + the schema version marker, serialized as a single JSON file and
+  // downloaded. This is the "phone is no longer a single point of failure"
+  // safety net. Use this before signing out or clearing browser data.
+  //
+  // The output is a plain JSON array — human-readable, can be re-imported
+  // programmatically later if we build a restore-from-file flow. The images
+  // are already base64 in Dexie (data: URLs), so we just carry them through.
+  async function handleFullBackup() {
+    setError('');
+    setExporting(true);
+    try {
+      const payload = {
+        exportVersion: 1,
+        exportedAt: new Date().toISOString(),
+        totalReceipts: receipts.length,
+        receipts: receipts, // full array, no filtering — every receipt
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.href = url;
+      a.download = `scatterbrain-full-backup_${stamp}_${receipts.length}-receipts.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError((err as Error).message || 'Backup failed');
     } finally {
       setExporting(false);
     }
@@ -194,6 +265,31 @@ export default function ExportPage() {
       </header>
 
       <main className="flex-1 px-4 py-4 pb-28 space-y-4 max-w-2xl mx-auto w-full overflow-y-auto">
+
+        {/* ── COMPLETE BACKUP (emergency safety net) ─────────────────────────
+            Full IndexedDB dump: every receipt + every image, ignoring year/
+            client filters. This is the "no single point of failure" backup.
+            Placed at the top so it's the first thing users see.                */}
+        <div className="bg-sb-card border border-blue-800/40 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Shield size={16} className="text-blue-300" />
+            <p className="text-xs text-blue-300 uppercase tracking-wider font-medium">Complete Backup</p>
+          </div>
+          <p className="text-white text-sm">
+            Full backup of all <strong>{receipts.length}</strong> receipt{receipts.length !== 1 ? 's' : ''} — data and photos — as a single JSON file.
+          </p>
+          <p className="text-sb-muted text-xs leading-snug">
+            Recommended before signing out or clearing browser data. Ignores year and client filters.
+            The file will be large (~1&nbsp;MB per 10&nbsp;receipts with photos).
+          </p>
+          <button
+            onClick={handleFullBackup}
+            disabled={exporting || receipts.length === 0}
+            className="w-full py-3 rounded-xl bg-blue-600/90 text-white font-semibold text-sm disabled:opacity-40 hover:brightness-110 transition flex items-center justify-center gap-2"
+          >
+            {exporting ? 'Preparing…' : <><Download size={16} /> Download Full Backup (.json)</>}
+          </button>
+        </div>
 
         {/* Year picker + inline summary */}
         <div className="bg-sb-card border border-sb-border rounded-2xl p-4 space-y-3">
