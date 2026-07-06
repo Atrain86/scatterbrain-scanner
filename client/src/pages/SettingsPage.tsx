@@ -8,7 +8,7 @@ import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.10.0';
+export const APP_VERSION = '0.10.1';
 
 interface CustomCategory {
   name: string;
@@ -577,6 +577,8 @@ export default function SettingsPage() {
                   )}
                 </div>
               )}
+
+              <CloudDiagnostic userId={userId} />
             </div>
             {cloudSettings.googleDrive.connected && cloudSettings.dropbox.connected && (
               <div className="space-y-2 rounded-2xl border border-sb-border bg-sb-card2 p-3 text-sm text-sb-muted">
@@ -726,6 +728,117 @@ function ServerTokenCopier({ userId }: { userId: string }) {
         className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition"
       >
         {copied ? '✓ Copied to clipboard' : 'Copy GOOGLE_USERS_REFRESH_TOKEN'}
+      </button>
+    </div>
+  );
+}
+
+// Read-only diagnostic — dumps both cloud_settings localStorage keys with secrets redacted.
+// Purpose: determine whether the user-namespaced key and the unnamespaced fallback agree,
+// whether refresh tokens are present, and whether the current access token is expired,
+// without exposing token values or calling any external service.
+function CloudDiagnostic({ userId }: { userId: string }) {
+  const [copied, setCopied] = useState(false);
+
+  function shortHash(s: string): string {
+    // Non-cryptographic — just enough to compare "is this the same token" across keys.
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36);
+  }
+
+  function summarizeProvider(p: unknown): Record<string, unknown> {
+    const s = (p ?? {}) as Record<string, unknown>;
+    const accessToken = typeof s.accessToken === 'string' ? s.accessToken : null;
+    const refreshToken = typeof s.refreshToken === 'string' ? s.refreshToken : null;
+    const expiresAt = typeof s.expiresAt === 'number' ? s.expiresAt : null;
+    return {
+      connected: s.connected === true,
+      email: s.email ?? null,
+      accessTokenPresent: !!accessToken,
+      accessTokenHash: accessToken ? shortHash(accessToken) : null,
+      accessTokenLen: accessToken?.length ?? 0,
+      refreshTokenPresent: !!refreshToken,
+      refreshTokenHash: refreshToken ? shortHash(refreshToken) : null,
+      refreshTokenLen: refreshToken?.length ?? 0,
+      expiresAt: expiresAt,
+      expiresAtIso: expiresAt ? new Date(expiresAt).toISOString() : null,
+      accessTokenExpired: expiresAt ? expiresAt <= Date.now() : null,
+      scope: s.scope ?? null,
+      tokenType: s.tokenType ?? null,
+    };
+  }
+
+  function readKey(key: string): Record<string, unknown> | null {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    try { return JSON.parse(raw) as Record<string, unknown>; } catch { return { _parseError: true }; }
+  }
+
+  function build(): string {
+    const nsKey = `sb_u${userId}_cloud_settings`;
+    const fbKey = `sb_cloud_settings`;
+    const ns = readKey(nsKey);
+    const fb = readKey(fbKey);
+
+    const nsGoogle = ns ? summarizeProvider((ns as Record<string, unknown>).googleDrive) : null;
+    const fbGoogle = fb ? summarizeProvider((fb as Record<string, unknown>).googleDrive) : null;
+
+    const refreshMatch =
+      nsGoogle && fbGoogle && nsGoogle.refreshTokenPresent && fbGoogle.refreshTokenPresent
+        ? nsGoogle.refreshTokenHash === fbGoogle.refreshTokenHash
+        : null;
+    const accessMatch =
+      nsGoogle && fbGoogle && nsGoogle.accessTokenPresent && fbGoogle.accessTokenPresent
+        ? nsGoogle.accessTokenHash === fbGoogle.accessTokenHash
+        : null;
+
+    const report = {
+      timestamp: new Date().toISOString(),
+      userId,
+      namespacedKey: nsKey,
+      fallbackKey: fbKey,
+      namespaced: ns ? {
+        primaryProvider: ns.primaryProvider ?? null,
+        autoSync: ns.autoSync ?? null,
+        googleDrive: nsGoogle,
+      } : null,
+      fallback: fb ? {
+        primaryProvider: fb.primaryProvider ?? null,
+        autoSync: fb.autoSync ?? null,
+        googleDrive: fbGoogle,
+      } : null,
+      comparison: {
+        bothKeysExist: !!ns && !!fb,
+        namespacedKeyExists: !!ns,
+        fallbackKeyExists: !!fb,
+        refreshTokensMatch: refreshMatch,
+        accessTokensMatch: accessMatch,
+        namespacedConnected: nsGoogle?.connected ?? null,
+        fallbackConnected: fbGoogle?.connected ?? null,
+        namespacedEmail: nsGoogle?.email ?? null,
+        fallbackEmail: fbGoogle?.email ?? null,
+      },
+    };
+    return JSON.stringify(report, null, 2);
+  }
+
+  function copy() {
+    const text = build();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  }
+
+  return (
+    <div className="pt-2 border-t border-sb-border mt-2">
+      <p className="text-xs text-sb-muted mb-2">Sync diagnostic — read-only, no Drive calls, tokens redacted:</p>
+      <button
+        onClick={copy}
+        className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition"
+      >
+        {copied ? '✓ Copied cloud state to clipboard' : 'Copy cloud state to clipboard'}
       </button>
     </div>
   );
