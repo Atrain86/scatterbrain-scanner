@@ -10,6 +10,7 @@ import SearchWithFilter from '../components/SearchWithFilter';
 import type { Receipt as ReceiptType } from '../utils/types';
 import { getCategoryColorDynamic } from '../utils/types';
 import { useAuth } from '../contexts/AuthContext';
+import { useUserPref } from '../lib/userStorage';
 import { seedDemoReceipts, clearDemoReceipts } from '../lib/demoSeed';
 
 // Show demo seed controls ONLY on branch preview / localhost — never production
@@ -22,8 +23,6 @@ function monthLabel(key: string) {
   const [, m] = key.split('-');
   return MONTH_NAMES[Number(m) - 1];
 }
-
-const CHART_COLLAPSED_KEY = 'sb_home_chart_collapsed';
 
 function fmtMoney(n: number): string {
   if (n >= 1000) return `$${(n / 1000).toFixed(n < 10000 ? 1 : 0)}k`;
@@ -40,7 +39,8 @@ export default function HomePage() {
   const [selectMode,   setSelectMode]   = useState(false);
   const [selectedIds,  setSelectedIds]  = useState<Set<number>>(new Set());
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
-  const [chartCollapsed, setChartCollapsed] = useState<boolean>(() => localStorage.getItem(CHART_COLLAPSED_KEY) === '1');
+  // Per-user preference — see account-freshness audit Finding 5 + the userStorage pattern
+  const [chartCollapsed, setChartCollapsed] = useUserPref<boolean>(userId, 'home_chart_collapsed', false);
   const [monthsBack, setMonthsBack] = useState<number>(12);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [showCatMenu, setShowCatMenu] = useState(false);
@@ -63,10 +63,6 @@ export default function HomePage() {
   }
 
   const hasDemoData = IS_PREVIEW && receipts.some(r => r.uuid?.startsWith('demo-'));
-
-  useEffect(() => {
-    localStorage.setItem(CHART_COLLAPSED_KEY, chartCollapsed ? '1' : '0');
-  }, [chartCollapsed]);
 
   const now = new Date();
   const thisYear = now.getFullYear();

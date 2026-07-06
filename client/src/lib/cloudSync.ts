@@ -28,7 +28,7 @@ async function refreshDropboxAccessToken(refreshToken: string) {
 async function ensureValidAccessToken(
   providerState: CloudProviderState,
   provider: CloudProvider,
-  userId?: string
+  userId: string
 ): Promise<string | null> {
   const now = Date.now();
   if (providerState.accessToken && providerState.expiresAt && providerState.expiresAt > now + 5000) {
@@ -49,14 +49,11 @@ async function ensureValidAccessToken(
   };
 
   const providerKey = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
-  // Save to user-namespaced key
+  // Save ONLY to the user-namespaced key. The old global fallback bucket
+  // (`sb_cloud_settings`) was removed in the account-freshness audit —
+  // it was leaking Drive tokens across users on shared browsers.
   const userSettings = loadCloudSettings(userId);
   saveCloudSettings({ ...userSettings, [providerKey]: nextState } as CloudSettings, userId);
-  // Also save to unnamespaced fallback (iOS PWA redirect recovery)
-  if (userId) {
-    const fallback = loadCloudSettings(undefined);
-    saveCloudSettings({ ...fallback, [providerKey]: nextState } as CloudSettings, undefined);
-  }
 
   return nextState.accessToken;
 }
@@ -92,14 +89,27 @@ async function findOrCreateDriveFolder(
   return data.id;
 }
 
-// Cache the receipts folder ID for the session to avoid repeated lookups
-let receiptsFolderIdCache: string | null = null;
+// Cache the receipts folder ID for the session to avoid repeated lookups.
+// Keyed by userId so a mid-session user swap can't return the previous user's
+// folder ID (which would cause push/pull against the wrong Drive account). See
+// account-freshness audit Finding 4.
+const receiptsFolderIdCache = new Map<string, string>();
 
-async function getReceiptsFolderId(accessToken: string): Promise<string> {
-  if (receiptsFolderIdCache) return receiptsFolderIdCache;
+/**
+ * Clear the per-user folder-id cache on sign-out. Called from AuthContext's
+ * flushOnSignOut() path (though the Map is also naturally scoped by userId,
+ * so leaving stale entries around is safe — this just keeps memory tidy).
+ */
+export function clearFolderIdCache(userId: string): void {
+  receiptsFolderIdCache.delete(userId);
+}
+
+async function getReceiptsFolderId(accessToken: string, userId: string): Promise<string> {
+  const cached = receiptsFolderIdCache.get(userId);
+  if (cached) return cached;
   const rootId = await findOrCreateDriveFolder(accessToken, 'Scatterbrain Scanner', null);
   const folderId = await findOrCreateDriveFolder(accessToken, 'receipts', rootId);
-  receiptsFolderIdCache = folderId;
+  receiptsFolderIdCache.set(userId, folderId);
   return folderId;
 }
 
@@ -250,8 +260,8 @@ async function loadImageBlob(imageUrl: string | null): Promise<Blob | null> {
 
 // ── Core sync: push one receipt to Drive ─────────────────────────────────────
 
-async function pushReceiptToDrive(receipt: Receipt, accessToken: string): Promise<void> {
-  const folderId = await getReceiptsFolderId(accessToken);
+async function pushReceiptToDrive(receipt: Receipt, accessToken: string, userId: string): Promise<void> {
+  const folderId = await getReceiptsFolderId(accessToken, userId);
   const jsonName = `${receipt.uuid}.json`;
 
   // Find existing file IDs so we PATCH instead of POST (avoids duplicates, preserves edits)
@@ -312,7 +322,7 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
   if (provider !== 'google-drive') return result;
 
   try {
-    const folderId = await getReceiptsFolderId(accessToken);
+    const folderId = await getReceiptsFolderId(accessToken, userId);
 
     // ONE Drive list call — builds set of all UUIDs already on Drive
     const driveFiles = await listDriveJsonFiles(accessToken, folderId);
@@ -346,7 +356,7 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
       if (!receipt.uuid || driveUuids.has(receipt.uuid.toLowerCase())) continue;
       if (receipt.uuid.startsWith('demo-')) continue; // preview-only seeded data, never push
       try {
-        await pushReceiptToDrive(receipt, accessToken);
+        await pushReceiptToDrive(receipt, accessToken, userId);
         driveUuids.add(receipt.uuid.toLowerCase()); // prevent re-upload in same run
         result.pushed += 1;
       } catch (err) {
@@ -448,7 +458,7 @@ export async function deleteReceiptFromDrive(uuid: string, userId: string): Prom
   if (!accessToken) return;
 
   if (provider === 'google-drive') {
-    const folderId = await getReceiptsFolderId(accessToken);
+    const folderId = await getReceiptsFolderId(accessToken, userId);
     await deleteDriveFilesByUuid(accessToken, uuid, folderId);
   }
 }
@@ -469,7 +479,7 @@ export async function pushReceiptNow(receipt: Receipt, userId: string): Promise<
   if (!accessToken) return;
 
   if (provider === 'google-drive') {
-    await pushReceiptToDrive(receipt, accessToken);
+    await pushReceiptToDrive(receipt, accessToken, userId);
   }
 }
 
@@ -493,7 +503,7 @@ export async function cleanupDriveDuplicates(userId: string): Promise<CleanupRes
   const accessToken = await ensureValidAccessToken(providerState, 'google-drive', userId);
   if (!accessToken) throw new Error('Could not get Drive access token');
 
-  const folderId = await getReceiptsFolderId(accessToken);
+  const folderId = await getReceiptsFolderId(accessToken, userId);
   const allFiles = await listDriveJsonFiles(accessToken, folderId);
 
   // Only process files that are NOT UUID-named (legacy files)

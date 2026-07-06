@@ -1,20 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { migrateUnnamedDb } from '../lib/db';
-import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
+import { purgeLegacyDexieDb } from '../lib/db';
+import { clearUserStorage } from '../lib/userStorage';
 
-function migrateCloudSettings(userId: string) {
-  const unnamespaced = loadCloudSettings(undefined);
-  const hasData = unnamespaced.googleDrive?.connected || unnamespaced.dropbox?.connected;
-  if (!hasData) return;
-  const userSettings = loadCloudSettings(userId);
-  const merged = {
-    googleDrive: unnamespaced.googleDrive?.connected ? unnamespaced.googleDrive : userSettings.googleDrive,
-    dropbox:     unnamespaced.dropbox?.connected     ? unnamespaced.dropbox     : userSettings.dropbox,
-    primaryProvider: unnamespaced.primaryProvider || userSettings.primaryProvider,
-    autoSync: userSettings.autoSync,
-  };
-  saveCloudSettings(merged, userId);
-}
+// Purge the historical global `sb_cloud_settings` localStorage bucket that used
+// to hold Drive OAuth tokens with no user binding. See account-freshness audit
+// Finding 1: prior code both wrote to and read from this global bucket, which
+// caused Drive credentials to bleed to the next user on a shared browser.
+// Run at module load so it's cleaned up on the very first render.
+try { localStorage.removeItem('sb_cloud_settings'); } catch { /* Safari private mode */ }
 
 interface AuthUser {
   id: string;
@@ -55,6 +48,38 @@ async function apiFetch(path: string, body: object): Promise<{ token: string; us
   return data as { token: string; user: AuthUser };
 }
 
+/**
+ * On sign-in, if the DEVICE has leftover data for OTHER users (someone else
+ * signed in on this browser before), we defensively purge every foreign
+ * per-user localStorage key and every foreign Dexie DB, keeping only the
+ * incoming user's data (if any). This is the belt-and-suspenders companion to
+ * the sign-out flush — catches the "closed the tab without logging out" case.
+ *
+ * See account-freshness audit Finding 3.
+ */
+async function enforceUserIsolationOnSignIn(userId: string): Promise<void> {
+  const { clearAllOtherUsersStorage } = await import('../lib/userStorage');
+  const { deleteAllOtherUserDbs } = await import('../lib/db');
+  clearAllOtherUsersStorage(userId);
+  await deleteAllOtherUserDbs(userId).catch(() => { /* best-effort */ });
+}
+
+/**
+ * Full local flush on sign-out. Removes:
+ *   - The JWT
+ *   - Every sb_u{userId}_* localStorage key for the departing user
+ *   - The departing user's Dexie DB
+ *   - In-memory caches (dbCache entry, receiptsFolderIdCache entry)
+ * Drive data is UNTOUCHED — this only clears LOCAL state.
+ */
+async function flushOnSignOut(userId: string): Promise<void> {
+  const { deleteUserDb } = await import('../lib/db');
+  const { clearFolderIdCache } = await import('../lib/cloudSync');
+  clearUserStorage(userId);
+  clearFolderIdCache(userId);
+  await deleteUserDb(userId).catch(() => { /* best-effort */ });
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser]         = useState<AuthUser | null>(null);
   const [isLoading, setLoading] = useState(true);
@@ -62,6 +87,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // On mount: decode token locally first for instant load, verify with server in background
   useEffect(() => {
+    // Foundational cleanup: purge the legacy pre-namespacing Dexie DB
+    // ('scatterbrain') that used to be copied into every new user's DB by the
+    // now-removed migrateUnnamedDb(). See account-freshness audit Finding 2.
+    purgeLegacyDexieDb().catch(() => { /* best-effort */ });
+
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) { setLoading(false); return; }
 
@@ -69,8 +99,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
       if (payload.id && payload.email) {
-        migrateUnnamedDb(payload.id).catch(() => {});
-        migrateCloudSettings(payload.id);
         setUser({ id: payload.id, email: payload.email });
         setLoading(false); // show the app immediately
       } else {
@@ -91,7 +119,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
       .then(async r => {
         if (r.status === 401) {
-          // Server explicitly rejected the token — log out
+          // Server explicitly rejected the token — log out (with full flush)
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            if (payload.id) await flushOnSignOut(payload.id);
+          } catch { /* fall through */ }
           localStorage.removeItem(TOKEN_KEY);
           setUser(null);
           return;
@@ -112,8 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError('');
     const { token, user: u } = await apiFetch('/login', { email, password });
     localStorage.setItem(TOKEN_KEY, token);
-    await migrateUnnamedDb(u.id);
-    migrateCloudSettings(u.id);
+    await enforceUserIsolationOnSignIn(u.id);
     setUser(u);
   }, []);
 
@@ -121,15 +152,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError('');
     const { token, user: u } = await apiFetch('/signup', { email, password });
     localStorage.setItem(TOKEN_KEY, token);
-    await migrateUnnamedDb(u.id);
-    migrateCloudSettings(u.id);
+    await enforceUserIsolationOnSignIn(u.id);
     setUser(u);
   }, []);
 
   const logout = useCallback(() => {
+    // Capture id before we clear state so the flush runs against the right user.
+    const departingId = user?.id;
     localStorage.removeItem(TOKEN_KEY);
     setUser(null);
-  }, []);
+    if (departingId) void flushOnSignOut(departingId);
+  }, [user]);
 
   const clearError = useCallback(() => setError(''), []);
 

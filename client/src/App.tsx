@@ -25,6 +25,17 @@ function CloudAuthHandler() {
     // Wait until auth state is resolved before saving and navigating
     if (isLoading) return;
 
+    // SECURITY: if we don't have an authenticated user at this point, refuse to
+    // store the returned tokens. Do NOT write to a global fallback bucket — that
+    // was the credential-leak vector in account-freshness audit Finding 1
+    // (tokens bleeding to the next user on a shared browser). Better to ask the
+    // user to sign in and reconnect than to accept orphan credentials.
+    if (!user?.id) {
+      navigate('/', { replace: true });
+      return;
+    }
+    const userId = user.id;
+
     const payload: Record<string, string> = {};
     for (const key of ['access_token', 'refresh_token', 'expires_in', 'token_type', 'scope', 'email']) {
       const val = params.get(key);
@@ -32,7 +43,6 @@ function CloudAuthHandler() {
     }
 
     const expiresIn = payload.expires_in;
-    const userId = user?.id;
     const providerKey = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
     const providerData = {
       connected: true,
@@ -44,23 +54,13 @@ function CloudAuthHandler() {
       tokenType: payload.token_type ?? null,
     };
 
-    // Always save to unnamespaced key as fallback (iOS PWA loses userId on redirect)
-    const fallbackSettings = loadCloudSettings(undefined);
+    // Write ONLY to the user-namespaced settings. There is no global fallback.
+    const userSettings = loadCloudSettings(userId);
     saveCloudSettings({
-      ...fallbackSettings,
+      ...userSettings,
       [providerKey]: providerData,
-      primaryProvider: fallbackSettings.primaryProvider || provider,
-    }, undefined);
-
-    // Also save to user-namespaced key if we have a userId
-    if (userId) {
-      const userSettings = loadCloudSettings(userId);
-      saveCloudSettings({
-        ...userSettings,
-        [providerKey]: providerData,
-        primaryProvider: userSettings.primaryProvider || provider,
-      }, userId);
-    }
+      primaryProvider: userSettings.primaryProvider || provider,
+    }, userId);
 
     navigate('/settings', { replace: true });
   }, [navigate, user, isLoading]);

@@ -20,11 +20,14 @@ const DEFAULT_SETTINGS: CloudSettings = {
   autoSync: true,
 };
 
-function cloudStorageKey(userId?: string): string {
-  return userId ? `sb_u${userId}_${CLOUD_KEY}` : `sb_${CLOUD_KEY}`;
+// Cloud settings are ALWAYS user-scoped. There is no global fallback bucket —
+// see Finding 1 in the account-freshness audit for why (Drive OAuth tokens
+// bleeding to the next user on a shared browser).
+function cloudStorageKey(userId: string): string {
+  return `sb_u${userId}_${CLOUD_KEY}`;
 }
 
-export function loadCloudSettings(userId?: string): CloudSettings {
+export function loadCloudSettings(userId: string): CloudSettings {
   try {
     const raw = localStorage.getItem(cloudStorageKey(userId));
     if (!raw) return DEFAULT_SETTINGS;
@@ -40,11 +43,11 @@ export function loadCloudSettings(userId?: string): CloudSettings {
   }
 }
 
-export function saveCloudSettings(settings: CloudSettings, userId?: string) {
+export function saveCloudSettings(settings: CloudSettings, userId: string) {
   localStorage.setItem(cloudStorageKey(userId), JSON.stringify(settings));
 }
 
-export function useCloudAuth(userId?: string) {
+export function useCloudAuth(userId: string) {
   const [settings, setSettings] = useState<CloudSettings>(() => loadCloudSettings(userId));
 
   useEffect(() => {
