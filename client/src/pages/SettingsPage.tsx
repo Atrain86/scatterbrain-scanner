@@ -8,7 +8,7 @@ import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.10.1';
+export const APP_VERSION = '0.10.2';
 
 interface CustomCategory {
   name: string;
@@ -579,6 +579,7 @@ export default function SettingsPage() {
               )}
 
               <CloudDiagnostic userId={userId} />
+              <RefreshTokenTester userId={userId} />
             </div>
             {cloudSettings.googleDrive.connected && cloudSettings.dropbox.connected && (
               <div className="space-y-2 rounded-2xl border border-sb-border bg-sb-card2 p-3 text-sm text-sb-muted">
@@ -840,6 +841,108 @@ function CloudDiagnostic({ userId }: { userId: string }) {
       >
         {copied ? '✓ Copied cloud state to clipboard' : 'Copy cloud state to clipboard'}
       </button>
+    </div>
+  );
+}
+
+// Isolated refresh-token test — POSTs the stored Google refresh token to the existing
+// /api/auth/google/refresh endpoint and displays the response verbatim (new access token
+// hashed if success, error object shown as-is on failure). Does NOT touch Drive, does NOT
+// list/read/write any file, does NOT persist the new access token to localStorage.
+// Purpose: distinguish "token valid, client-code bug" from "token revoked, must reconnect".
+function RefreshTokenTester({ userId }: { userId: string }) {
+  const [state, setState] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [message, setMessage] = useState<string>('');
+
+  function shortHash(s: string): string {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36);
+  }
+
+  async function runTest() {
+    setState('testing');
+    setMessage('');
+
+    const key = `sb_u${userId}_cloud_settings`;
+    let refreshToken: string | null = null;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { googleDrive?: { refreshToken?: string } };
+        refreshToken = parsed.googleDrive?.refreshToken ?? null;
+      }
+    } catch {
+      setState('error');
+      setMessage('Could not read cloud_settings from localStorage.');
+      return;
+    }
+
+    if (!refreshToken) {
+      setState('error');
+      setMessage('No refresh token found in namespaced key. Reconnect Drive.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/google/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      const text = await res.text();
+      let body: Record<string, unknown> = {};
+      try { body = JSON.parse(text) as Record<string, unknown>; } catch { body = { _raw: text }; }
+
+      if (res.ok) {
+        const newAccess = typeof body.access_token === 'string' ? body.access_token : null;
+        const expiresIn = body.expires_in;
+        setState('success');
+        setMessage(
+          `HTTP ${res.status} — refresh SUCCEEDED\n` +
+          `new access token: ${newAccess ? `hash=${shortHash(newAccess)}, len=${newAccess.length}` : 'MISSING FROM RESPONSE'}\n` +
+          `expires_in: ${expiresIn ?? 'missing'}\n` +
+          `scope: ${body.scope ?? 'missing'}\n` +
+          `token_type: ${body.token_type ?? 'missing'}\n\n` +
+          `→ Refresh token is VALID and Google honors it. Bug is in the client code path, not the credential.\n` +
+          `Note: this new access token was NOT written to localStorage — stuck expiresAt is preserved.`
+        );
+      } else {
+        // Sanitize: strip any tokens the server might echo back
+        const sanitized = { ...body };
+        delete sanitized.access_token;
+        delete sanitized.refresh_token;
+        setState('error');
+        setMessage(
+          `HTTP ${res.status} — refresh FAILED\n` +
+          JSON.stringify(sanitized, null, 2) +
+          `\n\n→ Interpret:\n` +
+          `  • "invalid_grant" = refresh token REVOKED — must disconnect + reconnect Drive.\n` +
+          `  • 500 or missing-secret error = server misconfig (Render env vars).\n` +
+          `  • anything else = paste back for diagnosis.`
+        );
+      }
+    } catch (err) {
+      setState('error');
+      setMessage(`Network error: ${(err as Error).message}`);
+    }
+  }
+
+  return (
+    <div className="pt-2 border-t border-sb-border mt-2">
+      <p className="text-xs text-sb-muted mb-2">Test refresh token — asks Google if the stored refresh token still works. No Drive calls, no writes.</p>
+      <button
+        onClick={runTest}
+        disabled={state === 'testing'}
+        className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition disabled:opacity-50"
+      >
+        {state === 'testing' ? 'Testing…' : 'Test refresh token'}
+      </button>
+      {message && (
+        <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg p-2 text-[11px] leading-snug ${state === 'success' ? 'bg-sb-card text-sb-green' : 'bg-sb-card text-red-300'}`}>
+          {message}
+        </pre>
+      )}
     </div>
   );
 }
