@@ -4,11 +4,12 @@ import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
 import { backgroundSync, restoreFromGoogleDrive, cleanupDriveDuplicates, type RestoreResult, type SyncResult, type CleanupResult } from '../lib/cloudSync';
+import { loadSyncStatus } from '../lib/syncStatus';
 import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.10.2';
+export const APP_VERSION = '0.10.3';
 
 interface CustomCategory {
   name: string;
@@ -547,6 +548,7 @@ export default function SettingsPage() {
               onAction={cloudSettings.dropbox.connected ? () => disconnectProvider('dropbox') : undefined}
             />
             <div className="rounded-2xl border border-sb-border bg-sb-card2 p-3 space-y-3">
+              <SyncStatusIndicator userId={userId} />
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-white text-sm">Sync</p>
@@ -730,6 +732,77 @@ function ServerTokenCopier({ userId }: { userId: string }) {
       >
         {copied ? '✓ Copied to clipboard' : 'Copy GOOGLE_USERS_REFRESH_TOKEN'}
       </button>
+    </div>
+  );
+}
+
+// Sync health indicator — surfaces the actual last push/failure state from syncStatus.
+// This is the answer to why the June 7 revocation went unnoticed for a month:
+// silent failure is now visible on the Settings page, keyed off real Drive responses.
+function SyncStatusIndicator({ userId }: { userId: string }) {
+  const [status, setStatus] = useState(() => loadSyncStatus(userId));
+
+  useEffect(() => {
+    setStatus(loadSyncStatus(userId));
+    const iv = setInterval(() => setStatus(loadSyncStatus(userId)), 10 * 1000);
+    return () => clearInterval(iv);
+  }, [userId]);
+
+  function ago(iso: string | null): string {
+    if (!iso) return 'never';
+    const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (secs < 60) return `${secs}s ago`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
+    return `${Math.floor(secs / 86400)}d ago`;
+  }
+
+  const hasAnyActivity = status.lastPushAt || status.lastFailureAt || status.lastBackgroundSyncAt;
+  if (!hasAnyActivity) {
+    return (
+      <div className="rounded-xl bg-sb-card px-3 py-2 text-xs text-sb-muted">
+        <span className="inline-block w-2 h-2 rounded-full bg-sb-muted mr-2 align-middle" />
+        No sync activity recorded yet.
+      </div>
+    );
+  }
+
+  // Determine the "headline" state: is the most recent event a failure or a success?
+  const lastSuccessTime = status.lastPushAt || status.lastBackgroundSyncAt;
+  const lastSuccessMs = lastSuccessTime ? new Date(lastSuccessTime).getTime() : 0;
+  const lastFailureMs = status.lastFailureAt ? new Date(status.lastFailureAt).getTime() : 0;
+  const isFailing = lastFailureMs > lastSuccessMs;
+
+  if (isFailing) {
+    return (
+      <div className="rounded-xl bg-red-950/40 border border-red-900/60 px-3 py-2 text-xs space-y-1">
+        <p className="text-red-300 font-semibold">
+          <span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-2 align-middle" />
+          Sync FAILING — {status.consecutiveFailures} consecutive failure{status.consecutiveFailures === 1 ? '' : 's'}
+        </p>
+        <p className="text-red-200/80">
+          Last failure ({status.lastFailureOp}) {ago(status.lastFailureAt)}:
+        </p>
+        <p className="text-red-100 font-mono text-[10px] break-words">{status.lastFailureReason}</p>
+        {status.lastPushAt && (
+          <p className="text-sb-muted pt-1">Last successful push: {ago(status.lastPushAt)}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl bg-emerald-950/40 border border-emerald-900/60 px-3 py-2 text-xs space-y-1">
+      <p className="text-sb-green font-semibold">
+        <span className="inline-block w-2 h-2 rounded-full bg-sb-green mr-2 align-middle" />
+        Sync healthy
+      </p>
+      {status.lastPushAt && (
+        <p className="text-sb-muted">Last push: {ago(status.lastPushAt)}</p>
+      )}
+      {status.lastBackgroundSyncAt && (
+        <p className="text-sb-muted">Last background sync: {ago(status.lastBackgroundSyncAt)}</p>
+      )}
     </div>
   );
 }

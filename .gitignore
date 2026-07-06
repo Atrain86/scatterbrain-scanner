@@ -1,7 +1,12 @@
 node_modules/
 dist/
 .env
+.env.local
 *.db
 data/
 uploads/
 .DS_Store
+
+# Local Drive backup dumps — user receipt data, never commit
+GOGGLERIVE*/
+scatterbrain-full-backup*.json

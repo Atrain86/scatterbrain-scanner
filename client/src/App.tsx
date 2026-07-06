@@ -76,11 +76,16 @@ function AuthenticatedApp() {
 
   useEffect(() => {
     if (!user) return;
-    void backgroundSync(user.id);
-    const handleFocus = () => { void backgroundSync(user.id); };
+    const runSync = () => {
+      backgroundSync(user.id).catch(err => {
+        console.error('[backgroundSync] threw:', err);
+      });
+    };
+    runSync();
+    const handleFocus = () => { runSync(); };
     window.addEventListener('focus', handleFocus);
     // Periodic sync every 30 minutes for background/desktop use
-    const interval = setInterval(() => { void backgroundSync(user.id); }, 30 * 60 * 1000);
+    const interval = setInterval(runSync, 30 * 60 * 1000);
     return () => {
       window.removeEventListener('focus', handleFocus);
       clearInterval(interval);

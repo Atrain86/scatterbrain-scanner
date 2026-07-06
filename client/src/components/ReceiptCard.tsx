@@ -405,7 +405,9 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
       createdAt: new Date().toISOString(),
     });
 
-    void pushReceiptNow(newReceipt, userId);
+    pushReceiptNow(newReceipt, userId).catch(err => {
+      console.error('[Drive push split] failed:', err);
+    });
     onNewReceipt?.(newReceipt);
     setSplitMode(false);
   }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CloudProvider, CloudProviderState, CloudSettings } from '../utils/types';
+import { resetSyncCaches } from '../lib/cloudSync';
 
 const CLOUD_KEY = 'cloud_settings';
 
@@ -64,6 +65,15 @@ export function useCloudAuth(userId?: string) {
   }, []);
 
   const disconnectProvider = useCallback((provider: CloudProvider) => {
+    resetSyncCaches();
+    // Also clear the unnamespaced fallback so a reconnect starts fully clean
+    try {
+      const fb = loadCloudSettings(undefined);
+      saveCloudSettings({
+        ...fb,
+        [provider === 'google-drive' ? 'googleDrive' : 'dropbox']: { ...DEFAULT_PROVIDER_STATE },
+      } as CloudSettings, undefined);
+    } catch { /* non-fatal */ }
     setSettings(current => {
       const next = {
         ...current,

@@ -153,8 +153,12 @@ export default function ScanModal({ onClose, onSaved }: Props) {
         updatedAt:    now,
       });
 
-      // Push to Drive immediately — fire and forget, don't block the UI
-      void pushReceiptNow(receipt, userId);
+      // Push to Drive immediately — fire and forget, don't block the UI.
+      // Failure is recorded to sync_status by pushReceiptNow itself; catch here
+      // prevents unhandled promise rejection.
+      pushReceiptNow(receipt, userId).catch(err => {
+        console.error('[Drive push] failed after save:', err);
+      });
 
       onSaved(receipt);
     } catch (err) {

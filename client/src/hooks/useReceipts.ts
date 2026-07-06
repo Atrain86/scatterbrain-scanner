@@ -39,15 +39,23 @@ export function useReceipts() {
     const receipt = receipts.find(r => r.id === id);
     await deleteReceipt(userId, id);
     setReceipts(prev => prev.filter(r => r.id !== id));
-    // Fire-and-forget Drive delete so the receipt doesn't get re-pulled on next sync
-    if (receipt?.uuid) void deleteReceiptFromDrive(receipt.uuid, userId);
+    // Fire-and-forget Drive delete so the receipt doesn't get re-pulled on next sync.
+    // Failure is recorded to sync_status by deleteReceiptFromDrive; catch prevents unhandled rejection.
+    if (receipt?.uuid) {
+      deleteReceiptFromDrive(receipt.uuid, userId).catch(err => {
+        console.error('[Drive delete] failed:', err);
+      });
+    }
   }, [userId, receipts]);
 
   const update = useCallback(async (id: number, changes: Partial<Receipt>) => {
     const updated = await updateReceipt(userId, id, changes);
     setReceipts(prev => prev.map(r => r.id === id ? updated : r));
-    // Push edit to Drive immediately so other devices see the updated version
-    void pushReceiptNow(updated, userId);
+    // Push edit to Drive immediately so other devices see the updated version.
+    // Failure is recorded to sync_status; catch prevents unhandled rejection.
+    pushReceiptNow(updated, userId).catch(err => {
+      console.error('[Drive push edit] failed:', err);
+    });
     return updated;
   }, [userId]);
 

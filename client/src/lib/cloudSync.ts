@@ -1,6 +1,7 @@
 import type { CloudProvider, CloudProviderState, CloudSettings, Receipt } from '../utils/types';
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
 import { addReceipt, getAllReceipts, getReceiptByUuid, updateReceipt, getDeletedUuids, clearDeletedUuid } from './db';
+import { recordPushSuccess, recordBackgroundSyncSuccess, recordFailure } from './syncStatus';
 
 // ── Token management ──────────────────────────────────────────────────────────
 
@@ -91,8 +92,16 @@ async function findOrCreateDriveFolder(
   return data.id;
 }
 
-// Cache the receipts folder ID for the session to avoid repeated lookups
+// Cache the receipts folder ID for the session to avoid repeated lookups.
+// Cleared on disconnect (see resetSyncCaches) so a disconnect+reconnect within the
+// same tab session doesn't reuse the pre-disconnect folder ID.
 let receiptsFolderIdCache: string | null = null;
+
+// Called from useCloudAuth.disconnectProvider — clears in-memory caches so the next
+// connect starts from a clean slate. Safe to call anytime; does nothing else.
+export function resetSyncCaches(): void {
+  receiptsFolderIdCache = null;
+}
 
 async function getReceiptsFolderId(accessToken: string): Promise<string> {
   if (receiptsFolderIdCache) return receiptsFolderIdCache;
@@ -426,41 +435,69 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
     result.errors.push((err as Error).message);
   }
 
+  // Record status: if any errors surfaced, treat as failure; otherwise it's a clean run
+  // (even a 0-pushed / 0-pulled run is a successful "we talked to Drive and it agreed").
+  if (result.errors.length > 0) {
+    recordFailure(userId, 'backgroundSync', result.errors[0]);
+  } else {
+    recordBackgroundSyncSuccess(userId);
+    // Also record push success if we pushed anything — makes the "last push" freshness accurate
+    if (result.pushed > 0) {
+      recordPushSuccess(userId, `${result.pushed} receipts (backgroundSync)`);
+    }
+  }
+
   return result;
 }
 
-// Delete a receipt from Drive immediately — called fire-and-forget from useReceipts.remove
+// Delete a receipt from Drive immediately — called fire-and-forget from useReceipts.remove.
+// Re-throws so callers can observe; records failure for the Settings indicator.
 export async function deleteReceiptFromDrive(uuid: string, userId: string): Promise<void> {
   const settings = loadCloudSettings(userId);
   const provider = settings.primaryProvider;
   if (!provider) return;
-
   const providerState = settings[provider === 'google-drive' ? 'googleDrive' : 'dropbox'];
   if (!providerState.connected) return;
 
-  const accessToken = await ensureValidAccessToken(providerState, provider, userId);
-  if (!accessToken) return;
-
-  if (provider === 'google-drive') {
-    const folderId = await getReceiptsFolderId(accessToken);
-    await deleteDriveFilesByUuid(accessToken, uuid, folderId);
+  try {
+    const accessToken = await ensureValidAccessToken(providerState, provider, userId);
+    if (!accessToken) {
+      recordFailure(userId, 'delete', 'No access token (refresh returned null — token likely revoked)');
+      throw new Error('No access token');
+    }
+    if (provider === 'google-drive') {
+      const folderId = await getReceiptsFolderId(accessToken);
+      await deleteDriveFilesByUuid(accessToken, uuid, folderId);
+    }
+  } catch (err) {
+    recordFailure(userId, 'delete', (err as Error).message || 'Unknown delete error');
+    throw err;
   }
 }
 
-// Push a single receipt immediately after save — fast path, called from ScanModal
+// Push a single receipt immediately after save — fast path, called from ScanModal.
+// Records success ONLY after Drive returns 2xx for both JSON and image uploads.
+// Records failure on any throw. Re-throws so callers can also observe.
 export async function pushReceiptNow(receipt: Receipt, userId: string): Promise<void> {
   const settings = loadCloudSettings(userId);
   const provider = settings.primaryProvider;
-  if (!provider) return;
-
+  if (!provider) return; // Drive not configured — not a failure, just a no-op
   const providerState = settings[provider === 'google-drive' ? 'googleDrive' : 'dropbox'];
   if (!providerState.connected) return;
 
-  const accessToken = await ensureValidAccessToken(providerState, provider, userId);
-  if (!accessToken) return;
-
-  if (provider === 'google-drive') {
-    await pushReceiptToDrive(receipt, accessToken);
+  try {
+    const accessToken = await ensureValidAccessToken(providerState, provider, userId);
+    if (!accessToken) {
+      recordFailure(userId, 'push', 'No access token (refresh returned null — token likely revoked)');
+      throw new Error('No access token');
+    }
+    if (provider === 'google-drive') {
+      await pushReceiptToDrive(receipt, accessToken);
+      recordPushSuccess(userId, receipt.uuid || 'unknown');
+    }
+  } catch (err) {
+    recordFailure(userId, 'push', (err as Error).message || 'Unknown push error');
+    throw err;
   }
 }
 
