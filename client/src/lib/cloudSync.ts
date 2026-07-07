@@ -97,17 +97,97 @@ async function findOrCreateDriveFolder(
 // same tab session doesn't reuse the pre-disconnect folder ID.
 let receiptsFolderIdCache: string | null = null;
 
-// Called from useCloudAuth.disconnectProvider — clears in-memory caches so the next
-// connect starts from a clean slate. Safe to call anytime; does nothing else.
-export function resetSyncCaches(): void {
+// Called from useCloudAuth.disconnectProvider — clears in-memory caches AND the
+// persisted folder ID for the given user, so the next connect starts from a
+// clean slate. Safe to call anytime.
+export function resetSyncCaches(userId?: string): void {
   receiptsFolderIdCache = null;
+  if (userId) clearPersistedFolderId(userId);
 }
 
-async function getReceiptsFolderId(accessToken: string): Promise<string> {
+// ── Concurrency mutex ─────────────────────────────────────────────────────────
+// A module-level promise that both backgroundSync and pushReceiptNow serialize
+// against. Prevents the race where a focus event and a mount event (or two
+// backgroundSyncs from any triggers) both see the same "not yet on Drive" state
+// and both POST the same receipt, creating duplicate files with identical UUIDs.
+//
+// Every entry point that touches Drive writes must go through withSyncLock.
+// Reads (audit, refresh test) are fine unguarded — they don't create duplicates.
+let syncLock: Promise<void> = Promise.resolve();
+
+async function withSyncLock<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = syncLock;
+  let release!: () => void;
+  syncLock = new Promise<void>(res => { release = res; });
+  try {
+    await prev;
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+// ── Folder ID persistence ─────────────────────────────────────────────────────
+// Store the created folder ID per-user so we never rely on name-search + first-match
+// to relocate it. Name-search + first-match was the vector that spawned the two
+// duplicate "Scatterbrain Scanner" root folders during the recovery.
+
+function driveFolderIdKey(userId: string): string {
+  return `sb_u${userId}_drive_folder_id`;
+}
+
+function loadPersistedFolderId(userId: string): string | null {
+  try { return localStorage.getItem(driveFolderIdKey(userId)); } catch { return null; }
+}
+
+function savePersistedFolderId(userId: string, folderId: string): void {
+  try { localStorage.setItem(driveFolderIdKey(userId), folderId); } catch { /* non-fatal */ }
+}
+
+function clearPersistedFolderId(userId: string): void {
+  try { localStorage.removeItem(driveFolderIdKey(userId)); } catch { /* non-fatal */ }
+}
+
+// Verify a persisted folder ID still exists and is not trashed. If Google says
+// the file is gone, returns false so caller falls back to search+create.
+async function isFolderIdValid(accessToken: string, folderId: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,trashed,mimeType`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!res.ok) return false;
+    const data = await res.json() as { id?: string; trashed?: boolean; mimeType?: string };
+    return !!data.id && data.trashed !== true && data.mimeType === 'application/vnd.google-apps.folder';
+  } catch { return false; }
+}
+
+// Distinctive folder name — reduces collision with any pre-existing folder in
+// the user's Drive and makes it obvious what created it. Also encodes purpose
+// so users browsing Drive can identify it at a glance.
+const ROOT_FOLDER_NAME = 'Scatterbrain Scanner - Receipts';
+
+async function getReceiptsFolderId(accessToken: string, userId?: string): Promise<string> {
+  // 1. In-memory session cache
   if (receiptsFolderIdCache) return receiptsFolderIdCache;
-  const rootId = await findOrCreateDriveFolder(accessToken, 'Scatterbrain Scanner', null);
+
+  // 2. Persisted per-user folder ID — verify still valid before trusting it
+  if (userId) {
+    const persisted = loadPersistedFolderId(userId);
+    if (persisted && await isFolderIdValid(accessToken, persisted)) {
+      receiptsFolderIdCache = persisted;
+      return persisted;
+    }
+    // Persisted ID was stale (folder trashed/deleted) — clear it before falling through
+    if (persisted) clearPersistedFolderId(userId);
+  }
+
+  // 3. Search + create (only when no valid persisted ID exists)
+  const rootId = await findOrCreateDriveFolder(accessToken, ROOT_FOLDER_NAME, null);
   const folderId = await findOrCreateDriveFolder(accessToken, 'receipts', rootId);
+
   receiptsFolderIdCache = folderId;
+  if (userId) savePersistedFolderId(userId, folderId);
   return folderId;
 }
 
@@ -258,8 +338,8 @@ async function loadImageBlob(imageUrl: string | null): Promise<Blob | null> {
 
 // ── Core sync: push one receipt to Drive ─────────────────────────────────────
 
-async function pushReceiptToDrive(receipt: Receipt, accessToken: string): Promise<void> {
-  const folderId = await getReceiptsFolderId(accessToken);
+async function pushReceiptToDrive(receipt: Receipt, accessToken: string, userId?: string): Promise<void> {
+  const folderId = await getReceiptsFolderId(accessToken, userId);
   const jsonName = `${receipt.uuid}.json`;
 
   // Find existing file IDs so we PATCH instead of POST (avoids duplicates, preserves edits)
@@ -305,7 +385,13 @@ export interface SyncResult {
 
 // Called silently on app load, window focus, and after every save.
 // Uses a single Drive file list for both push and pull — avoids per-receipt API calls.
+// Serialized via withSyncLock so concurrent triggers (mount + focus fired within
+// the same tick, "Sync now" pressed mid-run, etc.) queue instead of racing.
 export async function backgroundSync(userId: string): Promise<SyncResult> {
+  return withSyncLock(() => backgroundSyncInternal(userId));
+}
+
+async function backgroundSyncInternal(userId: string): Promise<SyncResult> {
   const result: SyncResult = { pushed: 0, pulled: 0, errors: [] };
   const settings = loadCloudSettings(userId);
   const provider = settings.primaryProvider;
@@ -320,7 +406,7 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
   if (provider !== 'google-drive') return result;
 
   try {
-    const folderId = await getReceiptsFolderId(accessToken);
+    const folderId = await getReceiptsFolderId(accessToken, userId);
 
     // ONE Drive list call — builds set of all UUIDs already on Drive
     const driveFiles = await listDriveJsonFiles(accessToken, folderId);
@@ -353,7 +439,7 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
     for (const receipt of allReceipts) {
       if (!receipt.uuid || driveUuids.has(receipt.uuid.toLowerCase())) continue;
       try {
-        await pushReceiptToDrive(receipt, accessToken);
+        await pushReceiptToDrive(receipt, accessToken, userId);
         driveUuids.add(receipt.uuid.toLowerCase()); // prevent re-upload in same run
         result.pushed += 1;
       } catch (err) {
@@ -452,53 +538,63 @@ export async function backgroundSync(userId: string): Promise<SyncResult> {
 
 // Delete a receipt from Drive immediately — called fire-and-forget from useReceipts.remove.
 // Re-throws so callers can observe; records failure for the Settings indicator.
+// Serialized via withSyncLock so a delete cannot race with a concurrent backgroundSync
+// (which might otherwise re-push the just-deleted receipt).
 export async function deleteReceiptFromDrive(uuid: string, userId: string): Promise<void> {
-  const settings = loadCloudSettings(userId);
-  const provider = settings.primaryProvider;
-  if (!provider) return;
-  const providerState = settings[provider === 'google-drive' ? 'googleDrive' : 'dropbox'];
-  if (!providerState.connected) return;
+  return withSyncLock(async () => {
+    const settings = loadCloudSettings(userId);
+    const provider = settings.primaryProvider;
+    if (!provider) return;
+    const providerState = settings[provider === 'google-drive' ? 'googleDrive' : 'dropbox'];
+    if (!providerState.connected) return;
 
-  try {
-    const accessToken = await ensureValidAccessToken(providerState, provider, userId);
-    if (!accessToken) {
-      recordFailure(userId, 'delete', 'No access token (refresh returned null — token likely revoked)');
-      throw new Error('No access token');
+    try {
+      const accessToken = await ensureValidAccessToken(providerState, provider, userId);
+      if (!accessToken) {
+        recordFailure(userId, 'delete', 'No access token (refresh returned null — token likely revoked)');
+        throw new Error('No access token');
+      }
+      if (provider === 'google-drive') {
+        const folderId = await getReceiptsFolderId(accessToken, userId);
+        await deleteDriveFilesByUuid(accessToken, uuid, folderId);
+      }
+    } catch (err) {
+      recordFailure(userId, 'delete', (err as Error).message || 'Unknown delete error');
+      throw err;
     }
-    if (provider === 'google-drive') {
-      const folderId = await getReceiptsFolderId(accessToken);
-      await deleteDriveFilesByUuid(accessToken, uuid, folderId);
-    }
-  } catch (err) {
-    recordFailure(userId, 'delete', (err as Error).message || 'Unknown delete error');
-    throw err;
-  }
+  });
 }
 
 // Push a single receipt immediately after save — fast path, called from ScanModal.
 // Records success ONLY after Drive returns 2xx for both JSON and image uploads.
 // Records failure on any throw. Re-throws so callers can also observe.
+// Serialized via withSyncLock so a save-time push cannot race a concurrent
+// backgroundSync — the previous v0.10.3 duplicate-explosion happened because
+// mount-triggered and focus-triggered syncs raced against each other; pushReceiptNow
+// racing a backgroundSync is the same class of bug and would also produce duplicates.
 export async function pushReceiptNow(receipt: Receipt, userId: string): Promise<void> {
-  const settings = loadCloudSettings(userId);
-  const provider = settings.primaryProvider;
-  if (!provider) return; // Drive not configured — not a failure, just a no-op
-  const providerState = settings[provider === 'google-drive' ? 'googleDrive' : 'dropbox'];
-  if (!providerState.connected) return;
+  return withSyncLock(async () => {
+    const settings = loadCloudSettings(userId);
+    const provider = settings.primaryProvider;
+    if (!provider) return; // Drive not configured — not a failure, just a no-op
+    const providerState = settings[provider === 'google-drive' ? 'googleDrive' : 'dropbox'];
+    if (!providerState.connected) return;
 
-  try {
-    const accessToken = await ensureValidAccessToken(providerState, provider, userId);
-    if (!accessToken) {
-      recordFailure(userId, 'push', 'No access token (refresh returned null — token likely revoked)');
-      throw new Error('No access token');
+    try {
+      const accessToken = await ensureValidAccessToken(providerState, provider, userId);
+      if (!accessToken) {
+        recordFailure(userId, 'push', 'No access token (refresh returned null — token likely revoked)');
+        throw new Error('No access token');
+      }
+      if (provider === 'google-drive') {
+        await pushReceiptToDrive(receipt, accessToken, userId);
+        recordPushSuccess(userId, receipt.uuid || 'unknown');
+      }
+    } catch (err) {
+      recordFailure(userId, 'push', (err as Error).message || 'Unknown push error');
+      throw err;
     }
-    if (provider === 'google-drive') {
-      await pushReceiptToDrive(receipt, accessToken);
-      recordPushSuccess(userId, receipt.uuid || 'unknown');
-    }
-  } catch (err) {
-    recordFailure(userId, 'push', (err as Error).message || 'Unknown push error');
-    throw err;
-  }
+  });
 }
 
 // ── Drive duplicate cleanup ───────────────────────────────────────────────────
@@ -521,7 +617,7 @@ export async function cleanupDriveDuplicates(userId: string): Promise<CleanupRes
   const accessToken = await ensureValidAccessToken(providerState, 'google-drive', userId);
   if (!accessToken) throw new Error('Could not get Drive access token');
 
-  const folderId = await getReceiptsFolderId(accessToken);
+  const folderId = await getReceiptsFolderId(accessToken, userId);
   const allFiles = await listDriveJsonFiles(accessToken, folderId);
 
   // Only process files that are NOT UUID-named (legacy files)
@@ -585,4 +681,104 @@ export async function restoreFromGoogleDrive(
   if (!userId) return { imported: 0, skipped: 0, failed: 0, errors: ['No userId'] };
   const syncResult = await backgroundSync(userId);
   return { imported: syncResult.pulled, skipped: 0, failed: syncResult.errors.length, errors: syncResult.errors };
+}
+
+// ── Audit: read-only comparison of Drive vs local IndexedDB ───────────────────
+// Enumerates the current Drive receipts folder, groups files by UUID, and
+// compares against the local receipt set. Read-only — no writes, no deletes,
+// no push. Purpose: confirm the "dirty" folder is a complete superset of local
+// data before archiving it, and to visualize the duplicate distribution.
+
+export interface DriveAuditResult {
+  folderId: string | null;
+  folderName: string | null;
+  totalFiles: number;             // every jpg + json in the folder
+  totalJsonFiles: number;         // json files with valid uuid names
+  uniqueUuidsOnDrive: number;     // distinct UUIDs on Drive
+  localReceiptCount: number;      // receipts in phone IndexedDB
+  uniqueUuidsLocal: number;       // distinct UUIDs locally
+  missingFromDrive: string[];     // local UUIDs not on Drive — first 20
+  extraOnDrive: string[];         // Drive UUIDs not local — first 20
+  duplicateUuids: { uuid: string; jsonCount: number; jpgCount: number }[]; // UUIDs with >1 json or >1 jpg — first 30
+  totalDuplicateFiles: number;    // count of files beyond the "1 json + 1 jpg" ideal per UUID
+  localSupersetOnDrive: boolean;  // true if every local UUID appears at least once on Drive
+}
+
+export async function auditDriveVsLocal(userId: string): Promise<DriveAuditResult> {
+  const settings = loadCloudSettings(userId);
+  const providerState = settings.googleDrive;
+  if (!providerState.connected) throw new Error('Google Drive not connected');
+
+  const accessToken = await ensureValidAccessToken(providerState, 'google-drive', userId);
+  if (!accessToken) throw new Error('Could not get Drive access token (token likely revoked)');
+
+  const folderId = await getReceiptsFolderId(accessToken, userId);
+
+  // List ALL files in the folder (both json and jpg), not just json
+  let allFiles: { id: string; name: string }[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', `'${folderId}' in parents and trashed=false`);
+    url.searchParams.set('fields', 'nextPageToken,files(id,name)');
+    url.searchParams.set('pageSize', '1000');
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) throw new Error(`Drive list failed: ${await res.text()}`);
+    const data = await res.json() as { nextPageToken?: string; files: { id: string; name: string }[] };
+    allFiles = allFiles.concat(data.files);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  // Group by UUID, counting json and jpg separately
+  const uuidRegex = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(json|jpg)$/i;
+  const uuidFiles = new Map<string, { json: number; jpg: number }>();
+  let totalJsonFiles = 0;
+  for (const f of allFiles) {
+    const m = f.name.match(uuidRegex);
+    if (!m) continue;
+    const uuid = m[1].toLowerCase();
+    const ext = m[2].toLowerCase();
+    const cur = uuidFiles.get(uuid) || { json: 0, jpg: 0 };
+    if (ext === 'json') { cur.json += 1; totalJsonFiles += 1; }
+    else { cur.jpg += 1; }
+    uuidFiles.set(uuid, cur);
+  }
+
+  // Compare against local
+  const allReceipts = await getAllReceipts(userId);
+  const localUuids = new Set<string>();
+  for (const r of allReceipts) if (r.uuid) localUuids.add(r.uuid.toLowerCase());
+
+  const driveUuidSet = new Set(uuidFiles.keys());
+  const missingFromDrive: string[] = [];
+  for (const u of localUuids) if (!driveUuidSet.has(u)) missingFromDrive.push(u);
+  const extraOnDrive: string[] = [];
+  for (const u of driveUuidSet) if (!localUuids.has(u)) extraOnDrive.push(u);
+
+  // Duplicate detection: any UUID with >1 json OR >1 jpg is a duplicate
+  const duplicateUuids: { uuid: string; jsonCount: number; jpgCount: number }[] = [];
+  let totalDuplicateFiles = 0;
+  for (const [uuid, counts] of uuidFiles) {
+    if (counts.json > 1 || counts.jpg > 1) {
+      duplicateUuids.push({ uuid, jsonCount: counts.json, jpgCount: counts.jpg });
+      totalDuplicateFiles += Math.max(0, counts.json - 1) + Math.max(0, counts.jpg - 1);
+    }
+  }
+  duplicateUuids.sort((a, b) => (b.jsonCount + b.jpgCount) - (a.jsonCount + a.jpgCount));
+
+  return {
+    folderId,
+    folderName: ROOT_FOLDER_NAME,
+    totalFiles: allFiles.length,
+    totalJsonFiles,
+    uniqueUuidsOnDrive: uuidFiles.size,
+    localReceiptCount: allReceipts.length,
+    uniqueUuidsLocal: localUuids.size,
+    missingFromDrive: missingFromDrive.slice(0, 20),
+    extraOnDrive: extraOnDrive.slice(0, 20),
+    duplicateUuids: duplicateUuids.slice(0, 30),
+    totalDuplicateFiles,
+    localSupersetOnDrive: missingFromDrive.length === 0,
+  };
 }

@@ -9,7 +9,7 @@ import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.10.3';
+export const APP_VERSION = '0.10.4';
 
 interface CustomCategory {
   name: string;
@@ -582,6 +582,7 @@ export default function SettingsPage() {
 
               <CloudDiagnostic userId={userId} />
               <RefreshTokenTester userId={userId} />
+              <DriveAuditButton userId={userId} />
             </div>
             {cloudSettings.googleDrive.connected && cloudSettings.dropbox.connected && (
               <div className="space-y-2 rounded-2xl border border-sb-border bg-sb-card2 p-3 text-sm text-sb-muted">
@@ -1013,6 +1014,65 @@ function RefreshTokenTester({ userId }: { userId: string }) {
       </button>
       {message && (
         <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg p-2 text-[11px] leading-snug ${state === 'success' ? 'bg-sb-card text-sb-green' : 'bg-sb-card text-red-300'}`}>
+          {message}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// Read-only audit — enumerates Drive folder, groups files by UUID, compares to
+// local IndexedDB, reports duplicates + missing UUIDs. No writes, no deletes.
+// Purpose: before archiving the current dirty folder, confirm every local UUID
+// is represented at least once so we KNOW the archive is a complete superset.
+function DriveAuditButton({ userId }: { userId: string }) {
+  const [state, setState] = useState<'idle' | 'auditing' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState<string>('');
+
+  async function runAudit() {
+    setState('auditing');
+    setMessage('');
+    try {
+      const { auditDriveVsLocal } = await import('../lib/cloudSync');
+      const result = await auditDriveVsLocal(userId);
+      setState('done');
+      const dupSummary = result.duplicateUuids.length === 0
+        ? 'none'
+        : `${result.duplicateUuids.length} UUIDs with dups (${result.totalDuplicateFiles} extra files)`;
+      const missingSummary = result.missingFromDrive.length === 0
+        ? 'none — every local UUID is present on Drive'
+        : `${result.missingFromDrive.length} local UUIDs NOT on Drive`;
+      setMessage(
+        `Folder: ${result.folderName}\n` +
+        `Folder ID: ${result.folderId}\n\n` +
+        `LOCAL: ${result.localReceiptCount} receipts (${result.uniqueUuidsLocal} unique UUIDs)\n` +
+        `DRIVE: ${result.totalFiles} files total, ${result.uniqueUuidsOnDrive} unique UUIDs\n\n` +
+        `Missing from Drive: ${missingSummary}\n` +
+        `Extra on Drive (no local match): ${result.extraOnDrive.length}\n` +
+        `Duplicates: ${dupSummary}\n\n` +
+        `Superset check: ${result.localSupersetOnDrive ? '✓ Drive contains every local UUID (safe to archive)' : '✗ INCOMPLETE — do not archive yet'}\n` +
+        (result.duplicateUuids.length > 0
+          ? `\nTop duplicated UUIDs:\n` + result.duplicateUuids.slice(0, 5).map(d => `  ${d.uuid.slice(0, 8)}… json×${d.jsonCount} jpg×${d.jpgCount}`).join('\n')
+          : '')
+      );
+    } catch (err) {
+      setState('error');
+      setMessage(`Audit failed: ${(err as Error).message}`);
+    }
+  }
+
+  return (
+    <div className="pt-2 border-t border-sb-border mt-2">
+      <p className="text-xs text-sb-muted mb-2">Audit Drive vs local — enumerate the current Drive folder and compare to phone IndexedDB. Read-only, no writes.</p>
+      <button
+        onClick={runAudit}
+        disabled={state === 'auditing'}
+        className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition disabled:opacity-50"
+      >
+        {state === 'auditing' ? 'Auditing…' : 'Audit Drive vs local'}
+      </button>
+      {message && (
+        <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg p-2 text-[11px] leading-snug ${state === 'done' ? 'bg-sb-card text-sb-green' : 'bg-sb-card text-red-300'}`}>
           {message}
         </pre>
       )}

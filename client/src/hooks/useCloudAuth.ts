@@ -65,7 +65,7 @@ export function useCloudAuth(userId?: string) {
   }, []);
 
   const disconnectProvider = useCallback((provider: CloudProvider) => {
-    resetSyncCaches();
+    resetSyncCaches(userId);
     // Also clear the unnamespaced fallback so a reconnect starts fully clean
     try {
       const fb = loadCloudSettings(undefined);
