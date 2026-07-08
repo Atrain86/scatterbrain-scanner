@@ -121,6 +121,125 @@ export async function getReceiptsByYear(userId: string, year: number): Promise<R
   return rows as Receipt[];
 }
 
+// ── Local dedupe: preview + execute ───────────────────────────────────────────
+// For each UUID that appears more than once, keep the row with the latest
+// updatedAt (preserves any edits made after duplication) and mark the rest
+// for deletion. Preview returns the plan without mutating; execute runs it.
+
+export interface DedupePlanEntry {
+  uuid: string;
+  keep: {
+    id: number;
+    updatedAt: string;
+    createdAt: string;
+    storeName: string;
+    total: number;
+    receiptDate: string;
+  };
+  drop: {
+    id: number;
+    updatedAt: string;
+    createdAt: string;
+    storeName: string;
+    total: number;
+    receiptDate: string;
+  }[];
+  // Warning flag: rows under the same UUID have different store/total.
+  // Should never happen (same UUID = same receipt) but if it does, surface it.
+  divergent: boolean;
+}
+
+export interface DedupePlan {
+  entries: DedupePlanEntry[];
+  totalRowsToDelete: number;
+}
+
+// Read-only — builds a dedupe plan without touching the database. Use this
+// to render a preview before asking the user to confirm the destructive action.
+export async function previewLocalDedupe(userId: string): Promise<DedupePlan> {
+  const rows = await getDb(userId).receipts.toArray();
+
+  // Group by uuid
+  const byUuid = new Map<string, typeof rows>();
+  for (const r of rows) {
+    if (!r.uuid) continue;
+    const list = byUuid.get(r.uuid) || [];
+    list.push(r);
+    byUuid.set(r.uuid, list);
+  }
+
+  const entries: DedupePlanEntry[] = [];
+  let totalRowsToDelete = 0;
+
+  for (const [uuid, group] of byUuid) {
+    if (group.length <= 1) continue;
+
+    // Sort by updatedAt descending — [0] is the keeper
+    const sorted = [...group].sort((a, b) => {
+      const au = a.updatedAt || '';
+      const bu = b.updatedAt || '';
+      return bu.localeCompare(au);
+    });
+    const keeper = sorted[0];
+    const droppers = sorted.slice(1);
+
+    // Divergence check — do any rows in this group have a different store or total?
+    const divergent = group.some(r =>
+      r.storeName !== keeper.storeName || Math.abs((r.total ?? 0) - (keeper.total ?? 0)) > 0.005
+    );
+
+    entries.push({
+      uuid,
+      keep: {
+        id: keeper.id!,
+        updatedAt: keeper.updatedAt || '',
+        createdAt: keeper.createdAt || '',
+        storeName: keeper.storeName || '',
+        total: keeper.total ?? 0,
+        receiptDate: keeper.receiptDate || '',
+      },
+      drop: droppers.map(d => ({
+        id: d.id!,
+        updatedAt: d.updatedAt || '',
+        createdAt: d.createdAt || '',
+        storeName: d.storeName || '',
+        total: d.total ?? 0,
+        receiptDate: d.receiptDate || '',
+      })),
+      divergent,
+    });
+    totalRowsToDelete += droppers.length;
+  }
+
+  entries.sort((a, b) => a.uuid.localeCompare(b.uuid));
+  return { entries, totalRowsToDelete };
+}
+
+// Destructive — deletes the drop rows from the plan. Does NOT tombstone (that
+// would trigger deletion from Drive, but the duplicates were never on Drive to
+// begin with — Drive already has one copy per UUID). Uses raw db.delete rather
+// than deleteReceipt to skip the tombstone side effect.
+export interface DedupeResult {
+  deleted: number;
+  errors: string[];
+}
+
+export async function executeLocalDedupe(userId: string, plan: DedupePlan): Promise<DedupeResult> {
+  const result: DedupeResult = { deleted: 0, errors: [] };
+  const db = getDb(userId);
+  for (const entry of plan.entries) {
+    for (const dropRow of entry.drop) {
+      try {
+        await db.receipts.delete(dropRow.id);
+        result.deleted += 1;
+      } catch (err) {
+        result.errors.push(`Delete ${entry.uuid.slice(0, 8)}#${dropRow.id}: ${(err as Error).message}`);
+      }
+    }
+  }
+  return result;
+}
+
 // ── Local diagnostic: reconciles storage count vs monthly-view count ──────────
 // Read-only breakdown of the local receipt set. Answers "what IS my data?" so
 // Task #5 (conditional wipe on logout) has a clear target for what to protect.

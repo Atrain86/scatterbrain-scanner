@@ -9,7 +9,7 @@ import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.10.5';
+export const APP_VERSION = '0.10.6';
 
 interface CustomCategory {
   name: string;
@@ -584,6 +584,7 @@ export default function SettingsPage() {
               <RefreshTokenTester userId={userId} />
               <DriveAuditButton userId={userId} />
               <LocalReceiptsAuditButton userId={userId} />
+              <LocalDedupeButton userId={userId} />
             </div>
             {cloudSettings.googleDrive.connected && cloudSettings.dropbox.connected && (
               <div className="space-y-2 rounded-2xl border border-sb-border bg-sb-card2 p-3 text-sm text-sb-muted">
@@ -1074,6 +1075,111 @@ function DriveAuditButton({ userId }: { userId: string }) {
       </button>
       {message && (
         <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg p-2 text-[11px] leading-snug ${state === 'done' ? 'bg-sb-card text-sb-green' : 'bg-sb-card text-red-300'}`}>
+          {message}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// Dedupe local receipts — two-stage: preview the plan (read-only), then confirm
+// to execute the deletes. Keeps the row with the latest updatedAt per UUID.
+// Warns per-UUID if any dropped rows have different store/total from the keeper
+// (divergent — should never happen since UUID = same receipt, but surfaces it).
+function LocalDedupeButton({ userId }: { userId: string }) {
+  const [state, setState] = useState<'idle' | 'previewing' | 'preview-ready' | 'executing' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState<string>('');
+  const [plan, setPlan] = useState<null | Awaited<ReturnType<typeof import('../lib/db').previewLocalDedupe>>>(null);
+
+  async function runPreview() {
+    setState('previewing');
+    setMessage('');
+    setPlan(null);
+    try {
+      const { previewLocalDedupe } = await import('../lib/db');
+      const p = await previewLocalDedupe(userId);
+      setPlan(p);
+      if (p.entries.length === 0) {
+        setState('done');
+        setMessage('No duplicates found — local receipts are already clean.');
+        return;
+      }
+      setState('preview-ready');
+      const divergentCount = p.entries.filter(e => e.divergent).length;
+      const lines: string[] = [];
+      lines.push(`Plan: delete ${p.totalRowsToDelete} row${p.totalRowsToDelete === 1 ? '' : 's'} across ${p.entries.length} UUID${p.entries.length === 1 ? '' : 's'}.`);
+      if (divergentCount > 0) {
+        lines.push(`⚠ ${divergentCount} UUID${divergentCount === 1 ? ' has' : 's have'} DIVERGENT rows (different store/total under the same UUID) — review before confirming.`);
+      }
+      lines.push('');
+      for (const e of p.entries) {
+        lines.push(`UUID ${e.uuid.slice(0, 8)}…${e.divergent ? '  ⚠ DIVERGENT' : ''}`);
+        lines.push(`  KEEP  id=${e.keep.id}  ${e.keep.receiptDate}  ${e.keep.storeName}  $${e.keep.total.toFixed(2)}  upd=${e.keep.updatedAt.slice(0, 19)}`);
+        for (const d of e.drop) {
+          lines.push(`  DROP  id=${d.id}  ${d.receiptDate}  ${d.storeName}  $${d.total.toFixed(2)}  upd=${d.updatedAt.slice(0, 19)}`);
+        }
+        lines.push('');
+      }
+      setMessage(lines.join('\n'));
+    } catch (err) {
+      setState('error');
+      setMessage(`Preview failed: ${(err as Error).message}`);
+    }
+  }
+
+  async function runConfirm() {
+    if (!plan) return;
+    setState('executing');
+    try {
+      const { executeLocalDedupe } = await import('../lib/db');
+      const result = await executeLocalDedupe(userId, plan);
+      setState('done');
+      const suffix = result.errors.length > 0 ? `\n\n${result.errors.length} error${result.errors.length === 1 ? '' : 's'}:\n${result.errors.join('\n')}` : '';
+      setMessage(`✓ Deleted ${result.deleted} duplicate row${result.deleted === 1 ? '' : 's'}. Rerun "Audit local receipts" to verify.${suffix}`);
+      setPlan(null);
+      window.dispatchEvent(new CustomEvent('receipts-updated'));
+    } catch (err) {
+      setState('error');
+      setMessage(`Delete failed: ${(err as Error).message}`);
+    }
+  }
+
+  function cancel() {
+    setState('idle');
+    setPlan(null);
+    setMessage('');
+  }
+
+  return (
+    <div className="pt-2 border-t border-sb-border mt-2">
+      <p className="text-xs text-sb-muted mb-2">Dedupe local receipts — preview then confirm. Deletes only duplicate rows (same UUID), keeps the one with the latest updatedAt.</p>
+      {state !== 'preview-ready' && (
+        <button
+          onClick={runPreview}
+          disabled={state === 'previewing' || state === 'executing'}
+          className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition disabled:opacity-50"
+        >
+          {state === 'previewing' ? 'Building preview…' : state === 'executing' ? 'Deleting…' : 'Preview local dedupe'}
+        </button>
+      )}
+      {state === 'preview-ready' && (
+        <div className="flex gap-2">
+          <button
+            onClick={runConfirm}
+            className="flex-1 py-2 rounded-lg bg-sb-green text-black text-xs font-semibold hover:brightness-110 transition"
+          >
+            Confirm delete
+          </button>
+          <button
+            onClick={cancel}
+            className="flex-1 py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white transition"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {message && (
+        <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg p-2 text-[11px] leading-snug ${state === 'error' ? 'bg-sb-card text-red-300' : 'bg-sb-card text-sb-green'}`}>
           {message}
         </pre>
       )}
