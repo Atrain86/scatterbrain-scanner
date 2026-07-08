@@ -9,7 +9,7 @@ import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 
-export const APP_VERSION = '0.10.4';
+export const APP_VERSION = '0.10.5';
 
 interface CustomCategory {
   name: string;
@@ -583,6 +583,7 @@ export default function SettingsPage() {
               <CloudDiagnostic userId={userId} />
               <RefreshTokenTester userId={userId} />
               <DriveAuditButton userId={userId} />
+              <LocalReceiptsAuditButton userId={userId} />
             </div>
             {cloudSettings.googleDrive.connected && cloudSettings.dropbox.connected && (
               <div className="space-y-2 rounded-2xl border border-sb-border bg-sb-card2 p-3 text-sm text-sb-muted">
@@ -1070,6 +1071,68 @@ function DriveAuditButton({ userId }: { userId: string }) {
         className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition disabled:opacity-50"
       >
         {state === 'auditing' ? 'Auditing…' : 'Audit Drive vs local'}
+      </button>
+      {message && (
+        <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg p-2 text-[11px] leading-snug ${state === 'done' ? 'bg-sb-card text-sb-green' : 'bg-sb-card text-red-300'}`}>
+          {message}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// Read-only local receipts audit — breaks down the local IndexedDB so we can
+// reconcile "app says 93 stored" vs "monthly view shows ~50". Read-only, no
+// changes, no deletes. Answers: what is my real data, what's duplicates,
+// what's year-filtered out of view, what's malformed.
+function LocalReceiptsAuditButton({ userId }: { userId: string }) {
+  const [state, setState] = useState<'idle' | 'auditing' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState<string>('');
+
+  async function runAudit() {
+    setState('auditing');
+    setMessage('');
+    try {
+      const { auditLocalReceipts } = await import('../lib/db');
+      const r = await auditLocalReceipts(userId);
+      setState('done');
+      const yearLines = Object.entries(r.yearDistribution)
+        .sort(([a], [b]) => b.localeCompare(a))
+        .map(([year, count]) => `  ${year}: ${count}`)
+        .join('\n');
+      const dupSummary = r.duplicateUuids.length === 0
+        ? 'none'
+        : `${r.duplicateUuids.length} UUIDs duplicated (${r.duplicateUuids.reduce((s, d) => s + d.count - 1, 0)} extra rows)`;
+      setMessage(
+        `TOTAL rows in IndexedDB: ${r.totalRows}\n` +
+        `Unique UUIDs: ${r.uniqueUuids}\n\n` +
+        `Duplicates: ${dupSummary}\n` +
+        `Missing UUID: ${r.missingUuid}\n` +
+        `Demo/seed rows: ${r.demoRows}\n` +
+        `Invalid/missing date: ${r.invalidDate}\n` +
+        `Tombstones (deleted, awaiting Drive sync): ${r.tombstonedCount}\n\n` +
+        `Year distribution:\n${yearLines}\n\n` +
+        `Displayable in current year: ${r.displayableInCurrentYear}\n` +
+        `Displayable across all years: ${r.displayableAllYears}\n\n` +
+        (r.duplicateUuids.length > 0
+          ? `Top duplicate UUIDs:\n` + r.duplicateUuids.slice(0, 5).map(d => `  ${d.uuid.slice(0, 8)}… ×${d.count}`).join('\n')
+          : '')
+      );
+    } catch (err) {
+      setState('error');
+      setMessage(`Audit failed: ${(err as Error).message}`);
+    }
+  }
+
+  return (
+    <div className="pt-2 border-t border-sb-border mt-2">
+      <p className="text-xs text-sb-muted mb-2">Audit local receipts — breaks down the phone IndexedDB by count, UUID, year, and validity. Read-only.</p>
+      <button
+        onClick={runAudit}
+        disabled={state === 'auditing'}
+        className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition disabled:opacity-50"
+      >
+        {state === 'auditing' ? 'Auditing…' : 'Audit local receipts'}
       </button>
       {message && (
         <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg p-2 text-[11px] leading-snug ${state === 'done' ? 'bg-sb-card text-sb-green' : 'bg-sb-card text-red-300'}`}>

@@ -120,3 +120,78 @@ export async function getReceiptsByYear(userId: string, year: number): Promise<R
     .sortBy('receiptDate');
   return rows as Receipt[];
 }
+
+// ── Local diagnostic: reconciles storage count vs monthly-view count ──────────
+// Read-only breakdown of the local receipt set. Answers "what IS my data?" so
+// Task #5 (conditional wipe on logout) has a clear target for what to protect.
+
+export interface LocalReceiptsAudit {
+  totalRows: number;
+  uniqueUuids: number;
+  duplicateUuids: { uuid: string; count: number }[];    // UUIDs with >1 row
+  missingUuid: number;                                   // rows with no uuid at all
+  demoRows: number;                                      // uuid starts with "demo-" or "seed-"
+  invalidDate: number;                                   // missing or malformed receiptDate
+  yearDistribution: Record<string, number>;              // "2026" → count, "unknown" for invalid
+  tombstonedCount: number;                               // localStorage deleted_uuids list length
+  displayableInCurrentYear: number;                      // valid rows in the current calendar year
+  displayableAllYears: number;                           // valid rows with a parseable receiptDate
+}
+
+export async function auditLocalReceipts(userId: string): Promise<LocalReceiptsAudit> {
+  const rows = await getDb(userId).receipts.toArray();
+
+  const uuidCounts = new Map<string, number>();
+  let missingUuid = 0;
+  let demoRows = 0;
+  let invalidDate = 0;
+  let displayableAllYears = 0;
+  let displayableInCurrentYear = 0;
+  const yearDist: Record<string, number> = {};
+  const currentYear = String(new Date().getFullYear());
+
+  for (const r of rows) {
+    // UUID accounting
+    if (!r.uuid) {
+      missingUuid += 1;
+    } else {
+      uuidCounts.set(r.uuid, (uuidCounts.get(r.uuid) || 0) + 1);
+      if (/^(demo|seed)-/i.test(r.uuid)) demoRows += 1;
+    }
+
+    // Date accounting — matches how Library groups receipts (needs YYYY-MM-DD-parseable prefix)
+    const date = r.receiptDate;
+    const yearMatch = typeof date === 'string' ? date.match(/^(\d{4})-\d{2}-\d{2}/) : null;
+    if (!yearMatch) {
+      invalidDate += 1;
+      yearDist['unknown'] = (yearDist['unknown'] || 0) + 1;
+    } else {
+      const year = yearMatch[1];
+      yearDist[year] = (yearDist[year] || 0) + 1;
+      displayableAllYears += 1;
+      if (year === currentYear) displayableInCurrentYear += 1;
+    }
+  }
+
+  const duplicateUuids: { uuid: string; count: number }[] = [];
+  for (const [uuid, count] of uuidCounts) {
+    if (count > 1) duplicateUuids.push({ uuid, count });
+  }
+  duplicateUuids.sort((a, b) => b.count - a.count);
+
+  const tombstoneRaw = localStorage.getItem(`sb_u${userId}_deleted_uuids`) || '[]';
+  const tombstonedCount = (JSON.parse(tombstoneRaw) as string[]).length;
+
+  return {
+    totalRows: rows.length,
+    uniqueUuids: uuidCounts.size,
+    duplicateUuids: duplicateUuids.slice(0, 30),
+    missingUuid,
+    demoRows,
+    invalidDate,
+    yearDistribution: yearDist,
+    tombstonedCount,
+    displayableInCurrentYear,
+    displayableAllYears,
+  };
+}
