@@ -240,6 +240,96 @@ export async function executeLocalDedupe(userId: string, plan: DedupePlan): Prom
   return result;
 }
 
+// ── Year-scoped bulk cleanup: preview + execute ───────────────────────────────
+// Deletes all receipts whose receiptDate year is NOT in the keep-list. Unlike
+// dedupe, this uses deleteReceipt (which tombstones) so backgroundSync will
+// propagate the deletes to Drive. Preview is read-only; execute is destructive
+// but only against local IndexedDB + tombstone list (Drive is cleaned up on
+// the next sync).
+
+export interface YearCleanupPlanRow {
+  id: number;
+  uuid: string;
+  receiptDate: string;
+  storeName: string;
+  total: number;
+  category: string;
+  year: string;
+}
+
+export interface YearCleanupPlan {
+  keepYears: string[];
+  rowsToDelete: YearCleanupPlanRow[];
+  yearBreakdown: { year: string; count: number; totalDollars: number }[];
+  totalRowsToDelete: number;
+  totalDollarsToDelete: number;
+}
+
+// Read-only — builds a plan without mutating. `keepYears` is the whitelist:
+// any receipt whose year is in this list is preserved.
+export async function previewYearCleanup(userId: string, keepYears: string[]): Promise<YearCleanupPlan> {
+  const rows = await getDb(userId).receipts.toArray();
+  const keepSet = new Set(keepYears);
+
+  const rowsToDelete: YearCleanupPlanRow[] = [];
+  const yearAgg = new Map<string, { count: number; totalDollars: number }>();
+
+  for (const r of rows) {
+    const yearMatch = typeof r.receiptDate === 'string' ? r.receiptDate.match(/^(\d{4})-\d{2}-\d{2}/) : null;
+    const year = yearMatch ? yearMatch[1] : 'unknown';
+    if (keepSet.has(year)) continue;
+    if (!r.id || !r.uuid) continue; // defensive — shouldn't happen post-dedupe
+
+    rowsToDelete.push({
+      id: r.id,
+      uuid: r.uuid,
+      receiptDate: r.receiptDate || '',
+      storeName: r.storeName || '',
+      total: r.total ?? 0,
+      category: r.category || '',
+      year,
+    });
+
+    const cur = yearAgg.get(year) || { count: 0, totalDollars: 0 };
+    cur.count += 1;
+    cur.totalDollars += r.total ?? 0;
+    yearAgg.set(year, cur);
+  }
+
+  rowsToDelete.sort((a, b) => a.receiptDate.localeCompare(b.receiptDate));
+  const yearBreakdown = Array.from(yearAgg.entries())
+    .map(([year, agg]) => ({ year, count: agg.count, totalDollars: agg.totalDollars }))
+    .sort((a, b) => b.year.localeCompare(a.year));
+
+  return {
+    keepYears,
+    rowsToDelete,
+    yearBreakdown,
+    totalRowsToDelete: rowsToDelete.length,
+    totalDollarsToDelete: rowsToDelete.reduce((s, r) => s + r.total, 0),
+  };
+}
+
+// Destructive — deletes each row via deleteReceipt so the UUID is tombstoned;
+// the next backgroundSync will propagate the deletes to Drive.
+export interface YearCleanupResult {
+  deleted: number;
+  errors: string[];
+}
+
+export async function executeYearCleanup(userId: string, plan: YearCleanupPlan): Promise<YearCleanupResult> {
+  const result: YearCleanupResult = { deleted: 0, errors: [] };
+  for (const row of plan.rowsToDelete) {
+    try {
+      await deleteReceipt(userId, row.id);
+      result.deleted += 1;
+    } catch (err) {
+      result.errors.push(`Delete ${row.uuid.slice(0, 8)}#${row.id}: ${(err as Error).message}`);
+    }
+  }
+  return result;
+}
+
 // ── Local diagnostic: reconciles storage count vs monthly-view count ──────────
 // Read-only breakdown of the local receipt set. Answers "what IS my data?" so
 // Task #5 (conditional wipe on logout) has a clear target for what to protect.
