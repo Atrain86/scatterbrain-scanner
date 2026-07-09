@@ -1,20 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { migrateUnnamedDb } from '../lib/db';
-import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
 
-function migrateCloudSettings(userId: string) {
-  const unnamespaced = loadCloudSettings(undefined);
-  const hasData = unnamespaced.googleDrive?.connected || unnamespaced.dropbox?.connected;
-  if (!hasData) return;
-  const userSettings = loadCloudSettings(userId);
-  const merged = {
-    googleDrive: unnamespaced.googleDrive?.connected ? unnamespaced.googleDrive : userSettings.googleDrive,
-    dropbox:     unnamespaced.dropbox?.connected     ? unnamespaced.dropbox     : userSettings.dropbox,
-    primaryProvider: unnamespaced.primaryProvider || userSettings.primaryProvider,
-    autoSync: userSettings.autoSync,
-  };
-  saveCloudSettings(merged, userId);
-}
+// One-time purge on module load: remove the historical `sb_cloud_settings`
+// fallback bucket if it exists. Any old install that still has this key would
+// otherwise carry User A's Drive credentials indefinitely — this eliminates
+// the residue immediately on next app load.
+try { localStorage.removeItem('sb_cloud_settings'); } catch { /* non-fatal */ }
 
 interface AuthUser {
   id: string;
@@ -70,7 +61,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const payload = JSON.parse(atob(token.split('.')[1]));
       if (payload.id && payload.email) {
         migrateUnnamedDb(payload.id).catch(() => {});
-        migrateCloudSettings(payload.id);
         setUser({ id: payload.id, email: payload.email });
         setLoading(false); // show the app immediately
       } else {
@@ -113,7 +103,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { token, user: u } = await apiFetch('/login', { email, password });
     localStorage.setItem(TOKEN_KEY, token);
     await migrateUnnamedDb(u.id);
-    migrateCloudSettings(u.id);
     setUser(u);
   }, []);
 
@@ -122,7 +111,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { token, user: u } = await apiFetch('/signup', { email, password });
     localStorage.setItem(TOKEN_KEY, token);
     await migrateUnnamedDb(u.id);
-    migrateCloudSettings(u.id);
     setUser(u);
   }, []);
 

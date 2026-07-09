@@ -28,7 +28,7 @@ async function refreshDropboxAccessToken(refreshToken: string) {
 async function ensureValidAccessToken(
   providerState: CloudProviderState,
   provider: CloudProvider,
-  userId?: string
+  userId: string
 ): Promise<string | null> {
   const now = Date.now();
   if (providerState.accessToken && providerState.expiresAt && providerState.expiresAt > now + 5000) {
@@ -49,14 +49,12 @@ async function ensureValidAccessToken(
   };
 
   const providerKey = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
-  // Save to user-namespaced key
+  // Save to user-namespaced key ONLY. The pre-account-safety-v2 code also wrote
+  // to an unnamespaced fallback here "for iOS PWA redirect recovery" — that was
+  // the credential-leak vector. Fresh tokens for User A leaked into the fallback
+  // bucket, and the next user's OAuth handler picked them up. Never again.
   const userSettings = loadCloudSettings(userId);
   saveCloudSettings({ ...userSettings, [providerKey]: nextState } as CloudSettings, userId);
-  // Also save to unnamespaced fallback (iOS PWA redirect recovery)
-  if (userId) {
-    const fallback = loadCloudSettings(undefined);
-    saveCloudSettings({ ...fallback, [providerKey]: nextState } as CloudSettings, undefined);
-  }
 
   return nextState.accessToken;
 }

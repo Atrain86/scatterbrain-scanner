@@ -29,8 +29,18 @@ function CloudAuthHandler() {
       if (val) payload[key] = val;
     }
 
-    const expiresIn = payload.expires_in;
     const userId = user?.id;
+
+    // No authenticated user? Refuse to store the tokens. This can only happen
+    // if OAuth returned to a signed-out session — treating the tokens as
+    // orphan credentials and dropping them prevents them from binding to
+    // whoever signs in next. Bounce to login without persisting anything.
+    if (!userId) {
+      navigate('/', { replace: true });
+      return;
+    }
+
+    const expiresIn = payload.expires_in;
     const providerKey = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
     const providerData = {
       connected: true,
@@ -42,23 +52,14 @@ function CloudAuthHandler() {
       tokenType: payload.token_type ?? null,
     };
 
-    // Always save to unnamespaced key as fallback (iOS PWA loses userId on redirect)
-    const fallbackSettings = loadCloudSettings(undefined);
+    // Save to user-namespaced key ONLY. No unnamespaced fallback bucket —
+    // that was the credential-leak vector eliminated in account-safety-v2.
+    const userSettings = loadCloudSettings(userId);
     saveCloudSettings({
-      ...fallbackSettings,
+      ...userSettings,
       [providerKey]: providerData,
-      primaryProvider: fallbackSettings.primaryProvider || provider,
-    }, undefined);
-
-    // Also save to user-namespaced key if we have a userId
-    if (userId) {
-      const userSettings = loadCloudSettings(userId);
-      saveCloudSettings({
-        ...userSettings,
-        [providerKey]: providerData,
-        primaryProvider: userSettings.primaryProvider || provider,
-      }, userId);
-    }
+      primaryProvider: userSettings.primaryProvider || provider,
+    }, userId);
 
     navigate('/settings', { replace: true });
   }, [navigate, user, isLoading]);
