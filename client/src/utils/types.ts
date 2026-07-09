@@ -58,12 +58,16 @@ export function getCategoryColor(name: string): string {
   return CATEGORIES.find(c => c.name === name)?.color ?? '#6B7280';
 }
 
-export function getAllCategories(userId?: string): { name: string; color: string }[] {
+// userId is REQUIRED. Custom categories are user-owned; there is no shared
+// category set. The pre-account-safety-v2 code fell back to `sb_custom_categories`
+// (unnamespaced) when userId was missing — same class of leak as the cloud
+// settings bucket. User A's custom "Materials — Metro Site" category would
+// appear in User B's picker on the same device.
+export function getAllCategories(userId: string): { name: string; color: string }[] {
   const builtin = CATEGORIES.map(c => ({ name: c.name, color: c.color }));
   const builtinNames = new Set(builtin.map(c => c.name.toLowerCase()));
   try {
-    const storageKey = userId ? `sb_u${userId}_custom_categories` : 'sb_custom_categories';
-    const custom = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    const custom = JSON.parse(localStorage.getItem(`sb_u${userId}_custom_categories`) || '[]');
     const unique = (Array.isArray(custom) ? custom : []).filter(
       (c: { name: string }) => !builtinNames.has(c.name.toLowerCase())
     );
@@ -71,7 +75,7 @@ export function getAllCategories(userId?: string): { name: string; color: string
   } catch { return builtin; }
 }
 
-export function getCategoryColorDynamic(name: string, userId?: string): string {
+export function getCategoryColorDynamic(name: string, userId: string): string {
   return getAllCategories(userId).find(c => c.name === name)?.color ?? '#6B7280';
 }
 

@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { migrateUnnamedDb } from '../lib/db';
 
-// One-time purge on module load: remove the historical `sb_cloud_settings`
-// fallback bucket if it exists. Any old install that still has this key would
-// otherwise carry User A's Drive credentials indefinitely — this eliminates
-// the residue immediately on next app load.
+// One-time purge on module load: remove historical global fallback buckets
+// (sb_cloud_settings and sb_custom_categories) if they exist. Any old install
+// that still has these keys would otherwise carry cross-user residue
+// indefinitely — this eliminates it immediately on next app load.
 try { localStorage.removeItem('sb_cloud_settings'); } catch { /* non-fatal */ }
+try { localStorage.removeItem('sb_custom_categories'); } catch { /* non-fatal */ }
 
 interface AuthUser {
   id: string;
