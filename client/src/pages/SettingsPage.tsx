@@ -7,9 +7,10 @@ import { backgroundSync, restoreFromGoogleDrive, cleanupDriveDuplicates, type Re
 import { loadSyncStatus } from '../lib/syncStatus';
 import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
+import { previewPaletteMigration, applyPaletteMigration } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.11.0';
+export const APP_VERSION = '0.11.1';
 
 interface CustomCategory {
   name: string;
@@ -586,6 +587,7 @@ export default function SettingsPage() {
               <LocalReceiptsAuditButton userId={userId} />
               <LocalDedupeButton userId={userId} />
               <YearCleanupButton userId={userId} />
+              <PaletteMigrationButton userId={userId} />
             </div>
             {cloudSettings.googleDrive.connected && cloudSettings.dropbox.connected && (
               <div className="space-y-2 rounded-2xl border border-sb-border bg-sb-card2 p-3 text-sm text-sb-muted">
@@ -1176,6 +1178,128 @@ function YearCleanupButton({ userId }: { userId: string }) {
             className="flex-1 py-2 rounded-lg bg-red-500 text-white text-xs font-semibold hover:brightness-110 transition"
           >
             Confirm delete
+          </button>
+          <button
+            onClick={cancel}
+            className="flex-1 py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white transition"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {message && (
+        <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg p-2 text-[11px] leading-snug ${state === 'error' ? 'bg-sb-card text-red-300' : 'bg-sb-card text-sb-green'}`}>
+          {message}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// Palette migration — preview + confirm re-map of category colors onto the
+// curated 12-hue palette (Phase 1 of the redesign spec). Reads the user's
+// custom_categories from localStorage, computes nearest curated color for
+// each non-curated entry, shows the plan, then applies on confirm.
+function PaletteMigrationButton({ userId }: { userId: string }) {
+  const [state, setState] = useState<'idle' | 'previewing' | 'preview-ready' | 'executing' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState<string>('');
+  const [plan, setPlan] = useState<ReturnType<typeof previewPaletteMigration> | null>(null);
+
+  const key = `sb_u${userId}_custom_categories`;
+
+  function loadCurrent(): { name: string; color: string }[] {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(
+        (c): c is { name: string; color: string } =>
+          typeof c === 'object' && c !== null && typeof (c as { name: unknown }).name === 'string' && typeof (c as { color: unknown }).color === 'string'
+      );
+    } catch { return []; }
+  }
+
+  function runPreview() {
+    setState('previewing');
+    setMessage('');
+    setPlan(null);
+    try {
+      const categories = loadCurrent();
+      if (categories.length === 0) {
+        setState('done');
+        setMessage('No custom categories found. (Built-in category colors will update on the next release regardless.)');
+        return;
+      }
+      const p = previewPaletteMigration(categories);
+      setPlan(p);
+      if (p.remaps.length === 0) {
+        setState('done');
+        setMessage(`All ${p.totalCategories} categories are already on the curated palette. Nothing to migrate.`);
+        return;
+      }
+      setState('preview-ready');
+      const lines: string[] = [];
+      lines.push(`Plan: re-map ${p.remaps.length} of ${p.totalCategories} categories to the curated palette.`);
+      lines.push('');
+      lines.push('WILL CHANGE:');
+      for (const r of p.remaps) {
+        lines.push(`  ${r.name}`);
+        lines.push(`    ${r.from}  →  ${r.to}`);
+      }
+      if (p.alreadyCurated.length > 0) {
+        lines.push('');
+        lines.push(`UNCHANGED (already on curated palette): ${p.alreadyCurated.length}`);
+        for (const n of p.alreadyCurated) lines.push(`  ${n}`);
+      }
+      setMessage(lines.join('\n'));
+    } catch (err) {
+      setState('error');
+      setMessage(`Preview failed: ${(err as Error).message}`);
+    }
+  }
+
+  function runConfirm() {
+    if (!plan) return;
+    setState('executing');
+    try {
+      const current = loadCurrent();
+      const migrated = applyPaletteMigration(current, plan);
+      localStorage.setItem(key, JSON.stringify(migrated));
+      setState('done');
+      setMessage(`✓ Re-mapped ${plan.remaps.length} category color${plan.remaps.length === 1 ? '' : 's'}. Reload to see the new colors on receipts and category badges.`);
+      setPlan(null);
+    } catch (err) {
+      setState('error');
+      setMessage(`Apply failed: ${(err as Error).message}`);
+    }
+  }
+
+  function cancel() {
+    setState('idle');
+    setPlan(null);
+    setMessage('');
+  }
+
+  return (
+    <div className="pt-2 border-t border-sb-border mt-2">
+      <p className="text-xs text-sb-muted mb-2">Palette migration — re-maps custom category colors to the 12-hue curated palette. Preview first, then confirm.</p>
+      {state !== 'preview-ready' && (
+        <button
+          onClick={runPreview}
+          disabled={state === 'previewing' || state === 'executing'}
+          className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition disabled:opacity-50"
+        >
+          {state === 'previewing' ? 'Building preview…' : state === 'executing' ? 'Applying…' : 'Preview palette migration'}
+        </button>
+      )}
+      {state === 'preview-ready' && (
+        <div className="flex gap-2">
+          <button
+            onClick={runConfirm}
+            className="flex-1 py-2 rounded-lg bg-sb-green text-black text-xs font-semibold hover:brightness-110 transition"
+          >
+            Confirm re-map
           </button>
           <button
             onClick={cancel}
