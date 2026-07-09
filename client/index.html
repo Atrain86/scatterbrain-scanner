@@ -21,34 +21,26 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      OAuth callback: pre-React tokens-to-localStorage intercept has been REMOVED.
+      Previously this inline script wrote OAuth tokens to the un-namespaced
+      `sb_cloud_settings` bucket before React mounted — which was the exact
+      credential-leak vector Fix #1 targeted, but this file was missed in that
+      commit. The React CloudAuthHandler now handles OAuth callbacks with the
+      authenticated userId in scope, writes to `sb_u<userId>_cloud_settings`
+      only, and refuses to store tokens if there's no active user. That's the
+      correct home for this logic; a pre-React inline script by definition has
+      no userId available and cannot participate in per-user isolation.
+    -->
     <script>
-      // Intercept OAuth redirect before React loads — store tokens immediately
+      // Preserve URL params through history so React's CloudAuthHandler can see them.
+      // We only need to reset the URL path if there's a cloud_auth param, so React
+      // Router doesn't try to match it to a route.
       (function() {
         var params = new URLSearchParams(window.location.search);
-        var provider = params.get('cloud_auth');
-        console.log('[OAuth] cloud_auth param:', provider, 'search:', window.location.search);
-        if (!provider) return;
-        try {
-          var raw = localStorage.getItem('sb_cloud_settings');
-          var settings = raw ? JSON.parse(raw) : { googleDrive: {}, dropbox: {}, primaryProvider: null, autoSync: true };
-          var key = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
-          var expiresIn = params.get('expires_in');
-          var token = params.get('access_token');
-          console.log('[OAuth] saving provider:', provider, 'token present:', !!token);
-          settings[key] = {
-            connected: true,
-            email: params.get('email'),
-            accessToken: token,
-            refreshToken: params.get('refresh_token'),
-            expiresAt: expiresIn ? Date.now() + Number(expiresIn) * 1000 : null,
-            scope: params.get('scope'),
-            tokenType: params.get('token_type'),
-          };
-          if (!settings.primaryProvider) settings.primaryProvider = provider;
-          localStorage.setItem('sb_cloud_settings', JSON.stringify(settings));
-          console.log('[OAuth] saved to localStorage, redirecting to /settings');
-        } catch(e) { console.error('[OAuth] error:', e); }
-        window.history.replaceState({}, '', '/settings');
+        if (!params.get('cloud_auth')) return;
+        // Keep the query string but ensure the path is /settings so React lands there.
+        window.history.replaceState({}, '', '/settings' + window.location.search);
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
