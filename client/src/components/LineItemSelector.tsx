@@ -171,7 +171,7 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
     });
   }
 
-  const allCategories = getAllCategories();
+  const allCategories = getAllCategories(userId);
   const selectedCategory = allCategories.find(c => c.name === category) ?? allCategories[0];
 
   return (

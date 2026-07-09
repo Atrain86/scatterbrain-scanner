@@ -36,12 +36,33 @@ export function getDb(userId: string): ScatterbrainDB {
   return dbCache.get(userId)!;
 }
 
+// Legacy shared-DB migration. The pre-v0.5.2 code used a single un-namespaced
+// Dexie DB called "scatterbrain". Whoever signed in first on a device would
+// pull ALL of that legacy DB's receipts into their per-user DB.
+//
+// account-safety-v2 hardens this: after any single user successfully migrates,
+// the legacy DB is DELETED. No subsequent user can inherit stale data from it.
+// The GLOBAL_MIGRATION_MARKER prevents even a re-attempt.
 export async function migrateUnnamedDb(userId: string): Promise<void> {
-  const MIGRATION_KEY = `sb_u${userId}_migrated_v1`;
-  if (localStorage.getItem(MIGRATION_KEY)) {
+  const GLOBAL_MIGRATION_MARKER = 'sb_legacy_db_purged';
+  const USER_MIGRATION_KEY = `sb_u${userId}_migrated_v1`;
+
+  // If any user has already claimed / purged the legacy DB, we're done — no
+  // subsequent user pulls from it. This is the key safety property.
+  if (localStorage.getItem(GLOBAL_MIGRATION_MARKER)) return;
+
+  // If THIS user already migrated (leftover from pre-safety-v2 flow), no-op.
+  if (localStorage.getItem(USER_MIGRATION_KEY)) {
     const existingCount = await getDb(userId).receipts.count();
-    if (existingCount > 0) return;
+    if (existingCount > 0) {
+      // Belt-and-suspenders: mark the legacy DB as claimed even though we did
+      // not run the copy this time. Prevents any future user from claiming it.
+      try { await Dexie.delete('scatterbrain'); } catch { /* non-fatal */ }
+      localStorage.setItem(GLOBAL_MIGRATION_MARKER, '1');
+      return;
+    }
   }
+
   try {
     const oldDb = new Dexie('scatterbrain');
     oldDb.version(1).stores({ receipts: '++id, receiptDate, category, storeName, clientName' });
@@ -54,10 +75,15 @@ export async function migrateUnnamedDb(userId: string): Promise<void> {
       }));
     }
     oldDb.close();
+    // Delete the legacy DB so no future user inherits it. This is the
+    // structural fix: even a bug that skips the migration marker cannot
+    // re-copy legacy data because the source is gone.
+    try { await Dexie.delete('scatterbrain'); } catch { /* non-fatal */ }
   } catch {
-    // Old DB doesn't exist — fine
+    // Old DB doesn't exist — fine, mark globally purged anyway.
   }
-  localStorage.setItem(MIGRATION_KEY, '1');
+  localStorage.setItem(USER_MIGRATION_KEY, '1');
+  localStorage.setItem(GLOBAL_MIGRATION_MARKER, '1');
 }
 
 // ── CRUD ──────────────────────────────────────────────────────────────────────
