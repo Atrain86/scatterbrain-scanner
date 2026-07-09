@@ -7,6 +7,7 @@ import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 import BottomNav from './components/BottomNav';
+import HandoverConsentModal from './components/HandoverConsentModal';
 import { backgroundSync } from './lib/cloudSync';
 import { loadCloudSettings, saveCloudSettings } from './hooks/useCloudAuth';
 import type { CloudProvider } from './utils/types';
@@ -117,6 +118,10 @@ export default function App() {
       <AuthProvider>
         <CloudAuthHandler />
         <AuthenticatedApp />
+        {/* Rendered outside AuthenticatedApp so it can appear during sign-in
+            (when user is null and LoginPage is shown) — the whole point of
+            the handover consent gate. */}
+        <HandoverConsentModal />
       </AuthProvider>
     </BrowserRouter>
   );
