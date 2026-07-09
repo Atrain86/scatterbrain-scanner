@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { Receipt, BarChart2, FileSpreadsheet, Settings, ScanLine } from 'lucide-react';
 import ScanModal from './ScanModal';
 import { useQueryClient } from '@tanstack/react-query';
+import SyncHealthDot from './SyncHealthDot';
 
 const TABS = [
   { to: '/receipts',  icon: Receipt,        label: 'Receipts',  activeColor: '#4ade80' },
@@ -41,11 +42,17 @@ export default function BottomNav() {
             >
               {({ isActive }) => (
                 <>
-                  <Icon
-                    size={20}
-                    strokeWidth={isActive ? 2.5 : 1.8}
-                    style={{ color: isActive ? activeColor : '#888888' }}
-                  />
+                  <span className="relative inline-flex">
+                    <Icon
+                      size={20}
+                      strokeWidth={isActive ? 2.5 : 1.8}
+                      style={{ color: isActive ? activeColor : '#888888' }}
+                    />
+                    {/* Ambient sync-health indicator lives on the Settings tab —
+                        Settings is where the pill / diagnostics / reconnect all live,
+                        so the dot naturally points users to the fix if it turns red. */}
+                    {to === '/settings' && <SyncHealthDot />}
+                  </span>
                   <span className="text-[9px] font-medium tracking-wide text-white">
                     {label}
                   </span>
