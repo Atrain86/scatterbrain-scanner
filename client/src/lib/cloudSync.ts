@@ -90,17 +90,24 @@ async function findOrCreateDriveFolder(
   return data.id;
 }
 
-// Cache the receipts folder ID for the session to avoid repeated lookups.
-// Cleared on disconnect (see resetSyncCaches) so a disconnect+reconnect within the
-// same tab session doesn't reuse the pre-disconnect folder ID.
-let receiptsFolderIdCache: string | null = null;
+// Per-user in-memory folder ID cache. The pre-account-safety-v2 code held a
+// single module-level string here; on same-tab-session A→B user switch (before
+// any reload), User B's early pushes would race against a stale User A folder
+// ID. Now scoped by userId so cross-user leak is structurally impossible.
+const receiptsFolderIdCache = new Map<string, string>();
 
-// Called from useCloudAuth.disconnectProvider — clears in-memory caches AND the
-// persisted folder ID for the given user, so the next connect starts from a
-// clean slate. Safe to call anytime.
+// Called from useCloudAuth.disconnectProvider AND from AuthContext.logout —
+// clears in-memory caches AND the persisted folder ID for the given user, so
+// the next connect starts from a clean slate. Safe to call anytime.
 export function resetSyncCaches(userId?: string): void {
-  receiptsFolderIdCache = null;
-  if (userId) clearPersistedFolderId(userId);
+  if (userId) {
+    receiptsFolderIdCache.delete(userId);
+    clearPersistedFolderId(userId);
+  } else {
+    // No userId — flush entirely. Defensive path for callers that don't yet
+    // have a user (e.g. mount-time reset). Never wipes another user's data.
+    receiptsFolderIdCache.clear();
+  }
 }
 
 // ── Concurrency mutex ─────────────────────────────────────────────────────────
@@ -165,27 +172,30 @@ async function isFolderIdValid(accessToken: string, folderId: string): Promise<b
 // so users browsing Drive can identify it at a glance.
 const ROOT_FOLDER_NAME = 'Scatterbrain Scanner - Receipts';
 
-async function getReceiptsFolderId(accessToken: string, userId?: string): Promise<string> {
-  // 1. In-memory session cache
-  if (receiptsFolderIdCache) return receiptsFolderIdCache;
+// userId is REQUIRED. Every caller has a userId available — the previous
+// optional signature was a hangover from before per-user isolation. Making it
+// required at compile time means we can never accidentally regress to a
+// shared-folder-across-users bug.
+async function getReceiptsFolderId(accessToken: string, userId: string): Promise<string> {
+  // 1. Per-user in-memory session cache
+  const cached = receiptsFolderIdCache.get(userId);
+  if (cached) return cached;
 
   // 2. Persisted per-user folder ID — verify still valid before trusting it
-  if (userId) {
-    const persisted = loadPersistedFolderId(userId);
-    if (persisted && await isFolderIdValid(accessToken, persisted)) {
-      receiptsFolderIdCache = persisted;
-      return persisted;
-    }
-    // Persisted ID was stale (folder trashed/deleted) — clear it before falling through
-    if (persisted) clearPersistedFolderId(userId);
+  const persisted = loadPersistedFolderId(userId);
+  if (persisted && await isFolderIdValid(accessToken, persisted)) {
+    receiptsFolderIdCache.set(userId, persisted);
+    return persisted;
   }
+  // Persisted ID was stale (folder trashed/deleted) — clear it before falling through
+  if (persisted) clearPersistedFolderId(userId);
 
   // 3. Search + create (only when no valid persisted ID exists)
   const rootId = await findOrCreateDriveFolder(accessToken, ROOT_FOLDER_NAME, null);
   const folderId = await findOrCreateDriveFolder(accessToken, 'receipts', rootId);
 
-  receiptsFolderIdCache = folderId;
-  if (userId) savePersistedFolderId(userId, folderId);
+  receiptsFolderIdCache.set(userId, folderId);
+  savePersistedFolderId(userId, folderId);
   return folderId;
 }
 
@@ -336,7 +346,7 @@ async function loadImageBlob(imageUrl: string | null): Promise<Blob | null> {
 
 // ── Core sync: push one receipt to Drive ─────────────────────────────────────
 
-async function pushReceiptToDrive(receipt: Receipt, accessToken: string, userId?: string): Promise<void> {
+async function pushReceiptToDrive(receipt: Receipt, accessToken: string, userId: string): Promise<void> {
   const folderId = await getReceiptsFolderId(accessToken, userId);
   const jsonName = `${receipt.uuid}.json`;
 
