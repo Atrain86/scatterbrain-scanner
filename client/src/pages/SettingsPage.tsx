@@ -7,55 +7,37 @@ import { backgroundSync, restoreFromGoogleDrive, cleanupDriveDuplicates, type Re
 import { loadSyncStatus } from '../lib/syncStatus';
 import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
-import { previewPaletteMigration, applyPaletteMigration } from '../utils/palette';
+import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.11.1';
+export const APP_VERSION = '0.11.2';
 
 interface CustomCategory {
   name: string;
   color: string;
 }
 
-// Full-spectrum color palette — displayed as visual circles
-const PALETTE_COLORS: string[] = [
-  // Reds
-  '#DC143C', '#F44747', '#FF4500', '#E8405A',
-  // Oranges
-  '#E67E22', '#FF8C00', '#F28500', '#E34234',
-  // Yellows
-  '#F5C518', '#eab308', '#FDE047', '#FBBF24',
-  // Yellow-Greens
-  '#7FBA00', '#84CC16', '#6DBF4A', '#A3E635',
-  // Greens
-  '#4ade80', '#10B981', '#16A34A', '#22C55E',
-  // Teals / Cyans
-  '#14B8A6', '#4ECDC4', '#2DD4BF', '#06B6D4',
-  // Blues
-  '#0C87C1', '#3B82F6', '#4169E1', '#0047AB',
-  '#6A7FDB', '#4682B4',
-  // Indigos / Violets
-  '#6366F1', '#7C3AED', '#8B9FE8',
-  // Purples
-  '#a855f7', '#9B4DCA', '#C084FC', '#B57BEA',
-  // Pinks / Magentas
-  '#D946EF', '#EC4899', '#F472B6', '#C0296D',
-  // Neutrals
-  '#64748B', '#6B7280', '#888888', '#9CA3AF', '#4B5563',
-];
+// Category color picker — uses the curated 12-hue palette from the Phase 1
+// redesign spec (see utils/palette.ts). Constant saturation/lightness,
+// hue-walked. Any category color assigned through this picker is guaranteed
+// to be on the curated palette, so no drift away from the palette can happen
+// through create/edit flows. The migration utility handles pre-existing
+// non-curated categories.
+const PALETTE_COLORS: readonly string[] = CURATED_PALETTE;
 
+// Kept in sync with utils/types.ts CATEGORIES — nearest curated palette colors.
 const DEFAULT_CATEGORIES: CustomCategory[] = [
-  { name: 'Comm',                color: '#2DD4BF' },
-  { name: 'Loan/Interest',       color: '#F44747' },
-  { name: 'Meals',               color: '#4ade80' },
-  { name: 'Medical',             color: '#60a5fa' },
-  { name: 'Postage',             color: '#E67E22' },
-  { name: 'Supplies & Hardware', color: '#eab308' },
-  { name: 'AI Services',         color: '#a855f7' },
-  { name: 'Insurance',           color: '#888888' },
-  { name: 'Rent',                color: '#0C87C1' },
-  { name: 'Travel',              color: '#4ECDC4' },
-  { name: 'Subscriptions',       color: '#f472b6' },
+  { name: 'Comm',                color: '#5cbfae' },
+  { name: 'Loan/Interest',       color: '#e0725f' },
+  { name: 'Meals',               color: '#6bc48a' },
+  { name: 'Medical',             color: '#6b95d9' },
+  { name: 'Postage',             color: '#e0a35f' },
+  { name: 'Supplies & Hardware', color: '#d9c15c' },
+  { name: 'AI Services',         color: '#af7bd1' },
+  { name: 'Insurance',           color: '#8b83d9' },
+  { name: 'Rent',                color: '#5cb0c9' },
+  { name: 'Travel',              color: '#5cbfae' },
+  { name: 'Subscriptions',       color: '#d16b93' },
 ];
 
 function catStorageKey(userId: string)        { return `sb_u${userId}_custom_categories`; }

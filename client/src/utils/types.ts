@@ -38,18 +38,23 @@ export interface ScannedReceiptData {
   method: string;
 }
 
+// Built-in category default colors are drawn from the curated 12-hue palette
+// (see utils/palette.ts, Phase 1 of the redesign spec). Mapped to nearest
+// curated hue from the previous ad-hoc set so fresh installs / new users get
+// the palette from day 1. Existing users' custom_categories are migrated
+// separately via the "Preview palette migration" button in Settings.
 export const CATEGORIES = [
-  { name: 'Comm',                 color: '#2DD4BF', tailwind: 'cat-comm' },
-  { name: 'Loan/Interest',        color: '#F44747', tailwind: 'cat-loan' },
-  { name: 'Meals',                color: '#4ade80', tailwind: 'cat-meals' },
-  { name: 'Medical',              color: '#60a5fa', tailwind: 'cat-medical' },
-  { name: 'Postage',              color: '#E67E22', tailwind: 'cat-postage' },
-  { name: 'Supplies & Hardware',  color: '#eab308', tailwind: 'cat-supplies' },
-  { name: 'AI Services',          color: '#a855f7', tailwind: 'cat-ai' },
-  { name: 'Insurance',            color: '#888888', tailwind: 'cat-insurance' },
-  { name: 'Rent',                 color: '#0C87C1', tailwind: 'cat-rent' },
-  { name: 'Travel',               color: '#4ECDC4', tailwind: 'cat-travel' },
-  { name: 'Subscriptions',        color: '#f472b6', tailwind: 'cat-subscriptions' },
+  { name: 'Comm',                 color: '#5cbfae', tailwind: 'cat-comm' },
+  { name: 'Loan/Interest',        color: '#e0725f', tailwind: 'cat-loan' },
+  { name: 'Meals',                color: '#6bc48a', tailwind: 'cat-meals' },
+  { name: 'Medical',              color: '#6b95d9', tailwind: 'cat-medical' },
+  { name: 'Postage',              color: '#e0a35f', tailwind: 'cat-postage' },
+  { name: 'Supplies & Hardware',  color: '#d9c15c', tailwind: 'cat-supplies' },
+  { name: 'AI Services',          color: '#af7bd1', tailwind: 'cat-ai' },
+  { name: 'Insurance',            color: '#8b83d9', tailwind: 'cat-insurance' },
+  { name: 'Rent',                 color: '#5cb0c9', tailwind: 'cat-rent' },
+  { name: 'Travel',               color: '#5cbfae', tailwind: 'cat-travel' },
+  { name: 'Subscriptions',        color: '#d16b93', tailwind: 'cat-subscriptions' },
 ] as const;
 
 export type CategoryName = typeof CATEGORIES[number]['name'];
