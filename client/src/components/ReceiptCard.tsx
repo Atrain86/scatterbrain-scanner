@@ -510,14 +510,14 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                     {receipt.clientName || '+ client'}<ChevronDown size={8} />
                   </button>
                   {showClientPicker && (
-                    <div className="absolute top-full left-0 mt-1 w-44 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl">
-                      <button onClick={() => pickClient('')} className="w-full px-3 py-2.5 text-xs text-left text-sb-muted hover:bg-white/5 flex items-center gap-2">
+                    <div className="absolute top-full left-0 mt-1 w-44 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl" onClick={e => e.stopPropagation()}>
+                      <button onClick={e => { e.stopPropagation(); pickClient(''); }} className="w-full px-3 py-2.5 text-xs text-left text-sb-muted hover:bg-white/5 flex items-center gap-2">
                         <X size={10} /> No client
                       </button>
                       {clients.length > 0 && <div className="border-t border-sb-border" />}
                       <div className="max-h-36 overflow-y-auto">
                         {clients.map(c => (
-                          <button key={c} onClick={() => pickClient(c)}
+                          <button key={c} onClick={e => { e.stopPropagation(); pickClient(c); }}
                             className={`w-full flex items-center justify-between px-3 py-2.5 text-xs text-left hover:bg-white/5 transition ${c === receipt.clientName ? 'bg-white/5' : ''}`}>
                             <span className="text-white">{c}</span>
                             {c === receipt.clientName && <Check size={10} className="text-sb-green" />}
@@ -544,10 +544,10 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                     {receipt.category || '+ cat'}<ChevronDown size={8} />
                   </button>
                   {showCatPicker && (
-                    <div className="absolute top-full left-0 mt-1 w-48 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl">
+                    <div className="absolute top-full left-0 mt-1 w-48 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl" onClick={e => e.stopPropagation()}>
                       <div className="max-h-48 overflow-y-auto">
                         {getAllCategories(userId).map(cat => (
-                          <button key={cat.name} onClick={() => pickCategory(cat.name)}
+                          <button key={cat.name} onClick={e => { e.stopPropagation(); pickCategory(cat.name); }}
                             className={`w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left hover:bg-white/5 transition ${cat.name === receipt.category ? 'bg-white/5' : ''}`}>
                             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
                             <span className="text-white flex-1">{cat.name}</span>

@@ -68,20 +68,37 @@ export function getCategoryColor(name: string): string {
 // (unnamespaced) when userId was missing — same class of leak as the cloud
 // settings bucket. User A's custom "Materials — Metro Site" category would
 // appear in User B's picker on the same device.
+//
+// Canonical-store principle (redesign spec Phase 5): the user's own
+// custom_categories bucket is the source of truth for color. Built-in
+// CATEGORIES defaults are only used to seed the list — once the user has
+// their own entry with the same name, THEIR color wins. Otherwise Settings
+// (which reads custom_categories directly) and receipt cards (which read
+// through this helper) can drift out of sync, e.g. after a palette migration.
 export function getAllCategories(userId: string): { name: string; color: string }[] {
-  const builtin = CATEGORIES.map(c => ({ name: c.name, color: c.color }));
-  const builtinNames = new Set(builtin.map(c => c.name.toLowerCase()));
   try {
-    const custom = JSON.parse(localStorage.getItem(`sb_u${userId}_custom_categories`) || '[]');
-    const unique = (Array.isArray(custom) ? custom : []).filter(
-      (c: { name: string }) => !builtinNames.has(c.name.toLowerCase())
-    );
-    return [...builtin, ...unique];
-  } catch { return builtin; }
+    const stored = JSON.parse(localStorage.getItem(`sb_u${userId}_custom_categories`) || '[]');
+    const custom = Array.isArray(stored)
+      ? stored.filter(
+          (c): c is { name: string; color: string } =>
+            typeof c === 'object' && c !== null && typeof (c as { name: unknown }).name === 'string' && typeof (c as { color: unknown }).color === 'string'
+        )
+      : [];
+
+    // Custom entries win on name conflict — see docstring. Merge order:
+    // start with built-ins, then let custom overwrite by name.
+    const byName = new Map<string, { name: string; color: string }>();
+    for (const c of CATEGORIES) byName.set(c.name.toLowerCase(), { name: c.name, color: c.color });
+    for (const c of custom)     byName.set(c.name.toLowerCase(), { name: c.name, color: c.color });
+    return Array.from(byName.values());
+  } catch {
+    return CATEGORIES.map(c => ({ name: c.name, color: c.color }));
+  }
 }
 
 export function getCategoryColorDynamic(name: string, userId: string): string {
-  return getAllCategories(userId).find(c => c.name === name)?.color ?? '#6B7280';
+  const target = name.toLowerCase();
+  return getAllCategories(userId).find(c => c.name.toLowerCase() === target)?.color ?? '#6B7280';
 }
 
 export type CloudProvider = 'google-drive' | 'dropbox';
