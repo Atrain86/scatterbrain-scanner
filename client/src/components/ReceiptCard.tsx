@@ -269,7 +269,13 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   }
 
   function pickCategory(name: string) {
-    onUpdateCategory(receipt.id, name);
+    console.log('[pickCategory] TAP', { receiptId: receipt.id, name, oldCategory: receipt.category });
+    try {
+      onUpdateCategory(receipt.id, name);
+      console.log('[pickCategory] onUpdateCategory returned (may still be async)');
+    } catch (err) {
+      console.error('[pickCategory] onUpdateCategory threw:', err);
+    }
     setShowCatPicker(false);
     setNewCatInput('');
   }
@@ -287,13 +293,19 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   }
 
   function pickClient(name: string) {
-    setLastClient(userId, name);
-    onReEdit(receipt.id, {
-      storeName: receipt.storeName, lineItems: receipt.lineItems ?? '[]',
-      taxLines: receipt.taxLines ?? '[]', subtotal: receipt.subtotal,
-      taxAmount: receipt.taxAmount, total: receipt.total,
-      clientName: name || null, category: receipt.category,
-    });
+    console.log('[pickClient] TAP', { receiptId: receipt.id, name, oldClient: receipt.clientName });
+    try {
+      setLastClient(userId, name);
+      onReEdit(receipt.id, {
+        storeName: receipt.storeName, lineItems: receipt.lineItems ?? '[]',
+        taxLines: receipt.taxLines ?? '[]', subtotal: receipt.subtotal,
+        taxAmount: receipt.taxAmount, total: receipt.total,
+        clientName: name || null, category: receipt.category,
+      });
+      console.log('[pickClient] onReEdit returned');
+    } catch (err) {
+      console.error('[pickClient] onReEdit threw:', err);
+    }
     setShowClientPicker(false);
     setNewClientInput('');
   }
