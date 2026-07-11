@@ -1,19 +1,12 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Receipt, Search, X, ChevronDown, ChevronRight, Trash2, CheckSquare } from 'lucide-react';
+import { Receipt, Search, X, ChevronDown, ChevronRight, Trash2, CheckSquare, Funnel } from 'lucide-react';
 import { useReceipts } from '../hooks/useReceipts';
+import { useAuth } from '../contexts/AuthContext';
 import ScanModal from '../components/ScanModal';
 import ReceiptCard from '../components/ReceiptCard';
 import { APP_VERSION } from './SettingsPage';
 import type { Receipt as ReceiptType } from '../utils/types';
-
-type SearchMode = 'all' | 'store' | 'client' | 'item';
-
-const SEARCH_MODE_LABELS: Record<SearchMode, string> = {
-  all:    'All',
-  store:  'Store',
-  client: 'Client',
-  item:   'Item',
-};
+import { getAllCategories } from '../utils/types';
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -26,96 +19,69 @@ function monthLabel(key: string) {
 
 export default function ReceiptLibrary() {
   const { receipts, isLoading, reload, remove, update, add } = useReceipts();
+  const { user } = useAuth();
 
-  const [scanOpen,     setScanOpen]     = useState(false);
-  const [search,       setSearch]       = useState('');
-  const [searchMode,   setSearchMode]   = useState<SearchMode>('all');
-  const [showModeMenu, setShowModeMenu] = useState(false);
-  const [showArchive,  setShowArchive]  = useState(false);
-  const [selectMode,   setSelectMode]   = useState(false);
-  const [selectedIds,  setSelectedIds]  = useState<Set<number>>(new Set());
+  const [scanOpen,      setScanOpen]      = useState(false);
+  const [search,        setSearch]        = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [showCatPicker, setShowCatPicker] = useState(false);
+  const [selectMode,    setSelectMode]    = useState(false);
+  const [selectedIds,   setSelectedIds]   = useState<Set<number>>(new Set());
 
-  // Archive threshold: years strictly before current year are "archive"
+  // Home is hard-scoped to CURRENT calendar year per redesign spec Phase 3.
+  // Archive / prior-year drilldown lives on Dashboard, not here.
   const thisYear = String(new Date().getFullYear());
 
   // current year months: collapsed set (month key → collapsed)
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
-  // archive years: expanded set (year → expanded)
-  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
-  // archive year months: expanded set ("year-month" → expanded)
-  const [expandedArchiveMonths, setExpandedArchiveMonths] = useState<Set<string>>(new Set());
 
-  // ── Search filter ──────────────────────────────────────────────────────────
+  const categories = useMemo(() => (user ? getAllCategories(user.id) : []), [user]);
+
+  // ── Search + category filter (current year only) ───────────────────────────
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return receipts;
     return receipts.filter(r => {
-      if (searchMode === 'store' || searchMode === 'all') {
-        if ((r.storeName || '').toLowerCase().includes(q)) return true;
-      }
-      if (searchMode === 'client' || searchMode === 'all') {
-        if ((r.clientName || '').toLowerCase().includes(q)) return true;
-      }
-      if (searchMode === 'item' || searchMode === 'all') {
-        try {
-          const items = JSON.parse(r.lineItems || '[]') as { description: string }[];
-          if (items.some(i => i.description.toLowerCase().includes(q))) return true;
-        } catch {}
-      }
+      // Current-year scope
+      if ((r.receiptDate || '').slice(0, 4) !== thisYear) return false;
+
+      // Category filter (from funnel)
+      if (categoryFilter && (r.category || '') !== categoryFilter) return false;
+
+      if (!q) return true;
+
+      // Combined free-text search: store, client, items
+      if ((r.storeName || '').toLowerCase().includes(q)) return true;
+      if ((r.clientName || '').toLowerCase().includes(q)) return true;
+      try {
+        const items = JSON.parse(r.lineItems || '[]') as { description: string }[];
+        if (items.some(i => i.description.toLowerCase().includes(q))) return true;
+      } catch {}
       return false;
     });
-  }, [receipts, search, searchMode]);
+  }, [receipts, search, categoryFilter, thisYear]);
 
   // ── Group receipts ──────────────────────────────────────────────────────────
 
   const grouped = useMemo(() => {
-    // Receipts with missing/bad dates get today's year so they're always visible
-    const safeYear = (r: ReceiptType) => yearOf(r.receiptDate) || thisYear;
-    const thisYearList = filtered.filter(r => safeYear(r) === thisYear);
-    // Archive = any year before current year; only shown when toggle is on
-    const archiveList  = showArchive
-      ? filtered.filter(r => safeYear(r) !== thisYear)
-      : [];
-
     // Group by month, sort receipts within each month by date desc
-    function byMonth(list: ReceiptType[]): [string, ReceiptType[]][] {
-      const map = new Map<string, ReceiptType[]>();
-      list.forEach(r => {
-        const k = monthKey(r.receiptDate);
-        if (!map.has(k)) map.set(k, []);
-        map.get(k)!.push(r);
-      });
-      // Sort receipts within month by date descending
-      map.forEach(arr => arr.sort((a, b) => b.receiptDate.localeCompare(a.receiptDate)));
-      // Sort months descending
-      return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-    }
-
-    // Group archive by year → month
-    const archiveYears: [string, [string, ReceiptType[]][]][] = [];
-    const archiveYearList = Array.from(new Set(archiveList.map(r => safeYear(r)))).sort((a, b) => b.localeCompare(a));
-    archiveYearList.forEach(y => {
-      const yearReceipts = archiveList.filter(r => safeYear(r) === y);
-      archiveYears.push([y, byMonth(yearReceipts)]);
+    const map = new Map<string, ReceiptType[]>();
+    filtered.forEach(r => {
+      const k = monthKey(r.receiptDate);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(r);
     });
-
-    const archiveCount = filtered.filter(r => safeYear(r) !== thisYear).length;
-
-    return {
-      thisYearMonths: byMonth(thisYearList),
-      thisYearTotal: thisYearList.reduce((s, r) => s + r.total, 0),
-      archiveYears,
-      archiveCount,
-    };
-  }, [filtered, thisYear, showArchive]);
+    map.forEach(arr => arr.sort((a, b) => b.receiptDate.localeCompare(a.receiptDate)));
+    const months = Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+    const total  = filtered.reduce((s, r) => s + r.total, 0);
+    return { months, total };
+  }, [filtered]);
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   function onSaved(receipt: import('../utils/types').Receipt) {
-    if (receipt.receiptDate.slice(0, 4) !== thisYear) {
-      setShowArchive(true);
-    }
+    // Prior-year receipts still save, but Home only shows current year;
+    // they'll appear on the Dashboard year switcher.
     add(receipt);
     setScanOpen(false);
     void reload();
@@ -177,17 +143,16 @@ export default function ReceiptLibrary() {
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
 
-      <header className="flex items-center justify-between px-4 pt-12 pb-2 safe-top max-w-2xl mx-auto w-full">
-        <img
-          src="/logo.png"
-          alt="Scatterbrain"
-          className="h-10 w-auto"
-          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
-        />
-        <span className="text-[10px] text-white/50 tracking-wider select-none">v{APP_VERSION} beta</span>
+      {/* Home header — "Home" + current year, per Phase 3 spec */}
+      <header className="flex items-baseline justify-between px-5 pt-12 pb-3 safe-top max-w-2xl mx-auto w-full">
+        <div className="flex items-baseline gap-2">
+          <h1 className="text-white text-2xl font-bold tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>Home</h1>
+          <span className="text-white/40 text-lg font-medium select-none">{thisYear}</span>
+        </div>
+        <span className="text-[10px] text-white/30 tracking-wider select-none">v{APP_VERSION}</span>
       </header>
 
-      <main className="flex-1 px-3 pt-1 pb-56 overflow-y-auto max-w-2xl mx-auto w-full">
+      <main className="flex-1 px-3 pt-1 pb-40 overflow-y-auto max-w-2xl mx-auto w-full">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
@@ -196,195 +161,135 @@ export default function ReceiptLibrary() {
         ) : receipts.length === 0 ? (
           <EmptyState onScan={() => setScanOpen(true)} />
 
-        ) : isSearching ? (
-          <div className="animate-fade-in space-y-2">
-            <div className="flex items-center justify-between px-1 mb-2">
-              <p className="text-white text-[11px] opacity-60">
-                {filtered.length} result{filtered.length !== 1 ? 's' : ''}
-              </p>
-              <div className="flex items-center gap-3">
-                {filteredTotal > 0 && (
-                  <span className="text-sb-green text-sm font-bold">${filteredTotal.toFixed(2)}</span>
-                )}
-                <button onClick={() => setSearch('')} className="text-[11px] text-white flex items-center gap-0.5 opacity-60 hover:opacity-100">
-                  <X size={11} /> Clear
-                </button>
-              </div>
-            </div>
-            {filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-14 text-center px-6">
-                <Search size={24} className="text-white opacity-30 mb-3" />
-                <p className="text-white font-semibold text-sm mb-1">No receipts match</p>
-                <p className="text-white text-xs opacity-50">Try a different search or mode.</p>
-              </div>
-            ) : (
-              filtered.map(r => (
-                <ReceiptCard key={r.id} receipt={r} onDelete={onDelete} onUpdateCategory={onUpdateCategory} onReEdit={onReEdit}
-                  onNewReceipt={r => add(r)}
-                  selectMode={selectMode} selected={selectedIds.has(r.id)} onToggleSelect={toggleSelect} />
-              ))
-            )}
-          </div>
-
         ) : (
           <div className="space-y-0.5">
-
-            {/* ── Current year header ── */}
-            <div className="flex items-center justify-between px-2 pt-1 pb-3">
-              <p className="text-white text-base font-bold" style={{ fontFamily: "'Poppins', sans-serif" }}>{thisYear}</p>
-              <span className="text-sb-green text-sm font-bold">${grouped.thisYearTotal.toFixed(2)}</span>
-            </div>
-
-            {grouped.thisYearMonths.length === 0 && (
-              <p className="text-sb-muted text-xs px-2 pb-4">No receipts this year yet.</p>
-            )}
-
-            {grouped.thisYearMonths.map(([key, items]) => (
-              <MonthGroup
-                key={key}
-                label={monthLabel(key)}
-                receipts={items}
-                collapsed={collapsedMonths.has(key)}
-                onToggle={() => {
-                  setCollapsedMonths(prev => {
-                    const next = new Set(prev);
-                    next.has(key) ? next.delete(key) : next.add(key);
-                    return next;
-                  });
-                }}
-                onDelete={onDelete}
-                onUpdateCategory={onUpdateCategory}
-                onReEdit={onReEdit}
-                onNewReceipt={r => add(r)}
-                selectMode={selectMode}
-                selectedIds={selectedIds}
-                onToggleSelect={toggleSelect}
-                onEnterSelectMode={enterSelectMode}
-              />
-            ))}
-
-            {/* ── Archive years ── */}
-            {grouped.archiveYears.length > 0 && (
-              <div className="pt-4">
-                <p className="text-sb-muted text-[11px] uppercase tracking-wider font-medium px-2 pb-2">Archive</p>
-                {grouped.archiveYears.map(([year, months]) => {
-                  const yearTotal = months.flatMap(([, r]) => r).reduce((s, r) => s + r.total, 0);
-                  const yearOpen  = expandedYears.has(year);
-                  return (
-                    <div key={year} className="mb-1">
-                      {/* Year header */}
-                      <button
-                        onClick={() => {
-                          setExpandedYears(prev => {
-                            const next = new Set(prev);
-                            next.has(year) ? next.delete(year) : next.add(year);
-                            return next;
-                          });
-                        }}
-                        className="w-full flex items-center gap-2 px-2 py-2.5 rounded-xl hover:bg-white/5 transition active:bg-white/10"
-                      >
-                        <span className="text-sb-muted" style={{ width: 14 }}>
-                          {yearOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        </span>
-                        <span className="flex-1 text-white text-sm font-bold text-left">{year}</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-sb-card border border-sb-border text-sb-muted mr-1">
-                          {months.flatMap(([, r]) => r).length} receipts
-                        </span>
-                        <span className="text-sb-green text-sm font-bold">${yearTotal.toFixed(2)}</span>
-                      </button>
-
-                      {/* Months within year */}
-                      {yearOpen && (
-                        <div className="pl-3 space-y-0.5 animate-fade-in">
-                          {months.map(([mKey, mItems]) => {
-                            const archiveKey = `${year}-${mKey}`;
-                            const monthOpen  = expandedArchiveMonths.has(archiveKey);
-                            return (
-                              <MonthGroup
-                                key={mKey}
-                                label={monthLabel(mKey)}
-                                receipts={mItems}
-                                collapsed={!monthOpen}
-                                onToggle={() => {
-                                  setExpandedArchiveMonths(prev => {
-                                    const next = new Set(prev);
-                                    next.has(archiveKey) ? next.delete(archiveKey) : next.add(archiveKey);
-                                    return next;
-                                  });
-                                }}
-                                onDelete={onDelete}
-                                onUpdateCategory={onUpdateCategory}
-                                onReEdit={onReEdit}
-                              />
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+            {grouped.months.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-14 text-center px-6">
+                <Search size={24} className="text-white opacity-30 mb-3" />
+                <p className="text-white font-semibold text-sm mb-1">
+                  {isSearching || categoryFilter ? 'No receipts match' : `No receipts in ${thisYear} yet`}
+                </p>
+                {(isSearching || categoryFilter) && (
+                  <p className="text-white text-xs opacity-50">Try clearing your search or filter.</p>
+                )}
               </div>
+            ) : (
+              grouped.months.map(([key, items]) => (
+                <MonthGroup
+                  key={key}
+                  label={monthLabel(key)}
+                  receipts={items}
+                  collapsed={collapsedMonths.has(key)}
+                  onToggle={() => {
+                    setCollapsedMonths(prev => {
+                      const next = new Set(prev);
+                      next.has(key) ? next.delete(key) : next.add(key);
+                      return next;
+                    });
+                  }}
+                  onDelete={onDelete}
+                  onUpdateCategory={onUpdateCategory}
+                  onReEdit={onReEdit}
+                  onNewReceipt={r => add(r)}
+                  selectMode={selectMode}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelect}
+                  onEnterSelectMode={enterSelectMode}
+                />
+              ))
             )}
           </div>
         )}
       </main>
 
-      {/* Bottom search bar */}
+      {/*
+        Bottom search bar — single input; silver funnel icon INSIDE on the right
+        (no container box). Positioned above the nav with a CLEAR GAP: bottom
+        offset = nav height (~72px) + safe area + gap so the two form distinct
+        bands. No top border on this bar — it's not glued to the nav.
+      */}
       <div
-        className="fixed left-0 right-0 z-20 bg-sb-bg/95 backdrop-blur-sm border-t border-sb-border px-3 py-2"
-        style={{ bottom: 'calc(56px + env(safe-area-inset-bottom))' }}
+        className="fixed left-0 right-0 z-20 px-4 pointer-events-none"
+        style={{ bottom: 'calc(84px + env(safe-area-inset-bottom))' }}
       >
-        <div className="flex items-center gap-2 max-w-2xl mx-auto w-full">
-          <div className="relative">
-            <button
-              onClick={() => setShowModeMenu(p => !p)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-sb-border text-[11px] text-white opacity-60 hover:opacity-100 transition flex-shrink-0"
-            >
-              {SEARCH_MODE_LABELS[searchMode]}
-              <ChevronDown size={10} />
-            </button>
-            {showModeMenu && (
-              <div className="absolute bottom-full mb-1 left-0 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-30 shadow-2xl min-w-[90px]">
-                {(Object.keys(SEARCH_MODE_LABELS) as SearchMode[]).map(mode => (
+        <div className="relative max-w-2xl mx-auto w-full pointer-events-auto">
+          <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/45" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search store, client, items…"
+            className="w-full bg-sb-card/95 backdrop-blur-sm border border-sb-border rounded-2xl pl-11 pr-11 py-3 text-sm text-white placeholder-white/40 focus:outline-none focus:border-white/25 transition"
+          />
+          {/* Silver bare funnel — no box, opens category picker */}
+          <button
+            onClick={() => setShowCatPicker(p => !p)}
+            aria-label={categoryFilter ? `Filtered by ${categoryFilter} — tap to change` : 'Filter by category'}
+            className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center transition active:scale-90"
+            style={{ width: 28, height: 28 }}
+          >
+            <Funnel
+              size={18}
+              strokeWidth={1.75}
+              style={{
+                color: categoryFilter ? (categories.find(c => c.name === categoryFilter)?.color ?? '#b0aabf') : '#b0aabf',
+                fill:  categoryFilter ? (categories.find(c => c.name === categoryFilter)?.color ?? 'transparent') : 'transparent',
+              }}
+            />
+          </button>
+
+          {/* Category picker popover */}
+          {showCatPicker && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setShowCatPicker(false)} />
+              <div className="absolute bottom-full right-0 mb-2 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl min-w-[180px] max-h-[50vh] overflow-y-auto animate-fade-in">
+                <button
+                  onClick={() => { setCategoryFilter(null); setShowCatPicker(false); }}
+                  className={`w-full px-3 py-2.5 text-[13px] text-left transition hover:bg-white/5 flex items-center gap-2 ${!categoryFilter ? 'text-sb-green' : 'text-white'}`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-white/20 inline-block" />
+                  All categories
+                </button>
+                {categories.map(cat => (
                   <button
-                    key={mode}
-                    onClick={() => { setSearchMode(mode); setShowModeMenu(false); }}
-                    className={`w-full px-3 py-2.5 text-[12px] text-left transition hover:bg-white/5 ${searchMode === mode ? 'text-sb-green' : 'text-white'}`}
+                    key={cat.name}
+                    onClick={() => { setCategoryFilter(cat.name); setShowCatPicker(false); }}
+                    className={`w-full px-3 py-2.5 text-[13px] text-left transition hover:bg-white/5 flex items-center gap-2 ${categoryFilter === cat.name ? 'text-sb-green' : 'text-white'}`}
                   >
-                    {SEARCH_MODE_LABELS[mode]}
+                    <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: cat.color }} />
+                    {cat.name}
                   </button>
                 ))}
               </div>
-            )}
-          </div>
-
-          <div className="relative flex-1">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white opacity-40" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder={
-                searchMode === 'store'  ? 'Search store name…' :
-                searchMode === 'client' ? 'Search client name…' :
-                searchMode === 'item'   ? 'Search item description…' :
-                'Search store, client, items…'
-              }
-              className="w-full bg-sb-card border border-sb-border rounded-xl pl-8 pr-8 py-1.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-sb-green transition"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-white opacity-50">
-                <X size={12} />
-              </button>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Active filter/search summary — sits just above the search bar, right-aligned */}
+      {(isSearching || categoryFilter) && (
+        <div
+          className="fixed left-0 right-0 z-10 px-5 pointer-events-none"
+          style={{ bottom: 'calc(148px + env(safe-area-inset-bottom))' }}
+        >
+          <div className="flex items-center justify-end gap-3 max-w-2xl mx-auto w-full pointer-events-auto">
+            {filteredTotal > 0 && (
+              <span className="text-sb-green text-xs font-bold">${filteredTotal.toFixed(2)}</span>
+            )}
+            <button
+              onClick={() => { setSearch(''); setCategoryFilter(null); }}
+              className="text-[11px] text-white/60 hover:text-white flex items-center gap-0.5"
+            >
+              <X size={11} /> Clear
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Select mode action bar ── */}
       {selectMode && (
         <div
           className="fixed left-0 right-0 z-30 bg-sb-card2 border-t border-sb-border px-4 py-3 flex items-center gap-3 animate-fade-in max-w-2xl mx-auto"
-          style={{ bottom: 'calc(56px + env(safe-area-inset-bottom))' }}
+          style={{ bottom: 'calc(76px + env(safe-area-inset-bottom))' }}
         >
           <button onClick={exitSelectMode} className="p-2 text-sb-muted hover:text-white transition">
             <X size={18} />

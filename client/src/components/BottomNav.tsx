@@ -30,10 +30,13 @@ const TABS_RIGHT = [
   { to: '/settings', icon: Settings,        label: 'Settings', activeColor: '#94a3b8' }, // silver
 ] as const;
 
-// Scan circle — muted pink fill + border.
-const SCAN_BORDER   = 'rgba(224,90,125,0.55)';
-const SCAN_FILL     = 'rgba(224,90,125,0.16)';
-const SCAN_LABEL    = '#888888'; // silver, matches other tab-icon default color
+// Scan circle — semi-transparent pink per Phase 3 spec.
+//   fill:   rgba(224,90,125,0.22)
+//   border: 1.5px rgba(224,90,125,0.75)
+//   label:  "Scan" in #f08ba8, weight 600
+const SCAN_BORDER   = 'rgba(224,90,125,0.75)';
+const SCAN_FILL     = 'rgba(224,90,125,0.22)';
+const SCAN_LABEL    = '#f08ba8';
 
 export default function BottomNav() {
   const [scanOpen, setScanOpen] = useState(false);
@@ -55,7 +58,7 @@ export default function BottomNav() {
           circle, so it centers cleanly on the same mid-line as the other
           icons.
         */}
-        <div className="relative flex items-center justify-around px-1 py-1.5 max-w-2xl mx-auto w-full">
+        <div className="relative flex items-center justify-around px-1 py-2.5 max-w-2xl mx-auto w-full">
 
           {TABS_LEFT.map(tab => <TabItem key={tab.to} {...tab} />)}
 
@@ -73,7 +76,7 @@ export default function BottomNav() {
           >
             <span
               className="text-[13px] tracking-wide"
-              style={{ color: SCAN_LABEL, fontWeight: 500 }}
+              style={{ color: SCAN_LABEL, fontWeight: 600 }}
             >
               Scan
             </span>
@@ -108,7 +111,7 @@ function TabItem({ to, icon: Icon, label, activeColor }: TabItemProps) {
         <>
           <span className="relative inline-flex">
             <Icon
-              size={20}
+              size={22}
               strokeWidth={isActive ? 2.5 : 1.8}
               style={{ color: isActive ? activeColor : '#888888' }}
             />
