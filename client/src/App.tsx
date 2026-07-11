@@ -62,6 +62,10 @@ function CloudAuthHandler() {
       primaryProvider: userSettings.primaryProvider || provider,
     }, userId);
 
+    // Nudge useCloudAuth hooks to reload — otherwise their stale in-memory
+    // state stomps what we just wrote on the next render.
+    window.dispatchEvent(new Event('cloud_settings_updated'));
+
     navigate('/settings', { replace: true });
   }, [navigate, user, isLoading]);
 
