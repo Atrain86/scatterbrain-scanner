@@ -77,6 +77,7 @@ export function useCloudAuth(userId: string) {
   useEffect(() => {
     const current = loadCloudSettings(userId);
     if (JSON.stringify(current) === JSON.stringify(settings)) return;
+    console.log('[useCloudAuth] SAVE — memory.gd.connected:', settings.googleDrive.connected, 'disk.gd.connected:', current.googleDrive.connected);
     saveCloudSettings(settings, userId);
   }, [settings, userId]);
 

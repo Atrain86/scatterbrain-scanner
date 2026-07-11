@@ -149,7 +149,7 @@ export default function ReceiptLibrary() {
           <h1 className="text-white text-2xl font-bold tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>Home</h1>
           <span className="text-white/40 text-lg font-medium select-none">{thisYear}</span>
         </div>
-        <span className="text-[10px] text-white/30 tracking-wider select-none">v{APP_VERSION}</span>
+        <span className="text-[13px] text-white tracking-wider select-none">v{APP_VERSION}</span>
       </header>
 
       <main className="flex-1 px-3 pt-1 pb-40 overflow-y-auto max-w-2xl mx-auto w-full">
