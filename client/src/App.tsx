@@ -19,11 +19,10 @@ function CloudAuthHandler() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const provider = params.get('cloud_auth') as CloudProvider | null;
-    console.log('[CloudAuthHandler] effect fired', { provider, isLoading, userId: user?.id, hasToken: !!params.get('access_token') });
     if (!provider) return;
 
     // Wait until auth state is resolved before saving and navigating
-    if (isLoading) { console.log('[CloudAuthHandler] waiting for auth'); return; }
+    if (isLoading) return;
 
     const payload: Record<string, string> = {};
     for (const key of ['access_token', 'refresh_token', 'expires_in', 'token_type', 'scope', 'email']) {
@@ -38,11 +37,9 @@ function CloudAuthHandler() {
     // orphan credentials and dropping them prevents them from binding to
     // whoever signs in next. Bounce to login without persisting anything.
     if (!userId) {
-      console.warn('[CloudAuthHandler] NO USER — dropping tokens');
       navigate('/', { replace: true });
       return;
     }
-    console.log('[CloudAuthHandler] saving tokens for user', userId);
 
     const expiresIn = payload.expires_in;
     const providerKey = provider === 'google-drive' ? 'googleDrive' : 'dropbox';
@@ -64,10 +61,6 @@ function CloudAuthHandler() {
       [providerKey]: providerData,
       primaryProvider: userSettings.primaryProvider || provider,
     }, userId);
-
-    // Verify write actually landed
-    const verify = loadCloudSettings(userId);
-    console.log('[CloudAuthHandler] post-save read:', verify.googleDrive.connected, 'accessToken?', !!verify.googleDrive.accessToken);
 
     // Nudge useCloudAuth hooks to reload — otherwise their stale in-memory
     // state stomps what we just wrote on the next render.
