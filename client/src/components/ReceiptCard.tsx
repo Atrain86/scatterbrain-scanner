@@ -245,14 +245,24 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   }, [editingStore, receipt.storeName]);
 
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
+    // Use `click` (fires after the tap sequence completes, and after any
+    // React state updates from the option button's own click handler have
+    // already been queued) instead of `mousedown` (which on iOS Safari fires
+    // DURING the tap sequence and the state change it triggers can cancel
+    // the subsequent click on a picker option before it reaches React).
+    //
+    // The trade-off: `click` fires slightly later, so there's a small window
+    // where the outside-click handler runs after the option's click handler.
+    // That's fine — option handlers already call setShowXPicker(false), and
+    // idempotent state updates are cheap.
+    function handleOutsideClick(e: MouseEvent) {
       if (showCatPicker && catPickerRef.current && !catPickerRef.current.contains(e.target as Node))
         setShowCatPicker(false);
       if (showClientPicker && clientPickerRef.current && !clientPickerRef.current.contains(e.target as Node))
         setShowClientPicker(false);
     }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    document.addEventListener('click', handleOutsideClick);
+    return () => document.removeEventListener('click', handleOutsideClick);
   }, [showCatPicker, showClientPicker]);
 
   function saveStoreName() {
@@ -269,13 +279,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   }
 
   function pickCategory(name: string) {
-    console.log('[pickCategory] TAP', { receiptId: receipt.id, name, oldCategory: receipt.category });
-    try {
-      onUpdateCategory(receipt.id, name);
-      console.log('[pickCategory] onUpdateCategory returned (may still be async)');
-    } catch (err) {
-      console.error('[pickCategory] onUpdateCategory threw:', err);
-    }
+    onUpdateCategory(receipt.id, name);
     setShowCatPicker(false);
     setNewCatInput('');
   }
@@ -293,19 +297,13 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   }
 
   function pickClient(name: string) {
-    console.log('[pickClient] TAP', { receiptId: receipt.id, name, oldClient: receipt.clientName });
-    try {
-      setLastClient(userId, name);
-      onReEdit(receipt.id, {
-        storeName: receipt.storeName, lineItems: receipt.lineItems ?? '[]',
-        taxLines: receipt.taxLines ?? '[]', subtotal: receipt.subtotal,
-        taxAmount: receipt.taxAmount, total: receipt.total,
-        clientName: name || null, category: receipt.category,
-      });
-      console.log('[pickClient] onReEdit returned');
-    } catch (err) {
-      console.error('[pickClient] onReEdit threw:', err);
-    }
+    setLastClient(userId, name);
+    onReEdit(receipt.id, {
+      storeName: receipt.storeName, lineItems: receipt.lineItems ?? '[]',
+      taxLines: receipt.taxLines ?? '[]', subtotal: receipt.subtotal,
+      taxAmount: receipt.taxAmount, total: receipt.total,
+      clientName: name || null, category: receipt.category,
+    });
     setShowClientPicker(false);
     setNewClientInput('');
   }
