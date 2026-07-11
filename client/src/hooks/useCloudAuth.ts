@@ -77,7 +77,18 @@ export function useCloudAuth(userId: string) {
   useEffect(() => {
     const current = loadCloudSettings(userId);
     if (JSON.stringify(current) === JSON.stringify(settings)) return;
-    console.log('[useCloudAuth] SAVE — memory.gd.connected:', settings.googleDrive.connected, 'disk.gd.connected:', current.googleDrive.connected);
+
+    // Conflict resolution: if disk has connected providers and memory doesn't,
+    // disk is fresher (OAuth callback wrote it between mount and now). Reload
+    // memory FROM disk instead of overwriting disk with stale memory.
+    const diskFresher =
+      (current.googleDrive.connected && !settings.googleDrive.connected) ||
+      (current.dropbox.connected     && !settings.dropbox.connected);
+    if (diskFresher) {
+      setSettings(current);
+      return;
+    }
+
     saveCloudSettings(settings, userId);
   }, [settings, userId]);
 
