@@ -30,13 +30,12 @@ const TABS_RIGHT = [
   { to: '/settings', icon: Settings,        label: 'Settings', activeColor: '#94a3b8' }, // silver
 ] as const;
 
-// Scan circle — semi-transparent pink per Phase 3 spec.
-//   fill:   rgba(224,90,125,0.22)
-//   border: 1.5px rgba(224,90,125,0.75)
-//   label:  "Scan" in #f08ba8, weight 600
-const SCAN_BORDER   = 'rgba(224,90,125,0.75)';
-const SCAN_FILL     = 'rgba(224,90,125,0.22)';
-const SCAN_LABEL    = '#f08ba8';
+// Scan circle — brighter, more saturated pink so it reads as primary on
+// pure black. Previous value looked muted/brownish; bumped fill opacity
+// and shifted hue toward hot pink.
+const SCAN_BORDER   = 'rgba(240,100,140,0.95)';
+const SCAN_FILL     = 'rgba(240,100,140,0.35)';
+const SCAN_LABEL    = '#ffb3c8';
 
 export default function BottomNav() {
   const [scanOpen, setScanOpen] = useState(false);
