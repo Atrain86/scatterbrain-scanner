@@ -70,7 +70,7 @@ export default function BottomNav() {
               width: 56,
               height: 56,
               backgroundColor: SCAN_FILL,
-              border: `4px solid ${SCAN_BORDER}`,
+              border: `2.5px solid ${SCAN_BORDER}`,
               boxShadow: `0 0 14px 2px ${SCAN_HALO}`,
             }}
           >
