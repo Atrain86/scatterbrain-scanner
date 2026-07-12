@@ -30,20 +30,31 @@ const TABS_RIGHT = [
   { to: '/settings', icon: Settings,        label: 'Settings', activeColor: '#94a3b8' }, // silver
 ] as const;
 
-// Scan circle — soft green fill (matches Alan's iOS-style reference),
-// deep-green perimeter, subtle outer halo. Camera icon in white.
-const SCAN_BORDER   = '#2f6e3f'; // deep forest green — distinct edge vs fill
-const SCAN_FILL     = 'rgba(126,199,132,0.70)'; // #7ec784 @ 70%
-const SCAN_LABEL    = '#ffffff';
-const SCAN_HALO     = 'rgba(126,199,132,0.35)';
+// Scan circle — glowing outline style per Alan's reference:
+// dark green tinted fill + solid green ring + green icon + soft outer glow.
+// All three (icon, ring, glow) use the same #4ade80.
+const SCAN_RING = '#4ade80';
+const SCAN_FILL = 'rgba(74,222,128,0.14)';
+const SCAN_GLOW = '0 0 14px rgba(74,222,128,0.4)';
 
 export default function BottomNav() {
   const [scanOpen, setScanOpen] = useState(false);
+  // Bumped on every Scan tap so the animation replays even if tapped rapidly
+  // (React will re-mount the child due to the changing key).
+  const [pulseKey, setPulseKey] = useState(0);
   const queryClient = useQueryClient();
 
   function onSaved() {
     setScanOpen(false);
     queryClient.invalidateQueries({ queryKey: ['receipts'] });
+  }
+
+  function handleScanTap() {
+    setPulseKey(k => k + 1);
+    // Let the pulse animation start before the modal opens on top —
+    // a hair of delay makes the tactile response readable, doesn't
+    // slow the perceived launch.
+    setTimeout(() => setScanOpen(true), 90);
   }
 
   return (
@@ -61,20 +72,26 @@ export default function BottomNav() {
 
           {TABS_LEFT.map(tab => <TabItem key={tab.to} {...tab} />)}
 
-          {/* Center Scan tab — baseline-centered pink circle with silver "Scan" text. */}
+          {/* Center Scan tab — signature action.
+              GLOWING OUTLINE style: dark green tinted fill, solid green ring,
+              green camera-plus icon, soft outer glow — all #4ade80. 74px so
+              it dominates the 22px flanking tabs. Baseline-centered.
+              Press animation: scale+glow pulse via scan-pulse keyframe.
+              Animation only plays on tap (not mount) — gated on pulseKey > 0. */}
           <button
-            onClick={() => setScanOpen(true)}
+            key={pulseKey}
+            onClick={handleScanTap}
             aria-label="Scan receipt"
-            className="flex items-center justify-center rounded-full transition-all active:scale-95"
+            className={`flex items-center justify-center rounded-full transition-transform will-change-transform ${pulseKey > 0 ? 'animate-scan-pulse' : ''}`}
             style={{
-              width: 56,
-              height: 56,
+              width: 76,
+              height: 76,
               backgroundColor: SCAN_FILL,
-              border: `2.5px solid ${SCAN_BORDER}`,
-              boxShadow: `0 0 14px 2px ${SCAN_HALO}`,
+              border: `2px solid ${SCAN_RING}`,
+              boxShadow: SCAN_GLOW,
             }}
           >
-            <Camera size={24} strokeWidth={2} style={{ color: SCAN_LABEL }} />
+            <Camera size={32} strokeWidth={2} style={{ color: SCAN_RING }} />
           </button>
 
           {TABS_RIGHT.map(tab => <TabItem key={tab.to} {...tab} />)}
