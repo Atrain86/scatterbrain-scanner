@@ -492,8 +492,14 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
             stopPropagation calls.
         */}
         {expanded && (() => {
+          // Smart background tap. Fires ONLY if the tap didn't land on (or
+          // inside) an interactive element (button, input, textarea, or
+          // anything with data-interactive="true"). This is more permissive
+          // than e.target === e.currentTarget — a tap on plain <span> text
+          // in a row correctly counts as a background tap.
           const handleBgTap = (e: React.MouseEvent) => {
-            if (e.target !== e.currentTarget) return;
+            const t = e.target as HTMLElement;
+            if (t.closest('button, input, textarea, [data-interactive="true"]')) return;
             if (editingStore)   { setEditingStore(false); return; }
             if (editingItems)   { setEditingItems(false); return; }
             if (splitMode)      { setSplitMode(false); return; }
@@ -672,8 +678,10 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                   const checked = checkedItems.has(originalIndex);
                   return (
                     <div key={i}
-                      onClick={() => {
+                      {...(editingItems ? { 'data-interactive': 'true' } : {})}
+                      onClick={e => {
                         if (!editingItems) return;
+                        e.stopPropagation();
                         setCheckedItems(prev => {
                           const next = new Set(prev);
                           next.has(originalIndex) ? next.delete(originalIndex) : next.add(originalIndex);
@@ -721,9 +729,14 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               </div>
             )}
 
-            {/* ── Split mode ── */}
+            {/* ── Split mode ──
+                Removed the outer stopPropagation so background taps in
+                split area exit split mode (handleBgTap's priority chain).
+                Interactive rows/buttons inside protect themselves via
+                data-interactive="true" or e.stopPropagation() in onClick.
+            */}
             {splitMode && (
-              <div className="border-t border-sb-border" onClick={e => e.stopPropagation()}>
+              <div className="border-t border-sb-border" onClick={handleBgTap}>
                 <div className="px-3 py-2 bg-sb-green/5 border-b border-sb-border">
                   <p className="text-[11px] text-sb-green font-medium">Select items to split into a new receipt</p>
                 </div>
@@ -734,7 +747,9 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                     const checked = splitChecked.has(originalIndex);
                     return (
                       <div key={i} className="flex items-center gap-2 py-1.5 cursor-pointer hover:bg-white/5 rounded-lg px-1 active:bg-white/10"
-                        onClick={() => {
+                        data-interactive="true"
+                        onClick={e => {
+                          e.stopPropagation();
                           setSplitChecked(prev => {
                             const next = new Set(prev);
                             next.has(originalIndex) ? next.delete(originalIndex) : next.add(originalIndex);
