@@ -1,123 +1,139 @@
-import { useMemo } from 'react';
-import { ArrowLeft, TrendingUp, Receipt, Tag } from 'lucide-react';
+import { useMemo, useState, useEffect, useRef } from 'react';
+import { Tag, Receipt as ReceiptIcon, Download, ChevronDown, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
 } from 'recharts';
 import { useReceipts } from '../hooks/useReceipts';
-import { getCategoryColor } from '../utils/types';
+import { useAuth } from '../contexts/AuthContext';
+import { useUserPref } from '../lib/userStorage';
+import { getCategoryColorDynamic } from '../utils/types';
+
+// Phase 6 Stage 1 — Dashboard (analysis lens; NO writes, read-only)
+// Absorbs the prior-year drilldown that got removed from Home in Phase 3.
+// Year selector top-left, period total top-right, per-year stats under it,
+// category bars, two stat cards, Export button. Range slider is Stage 2.
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const { receipts, isLoading } = useReceipts();
+  const { user } = useAuth();
+  const userId = user?.id;
 
-  const now       = new Date();
-  const thisMonth = now.getMonth();
-  const thisYear  = now.getFullYear();
+  const thisYear = new Date().getFullYear();
+
+  // Available years present in data, sorted desc. Always includes thisYear
+  // even if no receipts yet so the selector isn't empty on a fresh account.
+  const availableYears = useMemo(() => {
+    const set = new Set<number>();
+    set.add(thisYear);
+    receipts.forEach(r => {
+      const y = Number((r.receiptDate || '').slice(0, 4));
+      if (Number.isFinite(y) && y > 1970) set.add(y);
+    });
+    return Array.from(set).sort((a, b) => b - a);
+  }, [receipts, thisYear]);
+
+  const [selectedYear, setSelectedYear] = useUserPref<number>(
+    userId,
+    'dashboard_selected_year',
+    thisYear,
+  );
+
+  // Clamp: if the stored year isn't in the available set (e.g. that year's
+  // receipts were all deleted), fall back to thisYear so we don't show empty.
+  const effectiveYear = availableYears.includes(selectedYear) ? selectedYear : thisYear;
+
+  const yearStr = String(effectiveYear);
 
   const stats = useMemo(() => {
-    const monthReceipts = receipts.filter(r => {
-      const d = new Date(r.receiptDate + 'T00:00:00');
-      return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
-    });
-    const yearReceipts = receipts.filter(r => r.receiptDate.startsWith(String(thisYear)));
-
-    const monthTotal = monthReceipts.reduce((s, r) => s + r.total, 0);
-    const yearTotal  = yearReceipts.reduce((s, r) => s + r.total, 0);
+    const yearReceipts = receipts.filter(r => (r.receiptDate || '').startsWith(yearStr));
+    const yearTotal = yearReceipts.reduce((s, r) => s + r.total, 0);
 
     const byCat: Record<string, number> = {};
     yearReceipts.forEach(r => {
-      byCat[r.category] = (byCat[r.category] ?? 0) + r.total;
+      const name = r.category || 'Uncategorized';
+      byCat[name] = (byCat[name] ?? 0) + r.total;
     });
 
     const categoryData = Object.entries(byCat)
+      .filter(([, total]) => total > 0)
       .sort((a, b) => b[1] - a[1])
-      .map(([name, total]) => ({ name, total, color: getCategoryColor(name) }));
+      .map(([name, total]) => ({
+        name,
+        total,
+        color: userId ? getCategoryColorDynamic(name, userId) : '#6B7280',
+        // Short label for the X axis — takes first word so long names don't collide.
+        shortName: name.split(/[\s/&]/)[0],
+      }));
 
-    const topCategory = categoryData[0]?.name ?? null;
-    const recent = [...receipts].slice(0, 5);
+    const topCategory = categoryData[0] ?? null;
 
     return {
-      monthTotal, monthCount: monthReceipts.length,
-      yearTotal,  yearCount:  yearReceipts.length,
-      categoryData, topCategory, recent,
+      yearReceipts,
+      yearTotal,
+      yearCount: yearReceipts.length,
+      categoryData,
+      topCategory,
     };
-  }, [receipts, thisMonth, thisYear]);
-
-  const monthName = now.toLocaleString('en-CA', { month: 'long' });
+  }, [receipts, yearStr, userId]);
 
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
-      <header className="sticky top-0 z-20 bg-sb-bg border-b border-sb-border safe-top">
-        <div className="px-4 py-3 flex items-center gap-3 max-w-2xl mx-auto w-full">
-          <button onClick={() => navigate('/receipts')} className="p-2 -ml-2 text-sb-muted hover:text-white transition rounded-lg">
-            <ArrowLeft size={20} />
-          </button>
-          <h1 className="text-base font-bold text-white">Dashboard</h1>
-        </div>
+      <header className="flex items-baseline justify-between px-5 pt-12 pb-3 safe-top max-w-2xl mx-auto w-full">
+        <h1 className="text-white text-2xl font-bold tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
+          Dashboard
+        </h1>
       </header>
 
-      <main className="flex-1 px-4 py-5 space-y-4 pb-32 max-w-2xl mx-auto w-full">
+      <main className="flex-1 px-4 pt-1 pb-32 overflow-y-auto max-w-2xl mx-auto w-full space-y-4">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
+            <div className="w-7 h-7 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3">
-              <StatCard
-                label={monthName}
-                value={`$${stats.monthTotal.toFixed(2)}`}
-                sub={`${stats.monthCount} receipt${stats.monthCount !== 1 ? 's' : ''}`}
-                icon={<Receipt size={16} />}
-                accent="green"
-              />
-              <StatCard
-                label={`${thisYear} Total`}
-                value={`$${stats.yearTotal.toFixed(2)}`}
-                sub={`${stats.yearCount} receipt${stats.yearCount !== 1 ? 's' : ''}`}
-                icon={<TrendingUp size={16} />}
-                accent="purple"
-              />
-            </div>
-
-            {stats.topCategory && (
-              <div className="bg-sb-card border border-sb-border rounded-2xl p-4 flex items-center gap-3">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ backgroundColor: getCategoryColor(stats.topCategory) + '22' }}
-                >
-                  <Tag size={18} style={{ color: getCategoryColor(stats.topCategory) }} />
-                </div>
-                <div>
-                  <p className="text-xs text-sb-muted">Top category this year</p>
-                  <p className="text-white font-semibold text-sm">{stats.topCategory}</p>
-                </div>
-                <span className="ml-auto text-base font-bold" style={{ color: getCategoryColor(stats.topCategory) }}>
-                  ${stats.categoryData[0]?.total.toFixed(2)}
+            {/* ── Chart card — year selector, period total, category bars ── */}
+            <div className="bg-sb-card border border-sb-border rounded-2xl p-4">
+              <div className="flex items-start justify-between mb-1">
+                <YearSelector
+                  years={availableYears}
+                  value={effectiveYear}
+                  onChange={setSelectedYear}
+                />
+                <span className="text-sb-green text-xl font-bold leading-tight">
+                  ${stats.yearTotal.toFixed(2)}
                 </span>
               </div>
-            )}
+              <p className="text-white/50 text-xs mb-4">
+                {stats.yearCount} receipt{stats.yearCount !== 1 ? 's' : ''}
+                {stats.yearTotal > 0 && ` · $${stats.yearTotal.toFixed(2)}`}
+              </p>
 
-            {stats.categoryData.length > 0 && (
-              <div className="bg-sb-card border border-sb-border rounded-2xl p-4">
-                <p className="text-xs text-sb-muted uppercase tracking-wider font-medium mb-4">
-                  {thisYear} — by category
-                </p>
+              {stats.categoryData.length === 0 ? (
+                <div className="py-10 text-center">
+                  <p className="text-white/40 text-sm">No receipts in {effectiveYear}</p>
+                </div>
+              ) : (
                 <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={stats.categoryData} margin={{ left: -16, right: 8, top: 4, bottom: 0 }}>
+                  <BarChart
+                    data={stats.categoryData}
+                    margin={{ left: -14, right: 8, top: 20, bottom: 0 }}
+                    barCategoryGap="20%"
+                  >
                     <XAxis
-                      dataKey="name"
-                      tick={{ fill: '#888', fontSize: 10 }}
-                      tickFormatter={name => name.split(' ')[0]}
+                      dataKey="shortName"
+                      tick={{ fill: '#a1a1aa', fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
+                      interval={0}
                     />
                     <YAxis
-                      tick={{ fill: '#888', fontSize: 10 }}
-                      tickFormatter={v => `$${v}`}
+                      tick={{ fill: '#71717a', fontSize: 10 }}
+                      tickFormatter={v => (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`)}
                       axisLine={false}
                       tickLine={false}
+                      width={38}
                     />
                     <Tooltip
                       contentStyle={{
@@ -128,52 +144,55 @@ export default function DashboardPage() {
                         fontSize: 12,
                       }}
                       formatter={(value: number) => [`$${value.toFixed(2)}`, 'Total']}
+                      labelFormatter={(_, payload) => payload?.[0]?.payload?.name ?? ''}
                       cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                     />
-                    <Bar dataKey="total" radius={[6, 6, 0, 0]}>
+                    <Bar dataKey="total" radius={[6, 6, 0, 0]} isAnimationActive animationDuration={450}>
                       {stats.categoryData.map((entry, index) => (
                         <Cell key={index} fill={entry.color} />
                       ))}
+                      <LabelList
+                        dataKey="total"
+                        position="top"
+                        fill="#ffffff"
+                        fontSize={11}
+                        formatter={(v: number) => (v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`)}
+                      />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
-            )}
+              )}
+            </div>
 
-            {stats.recent.length > 0 && (
-              <div className="bg-sb-card border border-sb-border rounded-2xl overflow-hidden">
-                <div className="px-4 py-3 border-b border-sb-border">
-                  <p className="text-xs text-sb-muted uppercase tracking-wider font-medium">Recent</p>
-                </div>
-                {stats.recent.map(r => {
-                  const catColor = getCategoryColor(r.category);
-                  return (
-                    <div key={r.id} className="flex items-center gap-3 px-4 py-3 border-b border-sb-border last:border-0">
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: catColor }} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm truncate">{r.storeName}</p>
-                        <p className="text-sb-muted text-xs">{r.receiptDate}</p>
-                      </div>
-                      <span className="text-sb-green text-sm font-semibold flex-shrink-0">
-                        ${r.total.toFixed(2)}
-                      </span>
-                    </div>
-                  );
-                })}
-                <button
-                  onClick={() => navigate('/receipts')}
-                  className="w-full px-4 py-3 text-xs text-sb-muted hover:text-white transition text-center"
-                >
-                  View all receipts →
-                </button>
-              </div>
-            )}
+            {/* ── Two stat cards: top category · receipts count ── */}
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard
+                icon={<Tag size={15} />}
+                label="Top category"
+                value={stats.topCategory?.name ?? '—'}
+                sub={stats.topCategory ? `$${stats.topCategory.total.toFixed(2)}` : 'No spend yet'}
+                accentColor={stats.topCategory?.color ?? '#6B7280'}
+              />
+              <StatCard
+                icon={<ReceiptIcon size={15} />}
+                label="Receipts"
+                value={String(stats.yearCount)}
+                sub={`$${stats.yearTotal.toFixed(2)}`}
+                accentColor="#4ade80"
+              />
+            </div>
 
-            {receipts.length === 0 && (
-              <div className="text-center py-12">
-                <p className="text-sb-muted text-sm">No receipts yet. Scan one to see your dashboard.</p>
-              </div>
-            )}
+            {/* ── Export button (full-year; partial-period export deferred) ── */}
+            <button
+              onClick={() => navigate('/export')}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-sb-green/40 text-sb-green hover:bg-sb-green/5 transition text-sm font-semibold"
+            >
+              <Download size={15} />
+              Export {effectiveYear}
+            </button>
+
+            {/* Placeholder for future views (category share, vendors, trends) —
+                per spec: reserve space, don't build. */}
           </>
         )}
       </main>
@@ -181,21 +200,76 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({
-  label, value, sub, icon, accent,
+// ── Year selector — tappable "2025 ▾" dropdown ─────────────────────────────
+
+function YearSelector({
+  years,
+  value,
+  onChange,
 }: {
-  label: string; value: string; sub: string;
-  icon: React.ReactNode; accent: 'green' | 'purple';
+  years: number[];
+  value: number;
+  onChange: (y: number) => void;
 }) {
-  const color = accent === 'green' ? '#4ade80' : '#a855f7';
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(p => !p)}
+        className="flex items-center gap-1.5 text-white text-xl font-bold hover:text-white/80 transition"
+        style={{ fontFamily: "'Poppins', sans-serif" }}
+      >
+        {value}
+        <ChevronDown size={16} className="text-white/50" />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl min-w-[110px] animate-fade-in">
+          {years.map(y => (
+            <button
+              key={y}
+              onClick={() => { onChange(y); setOpen(false); }}
+              className={`w-full flex items-center justify-between px-3 py-2.5 text-sm text-left transition hover:bg-white/5 ${y === value ? 'text-sb-green' : 'text-white'}`}
+            >
+              {y}
+              {y === value && <Check size={12} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Compact stat card ──────────────────────────────────────────────────────
+
+function StatCard({
+  icon, label, value, sub, accentColor,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub: string;
+  accentColor: string;
+}) {
   return (
     <div className="bg-sb-card border border-sb-border rounded-2xl p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <span style={{ color }}>{icon}</span>
-        <span className="text-xs text-sb-muted">{label}</span>
+      <div className="flex items-center gap-1.5 mb-2">
+        <span style={{ color: accentColor }}>{icon}</span>
+        <span className="text-[11px] text-white/50 uppercase tracking-wider">{label}</span>
       </div>
-      <p className="text-xl font-bold text-white">{value}</p>
-      <p className="text-xs text-sb-muted mt-0.5">{sub}</p>
+      <p className="text-white font-bold text-base leading-tight truncate">{value}</p>
+      <p className="text-white/50 text-xs mt-0.5 truncate">{sub}</p>
     </div>
   );
 }
