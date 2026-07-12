@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import { Tag, Receipt as ReceiptIcon, Download, ChevronDown, Check } from 'lucide-react';
+import { Tag, Receipt as ReceiptIcon, Download, ChevronDown, Check, Funnel } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
@@ -7,7 +7,7 @@ import {
 import { useReceipts } from '../hooks/useReceipts';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPref } from '../lib/userStorage';
-import { getCategoryColorDynamic } from '../utils/types';
+import { getCategoryColorDynamic, getAllCategories } from '../utils/types';
 import type { Receipt } from '../utils/types';
 import MonthRangeSlider from '../components/MonthRangeSlider';
 
@@ -51,6 +51,18 @@ export default function DashboardPage() {
   const [rangeStart, rangeEnd] = range;
   const isFullYear = rangeStart === 0 && rangeEnd === 11;
 
+  // Category filter for the scoped receipt list. NOT persisted per-user via
+  // useUserPref because it's an active drill-down action, not a preference —
+  // the user picks it in the moment ("show me just Auto/Gas") and expects it
+  // to clear when they move away.
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const categories = useMemo(() => (userId ? getAllCategories(userId) : []), [userId]);
+
+  // Reset the category filter whenever the year or range changes — otherwise
+  // a filter from one scope silently persists into the next and can produce
+  // an empty list that looks broken.
+  useEffect(() => { setCategoryFilter(null); }, [selectedYear, rangeStart, rangeEnd]);
+
   // Clamp: if the stored year isn't in the available set (e.g. that year's
   // receipts were all deleted), fall back to thisYear so we don't show empty.
   const effectiveYear = availableYears.includes(selectedYear) ? selectedYear : thisYear;
@@ -67,11 +79,13 @@ export default function DashboardPage() {
       return m >= rangeStart && m <= rangeEnd;
     };
 
-    const scoped   = receipts.filter(inRange);
-    const total    = scoped.reduce((s, r) => s + r.total, 0);
+    // Range-only set — drives the CHART. Kept unfiltered by category so the
+    // chart stays useful as "here's the mix; tap the funnel to drill down."
+    // Filtering the chart to one bar wastes the visualization.
+    const rangeScoped = receipts.filter(inRange);
 
     const byCat: Record<string, number> = {};
-    scoped.forEach(r => {
+    rangeScoped.forEach(r => {
       const name = r.category || 'Uncategorized';
       byCat[name] = (byCat[name] ?? 0) + r.total;
     });
@@ -86,23 +100,32 @@ export default function DashboardPage() {
         shortName: name.split(/[\s/&]/)[0],
       }));
 
-    const topCategory = categoryData[0] ?? null;
+    // Category-scoped set — drives the LIST, TOTAL, and STAT CARDS. Everything
+    // downstream of the funnel reflects the drilldown.
+    const listScoped = categoryFilter
+      ? rangeScoped.filter(r => (r.category || 'Uncategorized') === categoryFilter)
+      : rangeScoped;
 
-    // Also return the scoped receipt list itself (sorted by date desc) so
-    // downstream sections can render a read-only list without recomputing
-    // the range filter. Stage 1 of the Dashboard "Scoped Share" feature.
-    const scopedSorted = [...scoped].sort((a, b) =>
+    const total = listScoped.reduce((s, r) => s + r.total, 0);
+
+    // Top category is meaningless once a filter has picked a single category —
+    // fall back to the range-scoped top so the stat card stays informative.
+    const topCategory = categoryFilter
+      ? categoryData.find(c => c.name === categoryFilter) ?? null
+      : categoryData[0] ?? null;
+
+    const scopedSorted = [...listScoped].sort((a, b) =>
       (b.receiptDate || '').localeCompare(a.receiptDate || '')
     );
 
     return {
       total,
-      count: scoped.length,
+      count: listScoped.length,
       categoryData,
       topCategory,
       scopedReceipts: scopedSorted,
     };
-  }, [receipts, yearStr, userId, rangeStart, rangeEnd]);
+  }, [receipts, yearStr, userId, rangeStart, rangeEnd, categoryFilter]);
 
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
@@ -227,11 +250,15 @@ export default function DashboardPage() {
                 users read them without re-learning. Editing still lives on
                 Home — this is analysis + share only. Stage 1 of scoped-share.
             */}
-            {stats.scopedReceipts.length > 0 && (
+            {(stats.scopedReceipts.length > 0 || categoryFilter) && (
               <ScopedReceiptList
                 receipts={stats.scopedReceipts}
                 userId={userId}
                 isFullYear={isFullYear}
+                availableCategories={stats.categoryData.map(c => ({ name: c.name, color: c.color }))}
+                allCategories={categories}
+                categoryFilter={categoryFilter}
+                onCategoryFilterChange={setCategoryFilter}
                 onOpenOnHome={uuid => navigate(`/receipts?receipt=${encodeURIComponent(uuid)}`)}
               />
             )}
@@ -349,24 +376,112 @@ function ScopedReceiptList({
   receipts,
   userId,
   isFullYear,
+  availableCategories,
+  allCategories,
+  categoryFilter,
+  onCategoryFilterChange,
   onOpenOnHome,
 }: {
   receipts: Receipt[];
   userId: string | undefined;
   isFullYear: boolean;
+  availableCategories: { name: string; color: string }[]; // only categories with data in the current range
+  allCategories: { name: string; color: string }[];       // full palette, for tint when filtered on an empty-scope category
+  categoryFilter: string | null;
+  onCategoryFilterChange: (next: string | null) => void;
   onOpenOnHome: (uuid: string) => void;
 }) {
+  const [showCatPicker, setShowCatPicker] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  // Close picker on outside click.
+  useEffect(() => {
+    if (!showCatPicker) return;
+    function onDown(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setShowCatPicker(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [showCatPicker]);
+
+  const activeColor = categoryFilter
+    ? (allCategories.find(c => c.name === categoryFilter)?.color ?? '#b0aabf')
+    : '#b0aabf';
+
   return (
     <div className="bg-sb-card border border-sb-border rounded-2xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-white/[0.05] flex items-baseline justify-between">
-        <p className="text-white/70 text-[11px] uppercase tracking-wider font-medium">
-          {isFullYear ? 'Receipts this year' : 'Receipts in range'}
-        </p>
-        <p className="text-white/40 text-[11px]">
-          {receipts.length} · read-only
-        </p>
+      <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between">
+        <div className="flex flex-col min-w-0">
+          <p className="text-white/70 text-[11px] uppercase tracking-wider font-medium truncate">
+            {categoryFilter
+              ? categoryFilter
+              : isFullYear
+                ? 'Receipts this year'
+                : 'Receipts in range'}
+          </p>
+          <p className="text-white/40 text-[11px] mt-0.5">
+            {receipts.length} · read-only
+          </p>
+        </div>
+
+        {/* Silver funnel — same visual pattern as Home's search-bar filter.
+            Tint fills with the category color when a filter is active. */}
+        <div className="relative flex-shrink-0" ref={pickerRef}>
+          <button
+            onClick={() => setShowCatPicker(p => !p)}
+            aria-label={categoryFilter ? `Filtered by ${categoryFilter} — tap to change` : 'Filter by category'}
+            className="flex items-center justify-center transition active:scale-90"
+            style={{ width: 32, height: 32 }}
+          >
+            <Funnel
+              size={18}
+              strokeWidth={1.75}
+              style={{
+                color: activeColor,
+                fill: categoryFilter ? activeColor : 'transparent',
+              }}
+            />
+          </button>
+          {showCatPicker && (
+            <div className="absolute top-full right-0 mt-2 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl min-w-[200px] max-h-[60vh] overflow-y-auto animate-fade-in">
+              <button
+                onClick={() => { onCategoryFilterChange(null); setShowCatPicker(false); }}
+                className={`w-full px-3 py-2.5 text-[13px] text-left transition hover:bg-white/5 flex items-center gap-2 ${!categoryFilter ? 'text-sb-green' : 'text-white'}`}
+              >
+                <span className="w-2 h-2 rounded-full bg-white/20 inline-block" />
+                All categories
+              </button>
+              {availableCategories.length > 0 && (
+                <div className="border-t border-white/[0.06]" />
+              )}
+              {availableCategories.map(cat => (
+                <button
+                  key={cat.name}
+                  onClick={() => { onCategoryFilterChange(cat.name); setShowCatPicker(false); }}
+                  className={`w-full px-3 py-2.5 text-[13px] text-left transition hover:bg-white/5 flex items-center gap-2 ${categoryFilter === cat.name ? 'text-sb-green' : 'text-white'}`}
+                >
+                  <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: cat.color }} />
+                  {cat.name}
+                </button>
+              ))}
+              {availableCategories.length === 0 && (
+                <p className="px-3 py-2.5 text-[11px] text-white/40 italic">No categories in this range.</p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
+      {receipts.length === 0 ? (
+        <div className="py-8 text-center">
+          <p className="text-white/40 text-sm">No receipts match this filter</p>
+          <button
+            onClick={() => onCategoryFilterChange(null)}
+            className="mt-3 text-[11px] text-sb-green hover:underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      ) : (
       <div>
         {receipts.map(r => {
           const catColor = userId ? getCategoryColorDynamic(r.category || '', userId) : '#6B7280';
@@ -410,6 +525,7 @@ function ScopedReceiptList({
           );
         })}
       </div>
+      )}
     </div>
   );
 }
