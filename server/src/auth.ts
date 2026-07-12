@@ -103,7 +103,7 @@ router.post('/verify', (req: Request, res: Response) => {
   }
 });
 
-const ADMIN_EMAILS = ['cortespainter@gmail.com'];
+const ADMIN_EMAILS = ['cortespainter@gmail.com', 'alankohl@hotmail.com'];
 
 router.get('/admin/users', async (req: Request, res: Response) => {
   const auth = req.headers.authorization;
