@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, BarChart2, FileSpreadsheet, Settings } from 'lucide-react';
+import { Home, BarChart2, FileSpreadsheet, Settings, Camera } from 'lucide-react';
 import ScanModal from './ScanModal';
 import { useQueryClient } from '@tanstack/react-query';
 import SyncHealthDot from './SyncHealthDot';
@@ -30,10 +30,12 @@ const TABS_RIGHT = [
   { to: '/settings', icon: Settings,        label: 'Settings', activeColor: '#94a3b8' }, // silver
 ] as const;
 
-// Scan circle — muted pink fill + border.
-const SCAN_BORDER   = 'rgba(224,90,125,0.55)';
-const SCAN_FILL     = 'rgba(224,90,125,0.16)';
-const SCAN_LABEL    = '#888888'; // silver, matches other tab-icon default color
+// Scan circle — soft green fill (matches Alan's iOS-style reference),
+// deep-green perimeter, subtle outer halo. Camera icon in white.
+const SCAN_BORDER   = '#2f6e3f'; // deep forest green — distinct edge vs fill
+const SCAN_FILL     = 'rgba(126,199,132,0.70)'; // #7ec784 @ 70%
+const SCAN_LABEL    = '#ffffff';
+const SCAN_HALO     = 'rgba(126,199,132,0.35)';
 
 export default function BottomNav() {
   const [scanOpen, setScanOpen] = useState(false);
@@ -55,7 +57,7 @@ export default function BottomNav() {
           circle, so it centers cleanly on the same mid-line as the other
           icons.
         */}
-        <div className="relative flex items-center justify-around px-1 py-1.5 max-w-2xl mx-auto w-full">
+        <div className="relative flex items-center justify-around px-1 py-2.5 max-w-2xl mx-auto w-full">
 
           {TABS_LEFT.map(tab => <TabItem key={tab.to} {...tab} />)}
 
@@ -68,15 +70,11 @@ export default function BottomNav() {
               width: 56,
               height: 56,
               backgroundColor: SCAN_FILL,
-              border: `1.5px solid ${SCAN_BORDER}`,
+              border: `2.5px solid ${SCAN_BORDER}`,
+              boxShadow: `0 0 14px 2px ${SCAN_HALO}`,
             }}
           >
-            <span
-              className="text-[13px] tracking-wide"
-              style={{ color: SCAN_LABEL, fontWeight: 500 }}
-            >
-              Scan
-            </span>
+            <Camera size={24} strokeWidth={2} style={{ color: SCAN_LABEL }} />
           </button>
 
           {TABS_RIGHT.map(tab => <TabItem key={tab.to} {...tab} />)}
@@ -108,7 +106,7 @@ function TabItem({ to, icon: Icon, label, activeColor }: TabItemProps) {
         <>
           <span className="relative inline-flex">
             <Icon
-              size={20}
+              size={22}
               strokeWidth={isActive ? 2.5 : 1.8}
               style={{ color: isActive ? activeColor : '#888888' }}
             />

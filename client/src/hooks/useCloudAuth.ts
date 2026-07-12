@@ -55,11 +55,40 @@ export function saveCloudSettings(settings: CloudSettings, userId: string): void
 export function useCloudAuth(userId: string) {
   const [settings, setSettings] = useState<CloudSettings>(() => loadCloudSettings(userId));
 
+  // Reload from storage when the OAuth callback lands (App.tsx CloudAuthHandler
+  // writes tokens directly to localStorage before SettingsPage sees a re-render).
+  // We listen for a 'cloud_settings_updated' custom event and for storage events
+  // from other tabs. Without this, hook state stays stale and the save effect
+  // below stomps the OAuth tokens on next render — the exact bug this fixes.
   useEffect(() => {
     setSettings(loadCloudSettings(userId));
+    function reload() { setSettings(loadCloudSettings(userId)); }
+    window.addEventListener('cloud_settings_updated', reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener('cloud_settings_updated', reload);
+      window.removeEventListener('storage', reload);
+    };
   }, [userId]);
 
+  // Save only when in-memory state differs from what's on disk. Prevents the
+  // mount-time save from clobbering tokens written by CloudAuthHandler after
+  // an OAuth redirect.
   useEffect(() => {
+    const current = loadCloudSettings(userId);
+    if (JSON.stringify(current) === JSON.stringify(settings)) return;
+
+    // Conflict resolution: if disk has connected providers and memory doesn't,
+    // disk is fresher (OAuth callback wrote it between mount and now). Reload
+    // memory FROM disk instead of overwriting disk with stale memory.
+    const diskFresher =
+      (current.googleDrive.connected && !settings.googleDrive.connected) ||
+      (current.dropbox.connected     && !settings.dropbox.connected);
+    if (diskFresher) {
+      setSettings(current);
+      return;
+    }
+
     saveCloudSettings(settings, userId);
   }, [settings, userId]);
 

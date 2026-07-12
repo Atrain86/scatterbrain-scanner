@@ -422,77 +422,110 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     setSplitMode(false);
   }
 
-  // ── Collapsed badge row (store name line 1, client+cat line 1, date line 2) ──
+  // ── Collapsed row body — calm, flat style ────────────────────────────────
+  // Line 1: category dot · store name · (dim silver) category name
+  // Line 2: (dim) client · date
+  // No filled pills, no colored client badge — just a small dot and quiet text.
   function CollapsedBadges() {
     return (
-      <div className="flex-1 min-w-0 px-3 py-3">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <p className="text-white font-bold text-sm leading-tight truncate"
-             style={{ fontFamily: "'Poppins', sans-serif" }}>
+      <div className="flex-1 min-w-0 px-3 py-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className="w-2 h-2 rounded-full flex-shrink-0"
+            style={{ backgroundColor: catColor }}
+            aria-hidden="true"
+          />
+          <p
+            className="text-white font-semibold text-[15px] leading-tight truncate"
+            style={{ fontFamily: "'Poppins', sans-serif" }}
+          >
             {receipt.storeName || 'Unknown Store'}
           </p>
-          {receipt.clientName && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-none">
-              {receipt.clientName}
-            </span>
-          )}
           {receipt.category && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full leading-none"
-              style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}>
+            <span className="text-[11px] text-white/45 leading-none truncate">
               {receipt.category}
             </span>
           )}
         </div>
-        <p className="text-[11px] text-sb-muted leading-snug mt-0.5">{dateDisplay}</p>
+        <p className="text-[11px] text-white/40 leading-snug mt-1 truncate">
+          {receipt.clientName ? `${receipt.clientName}  ·  ${dateDisplay}` : dateDisplay}
+        </p>
       </div>
     );
   }
 
   return (
     <>
-      <div className={`bg-sb-card rounded-xl border transition-colors ${selected ? 'border-sb-green' : 'border-sb-border'} overflow-visible`}>
+      <div className={`transition-colors border-b border-white/[0.05] ${expanded ? 'bg-sb-card rounded-xl border border-sb-border mb-1' : selected ? 'bg-sb-green/5' : ''} overflow-visible`}>
 
-        {/* ── Collapsed row ── */}
+        {/* ── Collapsed row — flat, calm ── */}
         {!expanded && (
           <div
-            className="flex items-stretch gap-0 cursor-pointer active:bg-white/5 hover:bg-white/[0.03] transition rounded-xl"
+            className="flex items-stretch gap-0 cursor-pointer active:bg-white/[0.04] hover:bg-white/[0.02] transition"
             onClick={() => selectMode ? onToggleSelect?.(receipt.id) : setExpanded(true)}
           >
-            <div className={`flex items-center justify-center transition-all duration-200 overflow-hidden ${selectMode ? 'w-10 opacity-100' : 'w-0 opacity-0'}`}>
+            <div className={`flex items-center justify-center transition-all duration-200 overflow-hidden ${selectMode ? 'w-9 opacity-100' : 'w-0 opacity-0'}`}>
               <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${selected ? 'bg-sb-green border-sb-green' : 'border-sb-muted bg-transparent'}`}>
                 {selected && <Check size={11} className="text-black" strokeWidth={3} />}
               </div>
             </div>
-            <span className="w-1 rounded-l-xl flex-shrink-0 self-stretch" style={{ backgroundColor: catColor, minHeight: 52 }} />
             <CollapsedBadges />
-            <div className="flex flex-col items-center justify-between px-3 py-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+            <div className="flex flex-col items-end justify-between pr-3 pl-2 py-2.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+              <span className="text-sb-green font-bold text-[15px] leading-tight">${receipt.total.toFixed(2)}</span>
               {confirmDelete ? (
                 <button onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }} onBlur={() => setConfirmDelete(false)}
-                  className="text-red-400 bg-red-950/40 rounded-lg p-1 transition"><Trash2 size={14} /></button>
+                  className="text-red-400 bg-red-950/30 rounded p-0.5 transition mt-1"><Trash2 size={12} /></button>
               ) : (
                 <button onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
-                  className="text-sb-muted hover:text-red-400 transition p-1"><Trash2 size={14} /></button>
+                  className="text-white/25 hover:text-red-400 transition p-0.5 mt-1"><Trash2 size={12} /></button>
               )}
-              <span className="text-sb-green font-bold text-sm leading-tight mt-1">${receipt.total.toFixed(2)}</span>
             </div>
           </div>
         )}
 
-        {/* ── Expanded detail ── */}
-        {expanded && (
-          <div className="animate-fade-in">
+        {/* ── Expanded detail ──
+            Background tap = smart close. Any tap on inert padding/background
+            (via handleBgTap on the currentTarget) FIRST exits pencil/split/
+            picker modes if active; if none, collapses the card. Only fires
+            when the tap TARGET IS the padded background element itself, not
+            a bubbled click from a button — so buttons don't need per-button
+            stopPropagation calls.
+        */}
+        {expanded && (() => {
+          // Smart background tap. Fires ONLY if the tap didn't land on (or
+          // inside) an interactive element (button, input, textarea, or
+          // anything with data-interactive="true"). This is more permissive
+          // than e.target === e.currentTarget — a tap on plain <span> text
+          // in a row correctly counts as a background tap.
+          const handleBgTap = (e: React.MouseEvent) => {
+            const t = e.target as HTMLElement;
+            if (t.closest('button, input, textarea, [data-interactive="true"]')) return;
+            if (editingStore)   { setEditingStore(false); return; }
+            if (editingItems)   { setEditingItems(false); return; }
+            if (splitMode)      { setSplitMode(false); return; }
+            if (showClientPicker) { setShowClientPicker(false); return; }
+            if (showCatPicker)    { setShowCatPicker(false);    return; }
+            setExpanded(false);
+          };
+        return (
+          <div className="animate-fade-in" onClick={handleBgTap}>
 
-            {/* Tap-to-close strip at top */}
-            <div className="flex justify-center pt-2 pb-0 cursor-pointer"
-              onClick={() => { if (!anyEditActive) setExpanded(false); }}>
+            {/* Tap-to-close strip at top — also smart-close on the strip itself */}
+            <div className="flex justify-center pt-2 pb-0 cursor-pointer" onClick={handleBgTap}>
               <div className="w-10 h-1 rounded-full bg-white/15" />
             </div>
 
-            {/* ── Header ── */}
-            <div className="px-3 pt-2 pb-2.5" onClick={e => e.stopPropagation()}>
+            {/* ── Header ──
+                Both wrappers (the outer padded div AND the flex row) attach
+                handleBgTap so taps on the empty gap between store name and
+                client/category badges close/exit-edit. Buttons inside handle
+                their own clicks — because e.target !== e.currentTarget, the
+                tap won't fall through.
+            */}
+            <div className="px-3 pt-2 pb-2.5" onClick={handleBgTap}>
 
               {/* Line 1: store name · client · category · trash */}
-              <div className="flex items-center gap-1.5 min-w-0 mb-1.5">
+              <div className="flex items-center gap-1.5 min-w-0 mb-1.5" onClick={handleBgTap}>
                 <div className="flex-1 min-w-0">
                   {editingStore ? (
                     <input ref={storeInputRef} value={editStore}
@@ -587,7 +620,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               </div>
 
               {/* Line 2: date · [Split] · pencil · share · total */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2" onClick={handleBgTap}>
                 <span className="text-[11px] text-sb-muted flex-shrink-0">{dateDisplay}</span>
 
                 {/* Split — wide muted green, centered between date and right icons */}
@@ -631,17 +664,24 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               </div>
             </div>
 
-            {/* ── Line items (pencil mode) ── */}
+            {/* ── Line items (pencil mode) ──
+                Taps on the padded background around/below the items call
+                handleBgTap so this area also closes the card / exits edit.
+                Row clicks (checkbox toggles in editingItems mode) fire on
+                inner elements — e.target !== currentTarget so bg tap skips.
+            */}
             {!splitMode && (
               <div className="px-4 pb-3 border-t border-sb-border pt-3 space-y-0.5"
-                onClick={e => { if (editingItems) e.stopPropagation(); else { e.stopPropagation(); if (!anyEditActive) setExpanded(false); } }}>
+                onClick={handleBgTap}>
                 {productItems.map((item, i) => {
                   const originalIndex = allLineItems.indexOf(item);
                   const checked = checkedItems.has(originalIndex);
                   return (
                     <div key={i}
-                      onClick={() => {
+                      {...(editingItems ? { 'data-interactive': 'true' } : {})}
+                      onClick={e => {
                         if (!editingItems) return;
+                        e.stopPropagation();
                         setCheckedItems(prev => {
                           const next = new Set(prev);
                           next.has(originalIndex) ? next.delete(originalIndex) : next.add(originalIndex);
@@ -689,9 +729,14 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               </div>
             )}
 
-            {/* ── Split mode ── */}
+            {/* ── Split mode ──
+                Removed the outer stopPropagation so background taps in
+                split area exit split mode (handleBgTap's priority chain).
+                Interactive rows/buttons inside protect themselves via
+                data-interactive="true" or e.stopPropagation() in onClick.
+            */}
             {splitMode && (
-              <div className="border-t border-sb-border" onClick={e => e.stopPropagation()}>
+              <div className="border-t border-sb-border" onClick={handleBgTap}>
                 <div className="px-3 py-2 bg-sb-green/5 border-b border-sb-border">
                   <p className="text-[11px] text-sb-green font-medium">Select items to split into a new receipt</p>
                 </div>
@@ -702,7 +747,9 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                     const checked = splitChecked.has(originalIndex);
                     return (
                       <div key={i} className="flex items-center gap-2 py-1.5 cursor-pointer hover:bg-white/5 rounded-lg px-1 active:bg-white/10"
-                        onClick={() => {
+                        data-interactive="true"
+                        onClick={e => {
+                          e.stopPropagation();
                           setSplitChecked(prev => {
                             const next = new Set(prev);
                             next.has(originalIndex) ? next.delete(originalIndex) : next.add(originalIndex);
@@ -793,7 +840,8 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               </div>
             )}
           </div>
-        )}
+        );
+        })()}
       </div>
 
       {shareOpen && <ShareModal receipt={receipt} onClose={() => setShareOpen(false)} />}
