@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import { Tag, Receipt as ReceiptIcon, Download, ChevronDown, Check, Funnel } from 'lucide-react';
+import { Tag, Receipt as ReceiptIcon, Download, ChevronDown, ChevronRight, Check, Funnel } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
@@ -57,6 +57,22 @@ export default function DashboardPage() {
   // to clear when they move away.
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const categories = useMemo(() => (userId ? getAllCategories(userId) : []), [userId]);
+
+  // Selection for Stage 2 (scoped share). Default: everything currently in
+  // scope is selected; the user unchecks the ones they want to EXCLUDE from
+  // the share. Storing exclusions (not inclusions) means that when a scope
+  // change reveals a new receipt, it's automatically selected — which
+  // matches user intent ("share everything I'm looking at").
+  const [deselectedUuids, setDeselectedUuids] = useState<Set<string>>(new Set());
+  function toggleSelection(uuid: string) {
+    setDeselectedUuids(prev => {
+      const next = new Set(prev);
+      if (next.has(uuid)) next.delete(uuid); else next.add(uuid);
+      return next;
+    });
+  }
+  function selectAllInScope() { setDeselectedUuids(new Set()); }
+  function selectNoneInScope(uuids: string[]) { setDeselectedUuids(new Set(uuids)); }
 
   // NOTE: no auto-reset when year/range changes. The user's category filter
   // is intentional — e.g. narrowing to Q1 while filtered on Auto/Gas SHOULD
@@ -127,6 +143,14 @@ export default function DashboardPage() {
       scopedReceipts: scopedSorted,
     };
   }, [receipts, yearStr, userId, rangeStart, rangeEnd, categoryFilter]);
+
+  // Selected subset of the scoped list — everything not in deselectedUuids.
+  // Drives the Stage 3 share action + the header "N selected · $total".
+  const selectedReceipts = useMemo(
+    () => stats.scopedReceipts.filter(r => !!r.uuid && !deselectedUuids.has(r.uuid)),
+    [stats.scopedReceipts, deselectedUuids],
+  );
+  const selectedTotal = selectedReceipts.reduce((s, r) => s + r.total, 0);
 
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
@@ -260,6 +284,12 @@ export default function DashboardPage() {
                 allCategories={categories}
                 categoryFilter={categoryFilter}
                 onCategoryFilterChange={setCategoryFilter}
+                deselectedUuids={deselectedUuids}
+                onToggleSelection={toggleSelection}
+                onSelectAll={selectAllInScope}
+                onSelectNone={() => selectNoneInScope(stats.scopedReceipts.map(r => r.uuid).filter(Boolean) as string[])}
+                selectedCount={selectedReceipts.length}
+                selectedTotal={selectedTotal}
                 onOpenOnHome={uuid => navigate(`/receipts?receipt=${encodeURIComponent(uuid)}`)}
               />
             )}
@@ -381,15 +411,27 @@ function ScopedReceiptList({
   allCategories,
   categoryFilter,
   onCategoryFilterChange,
+  deselectedUuids,
+  onToggleSelection,
+  onSelectAll,
+  onSelectNone,
+  selectedCount,
+  selectedTotal,
   onOpenOnHome,
 }: {
   receipts: Receipt[];
   userId: string | undefined;
   isFullYear: boolean;
-  availableCategories: { name: string; color: string }[]; // only categories with data in the current range
-  allCategories: { name: string; color: string }[];       // full palette, for tint when filtered on an empty-scope category
+  availableCategories: { name: string; color: string }[];
+  allCategories: { name: string; color: string }[];
   categoryFilter: string | null;
   onCategoryFilterChange: (next: string | null) => void;
+  deselectedUuids: Set<string>;
+  onToggleSelection: (uuid: string) => void;
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+  selectedCount: number;
+  selectedTotal: number;
   onOpenOnHome: (uuid: string) => void;
 }) {
   const [showCatPicker, setShowCatPicker] = useState(false);
@@ -410,7 +452,7 @@ function ScopedReceiptList({
 
   return (
     <div className="bg-sb-card border border-sb-border rounded-2xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between">
+      <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between gap-3">
         <div className="flex flex-col min-w-0">
           <p className="text-white/70 text-[11px] uppercase tracking-wider font-medium truncate">
             {categoryFilter
@@ -419,9 +461,17 @@ function ScopedReceiptList({
                 ? 'Receipts this year'
                 : 'Receipts in range'}
           </p>
-          <p className="text-white/40 text-[11px] mt-0.5">
-            {receipts.length} · read-only
+          <p className="text-white/70 text-[12px] mt-0.5 truncate">
+            <span className="text-sb-green font-semibold">{selectedCount}</span>
+            <span className="text-white/50"> of {receipts.length} selected · </span>
+            <span className="text-sb-green font-semibold">${selectedTotal.toFixed(2)}</span>
           </p>
+          {receipts.length > 0 && (
+            <div className="flex gap-3 mt-1 text-[11px]">
+              <button onClick={onSelectAll}  className="text-white/50 hover:text-white transition">All</button>
+              <button onClick={onSelectNone} className="text-white/50 hover:text-white transition">None</button>
+            </div>
+          )}
         </div>
 
         {/* Silver funnel — same visual pattern as Home's search-bar filter.
@@ -486,43 +536,69 @@ function ScopedReceiptList({
       <div>
         {receipts.map(r => {
           const catColor = userId ? getCategoryColorDynamic(r.category || '', userId) : '#6B7280';
+          const uuid = r.uuid || '';
+          const isDeselected = !!uuid && deselectedUuids.has(uuid);
+          const isSelected   = !isDeselected;
           return (
-            <button
+            <div
               key={r.id}
-              onClick={() => r.uuid && onOpenOnHome(r.uuid)}
-              className="w-full flex items-stretch text-left border-b border-white/[0.05] last:border-0 hover:bg-white/[0.02] active:bg-white/[0.04] transition"
+              className={`w-full flex items-stretch border-b border-white/[0.05] last:border-0 transition ${isDeselected ? 'opacity-50' : ''}`}
             >
-              <div className="flex-1 min-w-0 px-3 py-2.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span
-                    className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: catColor }}
-                    aria-hidden="true"
-                  />
-                  <p
-                    className="text-white font-semibold text-[15px] leading-tight truncate"
-                    style={{ fontFamily: "'Poppins', sans-serif" }}
-                  >
-                    {r.storeName || 'Unknown Store'}
+              {/* Whole-body tap = toggle selection. Primary action for this
+                  surface since Dashboard is about picking WHAT TO SHARE. */}
+              <button
+                onClick={() => uuid && onToggleSelection(uuid)}
+                className="flex-1 min-w-0 flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-white/[0.02] active:bg-white/[0.04] transition"
+              >
+                {/* Checkbox */}
+                <span
+                  aria-hidden="true"
+                  className={`mt-0.5 w-[18px] h-[18px] rounded-md flex-shrink-0 flex items-center justify-center border-2 transition-colors ${isSelected ? 'bg-sb-green border-sb-green' : 'border-white/25 bg-transparent'}`}
+                >
+                  {isSelected && <Check size={11} className="text-black" strokeWidth={3} />}
+                </span>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: catColor }}
+                      aria-hidden="true"
+                    />
+                    <p
+                      className="text-white font-semibold text-[15px] leading-tight truncate"
+                      style={{ fontFamily: "'Poppins', sans-serif" }}
+                    >
+                      {r.storeName || 'Unknown Store'}
+                    </p>
+                    {r.category && (
+                      <span className="text-[11px] text-white/45 leading-none truncate">
+                        {r.category}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-white/40 leading-snug mt-1 truncate">
+                    {r.clientName
+                      ? `${r.clientName}  ·  ${formatShortDate(r.receiptDate)}`
+                      : formatShortDate(r.receiptDate)}
                   </p>
-                  {r.category && (
-                    <span className="text-[11px] text-white/45 leading-none truncate">
-                      {r.category}
-                    </span>
-                  )}
                 </div>
-                <p className="text-[11px] text-white/40 leading-snug mt-1 truncate">
-                  {r.clientName
-                    ? `${r.clientName}  ·  ${formatShortDate(r.receiptDate)}`
-                    : formatShortDate(r.receiptDate)}
-                </p>
-              </div>
-              <div className="flex items-center pr-3 pl-2 flex-shrink-0">
-                <span className="text-sb-green font-bold text-[15px] leading-tight">
+                <span className="text-sb-green font-bold text-[15px] leading-tight flex-shrink-0 pl-2">
                   ${r.total.toFixed(2)}
                 </span>
-              </div>
-            </button>
+              </button>
+
+              {/* Secondary action: chevron → deep-link to Home for editing.
+                  Deliberately small so it doesn't compete with the whole-row
+                  select tap. */}
+              <button
+                onClick={() => uuid && onOpenOnHome(uuid)}
+                aria-label="Open on Home"
+                className="flex items-center justify-center pr-3 pl-1 text-white/30 hover:text-white/70 transition"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
           );
         })}
       </div>
