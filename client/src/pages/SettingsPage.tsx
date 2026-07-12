@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, Activity, ChevronDown, DownloadCloud, Download, Users, LogOut, Shield, Archive } from 'lucide-react';
+import { Tag, Plus, Trash2, Cloud, Info, Activity, ChevronDown, DownloadCloud, Download, Users, LogOut, Shield, Archive } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.16.0-headers.1';
+export const APP_VERSION = '0.17.0-settings-reorder.1';
 
 interface CustomCategory {
   name: string;
@@ -76,6 +76,11 @@ export default function SettingsPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const userId = user!.id;
+  // Admin-gated UI. Kept as an allowlist of my emails so I can debug/support
+  // from either account. Server-side ADMIN_EMAILS in auth.ts is the actual
+  // authorization boundary; this is UI-visibility only.
+  const ADMIN_EMAILS = ['cortespainter@gmail.com', 'alankohl@hotmail.com'];
+  const isAdmin = !!user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase());
   const { settings: cloudSettings, connectToProvider, disconnectProvider, setPrimaryProvider, toggleAutoSync } = useCloudAuth(userId);
 
   const [isSyncing, setIsSyncing] = useState(false);
@@ -236,6 +241,86 @@ export default function SettingsPage() {
 
       <main className="flex-1 px-4 py-4 pb-24 space-y-4 max-w-2xl mx-auto w-full">
 
+        {/* Receipts — all-years total, glanceable count on the collapsed header */}
+        <Section
+          icon={<Activity size={16} />}
+          title="Receipts"
+          defaultOpen={false}
+          headerMeta={scanStats ? String(scanStats.receiptCount) : undefined}
+        >
+          {scanStats === null ? (
+            <p className="text-sb-muted text-xs">Loading…</p>
+          ) : scanStats.receiptCount === 0 ? (
+            <p className="text-xs text-sb-muted">No receipts yet. Scan your first receipt to start tracking expenses.</p>
+          ) : (
+            <div className="space-y-2 text-sm">
+              <StatRow label="Receipts stored" value={String(scanStats.receiptCount)} />
+              <p className="text-[11px] text-sb-muted pt-1 opacity-70">
+                Stored locally in your browser (IndexedDB). Back up via Google Drive or Dropbox below.
+              </p>
+            </div>
+          )}
+        </Section>
+
+        {/* Categories */}
+        <Section icon={<Tag size={16} />} title="Categories" defaultOpen={false}>
+          <div className="space-y-1.5 mb-4">
+            {customCategories.length === 0 ? (
+              <p className="text-xs text-sb-muted italic">No categories yet. Add one below.</p>
+            ) : (
+              customCategories.map(cat => (
+                <div key={cat.name} className="flex items-center justify-between bg-sb-card2 border border-sb-border rounded-xl px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                    <span className="text-white text-sm">{cat.name}</span>
+                  </div>
+                  <button onClick={() => removeCategory(cat.name)} className="text-sb-muted hover:text-red-400 transition p-1">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="border border-sb-border rounded-xl p-3 space-y-3">
+            <p className="text-xs text-sb-muted font-medium">Add category</p>
+            <input
+              value={newCatName}
+              onChange={e => { setNewCatName(e.target.value); setCatError(''); }}
+              onKeyDown={e => e.key === 'Enter' && addCategory()}
+              placeholder="Category name"
+              className="sb-input"
+            />
+            <div>
+              <p className="text-xs text-sb-muted mb-2">
+                Color
+                <span className="ml-2 inline-block w-4 h-4 rounded-full align-middle border border-white/20" style={{ backgroundColor: newCatColor }} />
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {PALETTE_COLORS.map(color => (
+                  <button
+                    key={color}
+                    onClick={() => setNewCatColor(color)}
+                    title={color}
+                    className="w-8 h-8 rounded-full transition hover:scale-110 active:scale-95 flex-shrink-0"
+                    style={{
+                      backgroundColor: color,
+                      outline: newCatColor === color ? '2px solid white' : '2px solid transparent',
+                      outlineOffset: '2px',
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+            {catError && <p className="text-red-400 text-xs">{catError}</p>}
+            <button
+              onClick={addCategory}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted transition"
+            >
+              <Plus size={15} /> {newCatName.trim() ? 'Save Category' : 'Add Category'}
+            </button>
+          </div>
+        </Section>
+
         {/* Clients */}
         <Section icon={<Users size={16} />} title="Clients" defaultOpen={false}>
           <div className="space-y-1.5 mb-4">
@@ -268,106 +353,6 @@ export default function SettingsPage() {
             >
               <Plus size={15} /> Add Client
             </button>
-          </div>
-        </Section>
-
-        {/* Categories */}
-        <Section icon={<Tag size={16} />} title="Categories" defaultOpen={false}>
-          {/* All categories — custom ones are deletable */}
-          <div className="space-y-1.5 mb-4">
-            {customCategories.length === 0 ? (
-              <p className="text-xs text-sb-muted italic">No categories yet. Add one below.</p>
-            ) : (
-              customCategories.map(cat => (
-                <div key={cat.name} className="flex items-center justify-between bg-sb-card2 border border-sb-border rounded-xl px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                    <span className="text-white text-sm">{cat.name}</span>
-                  </div>
-                  <button onClick={() => removeCategory(cat.name)} className="text-sb-muted hover:text-red-400 transition p-1">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Add category form */}
-          <div className="border border-sb-border rounded-xl p-3 space-y-3">
-            <p className="text-xs text-sb-muted font-medium">Add category</p>
-            <input
-              value={newCatName}
-              onChange={e => { setNewCatName(e.target.value); setCatError(''); }}
-              onKeyDown={e => e.key === 'Enter' && addCategory()}
-              placeholder="Category name"
-              className="sb-input"
-            />
-            {/* Visual color grid */}
-            <div>
-              <p className="text-xs text-sb-muted mb-2">
-                Color
-                <span className="ml-2 inline-block w-4 h-4 rounded-full align-middle border border-white/20" style={{ backgroundColor: newCatColor }} />
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {PALETTE_COLORS.map(color => (
-                  <button
-                    key={color}
-                    onClick={() => setNewCatColor(color)}
-                    title={color}
-                    className="w-8 h-8 rounded-full transition hover:scale-110 active:scale-95 flex-shrink-0"
-                    style={{
-                      backgroundColor: color,
-                      outline: newCatColor === color ? '2px solid white' : '2px solid transparent',
-                      outlineOffset: '2px',
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-            {catError && <p className="text-red-400 text-xs">{catError}</p>}
-            <button
-              onClick={addCategory}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted transition"
-            >
-              <Plus size={15} /> {newCatName.trim() ? 'Save Category' : 'Add Category'}
-            </button>
-          </div>
-        </Section>
-
-        {/* Export */}
-        <Section icon={<FileSpreadsheet size={16} />} title="Export">
-          <p className="text-xs text-sb-muted">
-            Download your expense spreadsheet from the{' '}
-            <button onClick={() => navigate('/export')} className="text-sb-green hover:underline">
-              Export page
-            </button>
-            . Excel (.xlsx) with a summary sheet and one sheet per category.
-          </p>
-        </Section>
-
-        {/* Complete Backup — full JSON dump of data + photos.
-            Lives in Settings (not Export) because it's a safety/maintenance
-            action, not part of the accountant-facing export flow. */}
-        <Section icon={<Archive size={16} />} title="Complete Backup">
-          <div className="space-y-3">
-            <p className="text-white text-sm">
-              Full backup of every receipt — data <em>and</em> photos — as a single JSON file.
-            </p>
-            <p className="text-sb-muted text-xs leading-snug">
-              Recommended before signing out or clearing browser data. The file will be
-              large (~1&nbsp;MB per 10&nbsp;receipts with photos).
-            </p>
-            <button
-              onClick={handleFullBackup}
-              disabled={isBackingUp}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted disabled:opacity-40 transition"
-            >
-              <Download size={15} />
-              {isBackingUp ? 'Preparing…' : 'Download Complete Backup (.json)'}
-            </button>
-            {backupError && (
-              <p className="text-red-400 text-xs">{backupError}</p>
-            )}
           </div>
         </Section>
 
@@ -428,31 +413,6 @@ export default function SettingsPage() {
                     {restoreError}
                   </p>
                 )}
-
-                {/* One-time cleanup for legacy duplicate files */}
-                <div className="rounded-2xl border border-sb-border bg-sb-card p-3 space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-white text-sm">Clean up Drive duplicates</p>
-                      <p className="text-xs text-sb-muted">Remove duplicate receipt files created by earlier sync bugs. Run once.</p>
-                    </div>
-                    <button
-                      onClick={handleCleanupDuplicates}
-                      disabled={isCleaningUp}
-                      className={`rounded-full px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition ${isCleaningUp ? 'bg-sb-border text-white cursor-not-allowed' : 'bg-sb-purple text-white'}`}
-                    >
-                      {isCleaningUp ? 'Cleaning…' : 'Clean up'}
-                    </button>
-                  </div>
-                  {cleanupResult && !isCleaningUp && (
-                    <p className="text-xs text-sb-green">
-                      {cleanupResult.deleted === 0
-                        ? `Scanned ${cleanupResult.scanned} files — no duplicates found.`
-                        : `Deleted ${cleanupResult.deleted} duplicate${cleanupResult.deleted !== 1 ? 's' : ''} from ${cleanupResult.scanned} files.`}
-                      {cleanupResult.errors.length > 0 && ` (${cleanupResult.errors.length} errors)`}
-                    </p>
-                  )}
-                </div>
               </div>
             )}
             <CloudRow
@@ -496,14 +456,42 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              <CloudDiagnostic userId={userId} />
-              <RefreshTokenTester userId={userId} />
-              <DriveAuditButton userId={userId} />
-              <LocalReceiptsAuditButton userId={userId} />
-              <LocalDedupeButton userId={userId} />
-              <YearCleanupButton userId={userId} />
-              <PaletteMigrationButton userId={userId} />
             </div>
+
+            {/* Troubleshooting — user-facing tools only.
+                Raw diagnostics live under Administrator (admin-gated). */}
+            <details className="rounded-2xl border border-sb-border bg-sb-card2 p-3 group">
+              <summary className="flex items-center justify-between cursor-pointer text-sm text-white/80 list-none">
+                <span>Troubleshooting</span>
+                <ChevronDown size={14} className="text-sb-muted transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="pt-3 space-y-3">
+                <DriveAuditButton userId={userId} label="Check backup status" />
+                <div className="rounded-2xl border border-sb-border bg-sb-card p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-white text-sm">Clean up duplicates</p>
+                      <p className="text-xs text-sb-muted">Remove duplicate receipt files created by earlier sync bugs.</p>
+                    </div>
+                    <button
+                      onClick={handleCleanupDuplicates}
+                      disabled={isCleaningUp}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition ${isCleaningUp ? 'bg-sb-border text-white cursor-not-allowed' : 'bg-sb-purple text-white'}`}
+                    >
+                      {isCleaningUp ? 'Cleaning…' : 'Clean up'}
+                    </button>
+                  </div>
+                  {cleanupResult && !isCleaningUp && (
+                    <p className="text-xs text-sb-green">
+                      {cleanupResult.deleted === 0
+                        ? `Scanned ${cleanupResult.scanned} files — no duplicates found.`
+                        : `Deleted ${cleanupResult.deleted} duplicate${cleanupResult.deleted !== 1 ? 's' : ''} from ${cleanupResult.scanned} files.`}
+                      {cleanupResult.errors.length > 0 && ` (${cleanupResult.errors.length} errors)`}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </details>
             {cloudSettings.googleDrive.connected && cloudSettings.dropbox.connected && (
               <div className="space-y-2 rounded-2xl border border-sb-border bg-sb-card2 p-3 text-sm text-sb-muted">
                 <p className="text-white font-medium">Primary provider</p>
@@ -529,25 +517,36 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* Receipt Stats */}
-        <Section icon={<Activity size={16} />} title="Receipts">
-          {scanStats === null ? (
-            <p className="text-sb-muted text-xs">Loading…</p>
-          ) : scanStats.receiptCount === 0 ? (
-            <p className="text-xs text-sb-muted">No receipts yet. Scan your first receipt to start tracking expenses.</p>
-          ) : (
-            <div className="space-y-2 text-sm">
-              <StatRow label="Receipts stored" value={String(scanStats.receiptCount)} />
-              <p className="text-[11px] text-sb-muted pt-1 opacity-70">
-                Stored locally in your browser (IndexedDB). Back up via Google Drive or Dropbox above.
-              </p>
-            </div>
-          )}
+        {/* Complete Backup — full JSON dump of data + photos.
+            Sits after Cloud Backup because it's a manual safety/maintenance
+            action; Cloud Backup is the primary/automatic path. */}
+        <Section icon={<Archive size={16} />} title="Complete Backup" defaultOpen={false}>
+          <div className="space-y-3">
+            <p className="text-white text-sm">
+              Full backup of every receipt — data <em>and</em> photos — as a single JSON file.
+            </p>
+            <p className="text-sb-muted text-xs leading-snug">
+              Recommended before signing out or clearing browser data. The file will be
+              large (~1&nbsp;MB per 10&nbsp;receipts with photos).
+            </p>
+            <button
+              onClick={handleFullBackup}
+              disabled={isBackingUp}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted disabled:opacity-40 transition"
+            >
+              <Download size={15} />
+              {isBackingUp ? 'Preparing…' : 'Download Complete Backup (.json)'}
+            </button>
+            {backupError && (
+              <p className="text-red-400 text-xs">{backupError}</p>
+            )}
+          </div>
         </Section>
 
-        {/* About */}
-        <Section icon={<Info size={16} />} title="About">
-          <div className="space-y-2 text-sm">
+        {/* About — version, account, Sign Out. Dev/admin tools live under
+            Administrator (admin-gated) below. */}
+        <Section icon={<Info size={16} />} title="About" defaultOpen={false}>
+          <div className="space-y-3 text-sm">
             <div className="flex justify-between">
               <span className="text-sb-muted">Version</span>
               <span className="text-white">{APP_VERSION}</span>
@@ -556,24 +555,19 @@ export default function SettingsPage() {
               <span className="text-sb-muted">Account</span>
               <span className="text-white text-xs truncate max-w-[180px]">{user?.email}</span>
             </div>
-            {/* Temp: copy Google refresh token for Render GOOGLE_USERS_REFRESH_TOKEN setup */}
-            <ServerTokenCopier userId={userId} />
+            <button
+              onClick={logout}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-sb-border text-sb-muted hover:text-red-400 hover:border-red-900/50 transition text-sm mt-2"
+            >
+              <LogOut size={15} />
+              Sign Out
+            </button>
           </div>
         </Section>
 
-        {/* Admin — only visible to admin account */}
-        {user?.email?.toLowerCase() === 'cortespainter@gmail.com' && (
-          <AdminPanel />
-        )}
-
-        {/* Sign out */}
-        <button
-          onClick={logout}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-sb-border text-sb-muted hover:text-red-400 hover:border-red-900/50 transition text-sm"
-        >
-          <LogOut size={15} />
-          Sign Out
-        </button>
+        {/* Administrator — admin allowlist only. Raw diagnostics + one-time
+            migrations kept for support/debugging. Hidden from normal users. */}
+        {isAdmin && <AdminPanel userId={userId} />}
 
       </main>
     </div>
@@ -582,7 +576,7 @@ export default function SettingsPage() {
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '';
 
-function AdminPanel() {
+function AdminPanel({ userId }: { userId: string }) {
   const [users, setUsers] = useState<{ id: string; email: string; createdAt: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -605,8 +599,10 @@ function AdminPanel() {
   }
 
   return (
-    <Section icon={<Shield size={16} />} title="Admin" defaultOpen={false}>
+    <Section icon={<Shield size={16} />} title="Administrator" defaultOpen={false}>
       <div className="space-y-3">
+
+        {/* Beta users */}
         {!loaded ? (
           <button
             onClick={loadUsers}
@@ -628,6 +624,19 @@ function AdminPanel() {
             </div>
           </div>
         )}
+
+        {/* Raw diagnostics — moved here from Cloud Backup + About.
+            Order intentionally matches the debugging workflow: token copy →
+            cloud state → refresh test → drive audit → local audits →
+            migrations. */}
+        <ServerTokenCopier userId={userId} />
+        <CloudDiagnostic userId={userId} />
+        <RefreshTokenTester userId={userId} />
+        <DriveAuditButton userId={userId} label="Audit Drive vs local" />
+        <LocalReceiptsAuditButton userId={userId} />
+        <LocalDedupeButton userId={userId} />
+        <YearCleanupButton userId={userId} />
+        <PaletteMigrationButton userId={userId} />
       </div>
     </Section>
   );
@@ -945,7 +954,7 @@ function RefreshTokenTester({ userId }: { userId: string }) {
 // local IndexedDB, reports duplicates + missing UUIDs. No writes, no deletes.
 // Purpose: before archiving the current dirty folder, confirm every local UUID
 // is represented at least once so we KNOW the archive is a complete superset.
-function DriveAuditButton({ userId }: { userId: string }) {
+function DriveAuditButton({ userId, label = 'Audit Drive vs local' }: { userId: string; label?: string }) {
   const [state, setState] = useState<'idle' | 'auditing' | 'done' | 'error'>('idle');
   const [message, setMessage] = useState<string>('');
 
@@ -982,14 +991,14 @@ function DriveAuditButton({ userId }: { userId: string }) {
   }
 
   return (
-    <div className="pt-2 border-t border-sb-border mt-2">
-      <p className="text-xs text-sb-muted mb-2">Audit Drive vs local — enumerate the current Drive folder and compare to phone IndexedDB. Read-only, no writes.</p>
+    <div className="rounded-2xl border border-sb-border bg-sb-card p-3">
+      <p className="text-xs text-sb-muted mb-2">Compares your Drive folder to what's on this device. Read-only, no writes.</p>
       <button
         onClick={runAudit}
         disabled={state === 'auditing'}
         className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition disabled:opacity-50"
       >
-        {state === 'auditing' ? 'Auditing…' : 'Audit Drive vs local'}
+        {state === 'auditing' ? 'Checking…' : label}
       </button>
       {message && (
         <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg p-2 text-[11px] leading-snug ${state === 'done' ? 'bg-sb-card text-sb-green' : 'bg-sb-card text-red-300'}`}>
@@ -1400,7 +1409,15 @@ function LocalReceiptsAuditButton({ userId }: { userId: string }) {
   );
 }
 
-function Section({ icon, title, children, defaultOpen = true }: { icon: React.ReactNode; title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+function Section({
+  icon, title, children, defaultOpen = true, headerMeta,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  headerMeta?: React.ReactNode;   // Optional glanceable value shown on collapsed header (e.g. "86")
+}) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="bg-sb-card border border-sb-border rounded-2xl overflow-hidden">
@@ -1412,7 +1429,10 @@ function Section({ icon, title, children, defaultOpen = true }: { icon: React.Re
           <span className="text-sb-green">{icon}</span>
           <h2 className="text-sm font-semibold text-white uppercase tracking-wider">{title}</h2>
         </div>
-        <ChevronDown size={16} className={`text-sb-muted transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        <div className="flex items-center gap-3">
+          {headerMeta && <span className="text-white/60 text-sm font-semibold">{headerMeta}</span>}
+          <ChevronDown size={16} className={`text-sb-muted transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        </div>
       </button>
       {open && <div className="px-4 pb-4 pt-1">{children}</div>}
     </div>
