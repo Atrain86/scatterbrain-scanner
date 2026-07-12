@@ -58,10 +58,11 @@ export default function DashboardPage() {
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const categories = useMemo(() => (userId ? getAllCategories(userId) : []), [userId]);
 
-  // Reset the category filter whenever the year or range changes — otherwise
-  // a filter from one scope silently persists into the next and can produce
-  // an empty list that looks broken.
-  useEffect(() => { setCategoryFilter(null); }, [selectedYear, rangeStart, rangeEnd]);
+  // NOTE: no auto-reset when year/range changes. The user's category filter
+  // is intentional — e.g. narrowing to Q1 while filtered on Auto/Gas SHOULD
+  // hold the filter, not silently clear it. If the new scope has zero
+  // matches, the empty state ("No receipts match this filter" + Clear
+  // button) makes the situation legible without dropping the user's intent.
 
   // Clamp: if the stored year isn't in the available set (e.g. that year's
   // receipts were all deleted), fall back to thisYear so we don't show empty.
