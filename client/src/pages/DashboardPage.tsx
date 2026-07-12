@@ -8,6 +8,7 @@ import { useReceipts } from '../hooks/useReceipts';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPref } from '../lib/userStorage';
 import { getCategoryColorDynamic } from '../utils/types';
+import MonthRangeSlider from '../components/MonthRangeSlider';
 
 // Phase 6 Stage 1 — Dashboard (analysis lens; NO writes, read-only)
 // Absorbs the prior-year drilldown that got removed from Home in Phase 3.
@@ -39,6 +40,15 @@ export default function DashboardPage() {
     'dashboard_selected_year',
     thisYear,
   );
+  // Persist month range so users don't lose their scope on reload.
+  // Stored as [start,end] month indices 0..11. Default = full year [0,11].
+  const [range, setRange] = useUserPref<[number, number]>(
+    userId,
+    'dashboard_month_range',
+    [0, 11],
+  );
+  const [rangeStart, rangeEnd] = range;
+  const isFullYear = rangeStart === 0 && rangeEnd === 11;
 
   // Clamp: if the stored year isn't in the available set (e.g. that year's
   // receipts were all deleted), fall back to thisYear so we don't show empty.
@@ -47,36 +57,43 @@ export default function DashboardPage() {
   const yearStr = String(effectiveYear);
 
   const stats = useMemo(() => {
-    const yearReceipts = receipts.filter(r => (r.receiptDate || '').startsWith(yearStr));
-    const yearTotal = yearReceipts.reduce((s, r) => s + r.total, 0);
+    // Range filter: receiptDate is 'YYYY-MM-DD'. Month component is chars 5-6
+    // as 1-based, so subtract 1 to get 0..11.
+    const inRange = (r: { receiptDate: string | null }) => {
+      const d = r.receiptDate || '';
+      if (!d.startsWith(yearStr)) return false;
+      const m = Number(d.slice(5, 7)) - 1;
+      return m >= rangeStart && m <= rangeEnd;
+    };
+
+    const scoped   = receipts.filter(inRange);
+    const total    = scoped.reduce((s, r) => s + r.total, 0);
 
     const byCat: Record<string, number> = {};
-    yearReceipts.forEach(r => {
+    scoped.forEach(r => {
       const name = r.category || 'Uncategorized';
       byCat[name] = (byCat[name] ?? 0) + r.total;
     });
 
     const categoryData = Object.entries(byCat)
-      .filter(([, total]) => total > 0)
+      .filter(([, t]) => t > 0)
       .sort((a, b) => b[1] - a[1])
-      .map(([name, total]) => ({
+      .map(([name, t]) => ({
         name,
-        total,
+        total: t,
         color: userId ? getCategoryColorDynamic(name, userId) : '#6B7280',
-        // Short label for the X axis — takes first word so long names don't collide.
         shortName: name.split(/[\s/&]/)[0],
       }));
 
     const topCategory = categoryData[0] ?? null;
 
     return {
-      yearReceipts,
-      yearTotal,
-      yearCount: yearReceipts.length,
+      total,
+      count: scoped.length,
       categoryData,
       topCategory,
     };
-  }, [receipts, yearStr, userId]);
+  }, [receipts, yearStr, userId, rangeStart, rangeEnd]);
 
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
@@ -93,26 +110,28 @@ export default function DashboardPage() {
           </div>
         ) : (
           <>
-            {/* ── Chart card — year selector, period total, category bars ── */}
+            {/* ── Chart card — year selector, period total, category bars, range slider ── */}
             <div className="bg-sb-card border border-sb-border rounded-2xl p-4">
               <div className="flex items-start justify-between mb-1">
                 <YearSelector
                   years={availableYears}
                   value={effectiveYear}
-                  onChange={setSelectedYear}
+                  onChange={y => { setSelectedYear(y); setRange([0, 11]); }}
                 />
                 <span className="text-sb-green text-xl font-bold leading-tight">
-                  ${stats.yearTotal.toFixed(2)}
+                  ${stats.total.toFixed(2)}
                 </span>
               </div>
               <p className="text-white/50 text-xs mb-4">
-                {stats.yearCount} receipt{stats.yearCount !== 1 ? 's' : ''}
-                {stats.yearTotal > 0 && ` · $${stats.yearTotal.toFixed(2)}`}
+                {stats.count} receipt{stats.count !== 1 ? 's' : ''}
+                {!isFullYear && ' · scoped'}
               </p>
 
               {stats.categoryData.length === 0 ? (
                 <div className="py-10 text-center">
-                  <p className="text-white/40 text-sm">No receipts in {effectiveYear}</p>
+                  <p className="text-white/40 text-sm">
+                    {isFullYear ? `No receipts in ${effectiveYear}` : 'No receipts in this range'}
+                  </p>
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
@@ -162,6 +181,15 @@ export default function DashboardPage() {
                   </BarChart>
                 </ResponsiveContainer>
               )}
+
+              {/* ── Month range slider — sits inside chart card, below bars ── */}
+              <div className="mt-3 pt-1 border-t border-white/[0.06]">
+                <MonthRangeSlider
+                  start={rangeStart}
+                  end={rangeEnd}
+                  onChange={(s, e) => setRange([s, e])}
+                />
+              </div>
             </div>
 
             {/* ── Two stat cards: top category · receipts count ── */}
@@ -176,8 +204,8 @@ export default function DashboardPage() {
               <StatCard
                 icon={<ReceiptIcon size={15} />}
                 label="Receipts"
-                value={String(stats.yearCount)}
-                sub={`$${stats.yearTotal.toFixed(2)}`}
+                value={String(stats.count)}
+                sub={`$${stats.total.toFixed(2)}`}
                 accentColor="#4ade80"
               />
             </div>
