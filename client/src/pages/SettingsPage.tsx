@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, MapPin, Activity, ChevronDown, DownloadCloud, Users, LogOut, Shield } from 'lucide-react';
+import { Tag, Plus, Trash2, FileSpreadsheet, Cloud, Info, Activity, ChevronDown, DownloadCloud, Download, Users, LogOut, Shield, Archive } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.14.0-phase6.3';
+export const APP_VERSION = '0.15.0-phase7.1';
 
 interface CustomCategory {
   name: string;
@@ -42,7 +42,6 @@ const DEFAULT_CATEGORIES: CustomCategory[] = [
 
 function catStorageKey(userId: string)        { return `sb_u${userId}_custom_categories`; }
 function catVersionKey(userId: string)        { return `sb_u${userId}_category_version`; }
-function taxStorageKey(userId: string)        { return `sb_u${userId}_tax_region`; }
 const CURRENT_CATEGORY_VERSION = '2';
 
 function loadCustomCategories(userId: string): CustomCategory[] {
@@ -60,39 +59,6 @@ function loadCustomCategories(userId: string): CustomCategory[] {
     }
     return JSON.parse(raw) as CustomCategory[];
   } catch { return DEFAULT_CATEGORIES; }
-}
-
-interface TaxRegion {
-  province: string;
-  gst: number;
-  pst: number;
-  hst: number;
-  qst: number;
-  vat: number;
-}
-
-const PROVINCES: { name: string; gst: number; pst: number; hst: number; qst: number }[] = [
-  { name: 'Alberta',              gst: 5,    pst: 0,     hst: 0,  qst: 0      },
-  { name: 'British Columbia',     gst: 5,    pst: 7,     hst: 0,  qst: 0      },
-  { name: 'Manitoba',             gst: 5,    pst: 7,     hst: 0,  qst: 0      },
-  { name: 'New Brunswick',        gst: 0,    pst: 0,     hst: 15, qst: 0      },
-  { name: 'Newfoundland',         gst: 0,    pst: 0,     hst: 15, qst: 0      },
-  { name: 'Nova Scotia',          gst: 0,    pst: 0,     hst: 15, qst: 0      },
-  { name: 'Ontario',              gst: 0,    pst: 0,     hst: 13, qst: 0      },
-  { name: 'Prince Edward Island', gst: 0,    pst: 0,     hst: 15, qst: 0      },
-  { name: 'Quebec',               gst: 5,    pst: 0,     hst: 0,  qst: 9.975  },
-  { name: 'Saskatchewan',         gst: 5,    pst: 6,     hst: 0,  qst: 0      },
-  { name: 'Northwest Territories',gst: 5,    pst: 0,     hst: 0,  qst: 0      },
-  { name: 'Nunavut',              gst: 5,    pst: 0,     hst: 0,  qst: 0      },
-  { name: 'Yukon',                gst: 5,    pst: 0,     hst: 0,  qst: 0      },
-  { name: 'Other/International',  gst: 0,    pst: 0,     hst: 0,  qst: 0      },
-];
-
-function loadTaxRegion(userId: string): TaxRegion {
-  try {
-    const raw = localStorage.getItem(taxStorageKey(userId));
-    return raw ? JSON.parse(raw) : { province: '', gst: 0, pst: 0, hst: 0, qst: 0, vat: 0 };
-  } catch { return { province: '', gst: 0, pst: 0, hst: 0, qst: 0, vat: 0 }; }
 }
 
 interface ScanStats {
@@ -120,6 +86,8 @@ export default function SettingsPage() {
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
+  const [isBackingUp,  setIsBackingUp]  = useState(false);
+  const [backupError,  setBackupError]  = useState<string | null>(null);
 
   useEffect(() => {
     getAllReceipts(userId).then(rows => {
@@ -189,8 +157,6 @@ export default function SettingsPage() {
   const [newClientName, setNewClientName] = useState('');
   const [clientError, setClientError] = useState('');
 
-  const [taxRegion, setTaxRegion] = useState<TaxRegion>(() => loadTaxRegion(userId));
-  const [manualVat, setManualVat] = useState(() => { const t = loadTaxRegion(userId); return t.vat > 0 ? String(t.vat) : ''; });
 
   function saveCustomCategories(cats: CustomCategory[]) {
     setCustomCategories(cats);
@@ -228,26 +194,36 @@ export default function SettingsPage() {
     setClients(removeClient(userId, name));
   }
 
-  function handleProvinceChange(provinceName: string) {
-    const p = PROVINCES.find(pr => pr.name === provinceName);
-    if (!p) return;
-    const updated: TaxRegion = {
-      province: provinceName,
-      gst: p.gst,
-      pst: p.pst,
-      hst: p.hst,
-      qst: p.qst,
-      vat: provinceName === 'Other/International' ? (parseFloat(manualVat) || 0) : 0,
-    };
-    setTaxRegion(updated);
-    localStorage.setItem(taxStorageKey(userId), JSON.stringify(updated));
-  }
-
-  function handleVatChange(value: string) {
-    setManualVat(value);
-    const updated: TaxRegion = { ...taxRegion, vat: parseFloat(value) || 0 };
-    setTaxRegion(updated);
-    localStorage.setItem(taxStorageKey(userId), JSON.stringify(updated));
+  // Complete Backup — full IndexedDB dump (data + photos) as a single JSON
+  // file. Safety net for "phone is no longer a single point of failure" — use
+  // before signing out or clearing browser data. Reads on-demand so file is
+  // always fresh (not tied to the mounted receipt list state).
+  async function handleFullBackup() {
+    setBackupError(null);
+    setIsBackingUp(true);
+    try {
+      const rows = await getAllReceipts(userId);
+      const payload = {
+        exportVersion: 1,
+        exportedAt: new Date().toISOString(),
+        totalReceipts: rows.length,
+        receipts: rows,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.href = url;
+      a.download = `scatterbrain-full-backup_${stamp}_${rows.length}-receipts.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setBackupError((err as Error).message || 'Backup failed');
+    } finally {
+      setIsBackingUp(false);
+    }
   }
 
   return (
@@ -358,75 +334,6 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* Tax Settings */}
-        <Section icon={<MapPin size={16} />} title="Tax Settings">
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs text-sb-muted mb-1.5">Province / Region</label>
-              <select
-                value={taxRegion.province}
-                onChange={e => handleProvinceChange(e.target.value)}
-                className="w-full bg-sb-card2 border border-sb-border rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-sb-green transition"
-              >
-                <option value="" disabled>Select province…</option>
-                {PROVINCES.map(p => (
-                  <option key={p.name} value={p.name}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {taxRegion.province && taxRegion.province !== 'Other/International' && (
-              <div className="bg-sb-card2 border border-sb-border rounded-xl px-3 py-3 space-y-1.5">
-                <p className="text-xs text-sb-muted font-medium mb-2">Tax rates for {taxRegion.province}</p>
-                {taxRegion.hst > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-sb-muted">HST</span>
-                    <span className="text-white font-medium">{taxRegion.hst}%</span>
-                  </div>
-                )}
-                {taxRegion.gst > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-sb-muted">GST</span>
-                    <span className="text-white font-medium">{taxRegion.gst}%</span>
-                  </div>
-                )}
-                {taxRegion.pst > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-sb-muted">PST</span>
-                    <span className="text-white font-medium">{taxRegion.pst}%</span>
-                  </div>
-                )}
-                {taxRegion.qst > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-sb-muted">QST</span>
-                    <span className="text-white font-medium">{taxRegion.qst}%</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {taxRegion.province === 'Other/International' && (
-              <div>
-                <label className="block text-xs text-sb-muted mb-1.5">VAT / Tax Rate (%)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  value={manualVat}
-                  onChange={e => handleVatChange(e.target.value)}
-                  placeholder="e.g. 20"
-                  className="w-full bg-sb-card2 border border-sb-border rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-sb-green transition"
-                />
-              </div>
-            )}
-
-            <p className="text-xs text-sb-muted">
-              For reference only — proportional tax is calculated from scanned receipt line items.
-            </p>
-          </div>
-        </Section>
-
         {/* Export */}
         <Section icon={<FileSpreadsheet size={16} />} title="Export">
           <p className="text-xs text-sb-muted">
@@ -436,6 +343,32 @@ export default function SettingsPage() {
             </button>
             . Excel (.xlsx) with a summary sheet and one sheet per category.
           </p>
+        </Section>
+
+        {/* Complete Backup — full JSON dump of data + photos.
+            Lives in Settings (not Export) because it's a safety/maintenance
+            action, not part of the accountant-facing export flow. */}
+        <Section icon={<Archive size={16} />} title="Complete Backup">
+          <div className="space-y-3">
+            <p className="text-white text-sm">
+              Full backup of every receipt — data <em>and</em> photos — as a single JSON file.
+            </p>
+            <p className="text-sb-muted text-xs leading-snug">
+              Recommended before signing out or clearing browser data. The file will be
+              large (~1&nbsp;MB per 10&nbsp;receipts with photos).
+            </p>
+            <button
+              onClick={handleFullBackup}
+              disabled={isBackingUp}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted disabled:opacity-40 transition"
+            >
+              <Download size={15} />
+              {isBackingUp ? 'Preparing…' : 'Download Complete Backup (.json)'}
+            </button>
+            {backupError && (
+              <p className="text-red-400 text-xs">{backupError}</p>
+            )}
+          </div>
         </Section>
 
         {/* Cloud backup */}
