@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, BarChart2, FileSpreadsheet, Settings } from 'lucide-react';
+import { Home, BarChart2, FileSpreadsheet, Settings, Camera } from 'lucide-react';
 import ScanModal from './ScanModal';
 import { useQueryClient } from '@tanstack/react-query';
 import SyncHealthDot from './SyncHealthDot';
@@ -30,12 +30,12 @@ const TABS_RIGHT = [
   { to: '/settings', icon: Settings,        label: 'Settings', activeColor: '#94a3b8' }, // silver
 ] as const;
 
-// Scan circle — brighter, more saturated pink so it reads as primary on
-// pure black. Previous value looked muted/brownish; bumped fill opacity
-// and shifted hue toward hot pink.
-const SCAN_BORDER   = 'rgba(240,100,140,0.95)';
-const SCAN_FILL     = 'rgba(240,100,140,0.35)';
-const SCAN_LABEL    = '#ffb3c8';
+// Scan circle — soft green fill (matches Alan's iOS-style reference),
+// deep-green perimeter, subtle outer halo. Camera icon in white.
+const SCAN_BORDER   = '#2f6e3f'; // deep forest green — distinct edge vs fill
+const SCAN_FILL     = 'rgba(126,199,132,0.70)'; // #7ec784 @ 70%
+const SCAN_LABEL    = '#ffffff';
+const SCAN_HALO     = 'rgba(126,199,132,0.35)';
 
 export default function BottomNav() {
   const [scanOpen, setScanOpen] = useState(false);
@@ -70,15 +70,11 @@ export default function BottomNav() {
               width: 56,
               height: 56,
               backgroundColor: SCAN_FILL,
-              border: `1.5px solid ${SCAN_BORDER}`,
+              border: `4px solid ${SCAN_BORDER}`,
+              boxShadow: `0 0 14px 2px ${SCAN_HALO}`,
             }}
           >
-            <span
-              className="text-[13px] tracking-wide"
-              style={{ color: SCAN_LABEL, fontWeight: 600 }}
-            >
-              Scan
-            </span>
+            <Camera size={24} strokeWidth={2} style={{ color: SCAN_LABEL }} />
           </button>
 
           {TABS_RIGHT.map(tab => <TabItem key={tab.to} {...tab} />)}
