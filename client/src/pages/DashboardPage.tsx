@@ -8,6 +8,7 @@ import { useReceipts } from '../hooks/useReceipts';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPref } from '../lib/userStorage';
 import { getCategoryColorDynamic } from '../utils/types';
+import type { Receipt } from '../utils/types';
 import MonthRangeSlider from '../components/MonthRangeSlider';
 
 // Phase 6 Stage 1 — Dashboard (analysis lens; NO writes, read-only)
@@ -87,11 +88,19 @@ export default function DashboardPage() {
 
     const topCategory = categoryData[0] ?? null;
 
+    // Also return the scoped receipt list itself (sorted by date desc) so
+    // downstream sections can render a read-only list without recomputing
+    // the range filter. Stage 1 of the Dashboard "Scoped Share" feature.
+    const scopedSorted = [...scoped].sort((a, b) =>
+      (b.receiptDate || '').localeCompare(a.receiptDate || '')
+    );
+
     return {
       total,
       count: scoped.length,
       categoryData,
       topCategory,
+      scopedReceipts: scopedSorted,
     };
   }, [receipts, yearStr, userId, rangeStart, rangeEnd]);
 
@@ -212,6 +221,21 @@ export default function DashboardPage() {
               />
             </div>
 
+            {/* ── Scoped receipt list ─────────────────────────────────────
+                Read-only view of the receipts behind the current scope
+                (year + month range). Same visual language as Home rows so
+                users read them without re-learning. Editing still lives on
+                Home — this is analysis + share only. Stage 1 of scoped-share.
+            */}
+            {stats.scopedReceipts.length > 0 && (
+              <ScopedReceiptList
+                receipts={stats.scopedReceipts}
+                userId={userId}
+                isFullYear={isFullYear}
+                onOpenOnHome={uuid => navigate(`/receipts?receipt=${encodeURIComponent(uuid)}`)}
+              />
+            )}
+
             {/* ── Export button (full-year; partial-period export deferred) ── */}
             <button
               onClick={() => navigate('/export')}
@@ -300,6 +324,92 @@ function StatCard({
       </div>
       <p className="text-white font-bold text-base leading-tight truncate">{value}</p>
       <p className="text-white/50 text-xs mt-0.5 truncate">{sub}</p>
+    </div>
+  );
+}
+
+// ── Scoped receipt list ────────────────────────────────────────────────────
+// Read-only flat list of receipts in the current Dashboard scope. Same visual
+// language as Home's collapsed rows (category dot + store + dim category text
+// on line 1; client + date on line 2; green price right; silver trash omitted
+// since this is read-only). Tapping a row deep-links to that receipt on Home
+// where it IS editable — Dashboard doesn't own the edit surface.
+
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function formatShortDate(iso: string): string {
+  // 'YYYY-MM-DD' → 'MMM D'
+  if (!iso || iso.length < 10) return iso;
+  const m = Number(iso.slice(5, 7)) - 1;
+  const d = Number(iso.slice(8, 10));
+  return `${MONTH_ABBR[m] ?? ''} ${d}`;
+}
+
+function ScopedReceiptList({
+  receipts,
+  userId,
+  isFullYear,
+  onOpenOnHome,
+}: {
+  receipts: Receipt[];
+  userId: string | undefined;
+  isFullYear: boolean;
+  onOpenOnHome: (uuid: string) => void;
+}) {
+  return (
+    <div className="bg-sb-card border border-sb-border rounded-2xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-white/[0.05] flex items-baseline justify-between">
+        <p className="text-white/70 text-[11px] uppercase tracking-wider font-medium">
+          {isFullYear ? 'Receipts this year' : 'Receipts in range'}
+        </p>
+        <p className="text-white/40 text-[11px]">
+          {receipts.length} · read-only
+        </p>
+      </div>
+
+      <div>
+        {receipts.map(r => {
+          const catColor = userId ? getCategoryColorDynamic(r.category || '', userId) : '#6B7280';
+          return (
+            <button
+              key={r.id}
+              onClick={() => r.uuid && onOpenOnHome(r.uuid)}
+              className="w-full flex items-stretch text-left border-b border-white/[0.05] last:border-0 hover:bg-white/[0.02] active:bg-white/[0.04] transition"
+            >
+              <div className="flex-1 min-w-0 px-3 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: catColor }}
+                    aria-hidden="true"
+                  />
+                  <p
+                    className="text-white font-semibold text-[15px] leading-tight truncate"
+                    style={{ fontFamily: "'Poppins', sans-serif" }}
+                  >
+                    {r.storeName || 'Unknown Store'}
+                  </p>
+                  {r.category && (
+                    <span className="text-[11px] text-white/45 leading-none truncate">
+                      {r.category}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-white/40 leading-snug mt-1 truncate">
+                  {r.clientName
+                    ? `${r.clientName}  ·  ${formatShortDate(r.receiptDate)}`
+                    : formatShortDate(r.receiptDate)}
+                </p>
+              </div>
+              <div className="flex items-center pr-3 pl-2 flex-shrink-0">
+                <span className="text-sb-green font-bold text-[15px] leading-tight">
+                  ${r.total.toFixed(2)}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

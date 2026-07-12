@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Receipt, Search, X, ChevronDown, ChevronRight, Trash2, CheckSquare, Funnel } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useReceipts } from '../hooks/useReceipts';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPref } from '../lib/userStorage';
@@ -55,6 +56,37 @@ export default function ReceiptLibrary() {
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
 
   const categories = useMemo(() => (user ? getAllCategories(user.id) : []), [user]);
+
+  // Deep-link from Dashboard: /receipts?receipt=<uuid> auto-expands + scrolls
+  // to that receipt. We capture the UUID, scope the year to the receipt's
+  // year so it's actually rendered, un-collapse its month, then strip the
+  // param so a refresh doesn't re-trigger.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [autoExpandUuid, setAutoExpandUuid] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const uuid = params.get('receipt');
+    if (!uuid) return;
+    const target = receipts.find(r => r.uuid === uuid);
+    if (!target) return;
+
+    setAutoExpandUuid(uuid);
+    const y = (target.receiptDate || '').slice(0, 4);
+    if (y && availableYears.includes(y)) setStoredYear(y);
+    const mk = (target.receiptDate || '').slice(0, 7);
+    if (mk) setCollapsedMonths(prev => {
+      if (!prev.has(mk)) return prev;
+      const next = new Set(prev); next.delete(mk); return next;
+    });
+
+    navigate('/receipts', { replace: true });
+    // Clear the autoExpand flag after enough time for ReceiptCard to react
+    // and scroll — otherwise a subsequent Home visit would re-trigger.
+    const t = setTimeout(() => setAutoExpandUuid(null), 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search, receipts]);
 
   // ── Search + category filter (current year only) ───────────────────────────
 
@@ -227,6 +259,7 @@ export default function ReceiptLibrary() {
                   selectedIds={selectedIds}
                   onToggleSelect={toggleSelect}
                   onEnterSelectMode={enterSelectMode}
+                  autoExpandUuid={autoExpandUuid}
                 />
               ))
             )}
@@ -369,9 +402,10 @@ interface MonthGroupProps {
   selectedIds?: Set<number>;
   onToggleSelect?: (id: number) => void;
   onEnterSelectMode?: () => void;
+  autoExpandUuid?: string | null;
 }
 
-function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit, onNewReceipt, selectMode, selectedIds, onToggleSelect, onEnterSelectMode }: MonthGroupProps) {
+function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit, onNewReceipt, selectMode, selectedIds, onToggleSelect, onEnterSelectMode, autoExpandUuid }: MonthGroupProps) {
   const total = receipts.reduce((s, r) => s + r.total, 0);
   return (
     <div className="mb-3">
@@ -418,6 +452,7 @@ function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCa
               selectMode={selectMode}
               selected={selectedIds?.has(r.id)}
               onToggleSelect={onToggleSelect}
+              autoExpand={!!autoExpandUuid && r.uuid === autoExpandUuid}
             />
           ))}
         </div>
