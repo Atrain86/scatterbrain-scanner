@@ -483,21 +483,43 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
           </div>
         )}
 
-        {/* ── Expanded detail ── */}
-        {expanded && (
-          <div className="animate-fade-in">
+        {/* ── Expanded detail ──
+            Background tap = smart close. Any tap on inert padding/background
+            (via handleBgTap on the currentTarget) FIRST exits pencil/split/
+            picker modes if active; if none, collapses the card. Only fires
+            when the tap TARGET IS the padded background element itself, not
+            a bubbled click from a button — so buttons don't need per-button
+            stopPropagation calls.
+        */}
+        {expanded && (() => {
+          const handleBgTap = (e: React.MouseEvent) => {
+            if (e.target !== e.currentTarget) return;
+            if (editingStore)   { setEditingStore(false); return; }
+            if (editingItems)   { setEditingItems(false); return; }
+            if (splitMode)      { setSplitMode(false); return; }
+            if (showClientPicker) { setShowClientPicker(false); return; }
+            if (showCatPicker)    { setShowCatPicker(false);    return; }
+            setExpanded(false);
+          };
+        return (
+          <div className="animate-fade-in" onClick={handleBgTap}>
 
-            {/* Tap-to-close strip at top */}
-            <div className="flex justify-center pt-2 pb-0 cursor-pointer"
-              onClick={() => { if (!anyEditActive) setExpanded(false); }}>
+            {/* Tap-to-close strip at top — also smart-close on the strip itself */}
+            <div className="flex justify-center pt-2 pb-0 cursor-pointer" onClick={handleBgTap}>
               <div className="w-10 h-1 rounded-full bg-white/15" />
             </div>
 
-            {/* ── Header ── */}
-            <div className="px-3 pt-2 pb-2.5" onClick={e => e.stopPropagation()}>
+            {/* ── Header ──
+                Both wrappers (the outer padded div AND the flex row) attach
+                handleBgTap so taps on the empty gap between store name and
+                client/category badges close/exit-edit. Buttons inside handle
+                their own clicks — because e.target !== e.currentTarget, the
+                tap won't fall through.
+            */}
+            <div className="px-3 pt-2 pb-2.5" onClick={handleBgTap}>
 
               {/* Line 1: store name · client · category · trash */}
-              <div className="flex items-center gap-1.5 min-w-0 mb-1.5">
+              <div className="flex items-center gap-1.5 min-w-0 mb-1.5" onClick={handleBgTap}>
                 <div className="flex-1 min-w-0">
                   {editingStore ? (
                     <input ref={storeInputRef} value={editStore}
@@ -592,7 +614,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               </div>
 
               {/* Line 2: date · [Split] · pencil · share · total */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2" onClick={handleBgTap}>
                 <span className="text-[11px] text-sb-muted flex-shrink-0">{dateDisplay}</span>
 
                 {/* Split — wide muted green, centered between date and right icons */}
@@ -636,10 +658,15 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               </div>
             </div>
 
-            {/* ── Line items (pencil mode) ── */}
+            {/* ── Line items (pencil mode) ──
+                Taps on the padded background around/below the items call
+                handleBgTap so this area also closes the card / exits edit.
+                Row clicks (checkbox toggles in editingItems mode) fire on
+                inner elements — e.target !== currentTarget so bg tap skips.
+            */}
             {!splitMode && (
               <div className="px-4 pb-3 border-t border-sb-border pt-3 space-y-0.5"
-                onClick={e => { if (editingItems) e.stopPropagation(); else { e.stopPropagation(); if (!anyEditActive) setExpanded(false); } }}>
+                onClick={handleBgTap}>
                 {productItems.map((item, i) => {
                   const originalIndex = allLineItems.indexOf(item);
                   const checked = checkedItems.has(originalIndex);
@@ -798,7 +825,8 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
               </div>
             )}
           </div>
-        )}
+        );
+        })()}
       </div>
 
       {shareOpen && <ShareModal receipt={receipt} onClose={() => setShareOpen(false)} />}
