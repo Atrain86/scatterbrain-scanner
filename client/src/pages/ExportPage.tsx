@@ -195,10 +195,10 @@ export default function ExportPage() {
   if (done) {
     return (
       <div className="min-h-screen bg-sb-bg flex flex-col">
-        <header className="sticky top-0 z-20 bg-sb-bg border-b border-sb-border safe-top">
-          <div className="px-4 py-3 max-w-2xl mx-auto w-full">
-            <h1 className="text-base font-bold text-white text-center">Export</h1>
-          </div>
+        <header className="flex items-center justify-between px-5 pt-12 pb-3 safe-top max-w-2xl mx-auto w-full">
+          <h1 className="text-white text-2xl font-bold tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
+            Export
+          </h1>
         </header>
         <div className="flex-1 flex flex-col items-center justify-center py-16 text-center px-6 pb-24 max-w-2xl mx-auto w-full">
           <div className="w-16 h-16 rounded-full bg-green-950/40 border border-green-800/40 flex items-center justify-center mb-5">
@@ -221,10 +221,10 @@ export default function ExportPage() {
 
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
-      <header className="sticky top-0 z-20 bg-sb-bg border-b border-sb-border safe-top">
-        <div className="px-4 py-3 max-w-2xl mx-auto w-full">
-          <h1 className="text-base font-bold text-white text-center">Export</h1>
-        </div>
+      <header className="flex items-center justify-between px-5 pt-12 pb-3 safe-top max-w-2xl mx-auto w-full">
+        <h1 className="text-white text-2xl font-bold tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
+          Export
+        </h1>
       </header>
 
       <main className="flex-1 px-4 py-4 pb-28 space-y-4 max-w-2xl mx-auto w-full overflow-y-auto">
