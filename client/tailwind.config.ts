@@ -46,10 +46,20 @@ export default {
           '0%':   { opacity: '0', transform: 'translateY(20px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
+        // Scan button tap: quick squeeze + green glow bloom, spring back.
+        // Uses the same #4ade80 as the button ring; peak bloom is brighter
+        // and wider than rest so the press reads as "lit up."
+        'scan-pulse': {
+          '0%':   { transform: 'scale(1)',    boxShadow: '0 0 14px rgba(74,222,128,0.40)' },
+          '35%':  { transform: 'scale(0.92)', boxShadow: '0 0 22px 4px rgba(74,222,128,0.85)' },
+          '100%': { transform: 'scale(1)',    boxShadow: '0 0 14px rgba(74,222,128,0.40)' },
+        },
       },
       animation: {
-        'fade-in':  'fade-in 150ms ease-out',
-        'slide-up': 'slide-up 200ms ease-out',
+        'fade-in':   'fade-in 150ms ease-out',
+        'slide-up':  'slide-up 200ms ease-out',
+        // Spring easing so the scale-back overshoots slightly for a tactile pop.
+        'scan-pulse': 'scan-pulse 180ms cubic-bezier(0.34, 1.56, 0.64, 1)',
       },
     },
   },

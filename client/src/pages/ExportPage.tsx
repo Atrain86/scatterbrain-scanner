@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Download, CheckCircle, FileSpreadsheet, User, Shield } from 'lucide-react';
+import { Download, CheckCircle, User } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useReceipts } from '../hooks/useReceipts';
 import type { Receipt } from '../utils/types';
@@ -192,43 +192,6 @@ export default function ExportPage() {
     }
   }
 
-  // ── COMPLETE BACKUP — everything in IndexedDB, ignoring year/client filters ─
-  //
-  // Emergency full-fidelity export: every receipt + every image (base64 inline)
-  // + the schema version marker, serialized as a single JSON file and
-  // downloaded. This is the "phone is no longer a single point of failure"
-  // safety net. Use this before signing out or clearing browser data.
-  //
-  // The output is a plain JSON array — human-readable, can be re-imported
-  // programmatically later if we build a restore-from-file flow. The images
-  // are already base64 in Dexie (data: URLs), so we just carry them through.
-  async function handleFullBackup() {
-    setError('');
-    setExporting(true);
-    try {
-      const payload = {
-        exportVersion: 1,
-        exportedAt: new Date().toISOString(),
-        totalReceipts: receipts.length,
-        receipts: receipts, // full array, no filtering — every receipt
-      };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      a.href = url;
-      a.download = `scatterbrain-full-backup_${stamp}_${receipts.length}-receipts.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError((err as Error).message || 'Backup failed');
-    } finally {
-      setExporting(false);
-    }
-  }
-
   if (done) {
     return (
       <div className="min-h-screen bg-sb-bg flex flex-col">
@@ -265,31 +228,6 @@ export default function ExportPage() {
       </header>
 
       <main className="flex-1 px-4 py-4 pb-28 space-y-4 max-w-2xl mx-auto w-full overflow-y-auto">
-
-        {/* ── COMPLETE BACKUP (emergency safety net) ─────────────────────────
-            Full IndexedDB dump: every receipt + every image, ignoring year/
-            client filters. This is the "no single point of failure" backup.
-            Placed at the top so it's the first thing users see.                */}
-        <div className="bg-sb-card border border-blue-800/40 rounded-2xl p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Shield size={16} className="text-blue-300" />
-            <p className="text-xs text-blue-300 uppercase tracking-wider font-medium">Complete Backup</p>
-          </div>
-          <p className="text-white text-sm">
-            Full backup of all <strong>{receipts.length}</strong> receipt{receipts.length !== 1 ? 's' : ''} — data and photos — as a single JSON file.
-          </p>
-          <p className="text-sb-muted text-xs leading-snug">
-            Recommended before signing out or clearing browser data. Ignores year and client filters.
-            The file will be large (~1&nbsp;MB per 10&nbsp;receipts with photos).
-          </p>
-          <button
-            onClick={handleFullBackup}
-            disabled={exporting || receipts.length === 0}
-            className="w-full py-3 rounded-xl bg-blue-600/90 text-white font-semibold text-sm disabled:opacity-40 hover:brightness-110 transition flex items-center justify-center gap-2"
-          >
-            {exporting ? 'Preparing…' : <><Download size={16} /> Download Full Backup (.json)</>}
-          </button>
-        </div>
 
         {/* Year picker + inline summary */}
         <div className="bg-sb-card border border-sb-border rounded-2xl p-4 space-y-3">
@@ -374,17 +312,6 @@ export default function ExportPage() {
           </div>
         )}
 
-        {/* Format */}
-        <div className="flex items-start gap-3 bg-sb-card border border-sb-border rounded-2xl p-4">
-          <FileSpreadsheet size={20} className="text-sb-green flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-white text-sm font-medium">Excel (.xlsx)</p>
-            <p className="text-sb-muted text-xs mt-0.5">
-              Summary sheet + one sheet per category, sorted by date. Ready to hand to your accountant.
-            </p>
-          </div>
-        </div>
-
         {error && (
           <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/40 rounded-xl px-4 py-3">
             {error}
@@ -396,7 +323,7 @@ export default function ExportPage() {
           disabled={exporting || exportReceipts.length === 0}
           className="w-full py-3.5 rounded-xl bg-sb-green text-black font-semibold disabled:opacity-40 hover:brightness-110 transition flex items-center justify-center gap-2"
         >
-          {exporting ? 'Generating…' : <><Download size={18} /> Download Spreadsheet</>}
+          {exporting ? 'Generating…' : <><Download size={18} /> Download Spreadsheet (.xlsx)</>}
         </button>
 
       </main>
