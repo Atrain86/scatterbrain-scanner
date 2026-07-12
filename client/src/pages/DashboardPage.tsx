@@ -127,12 +127,13 @@ export default function DashboardPage() {
                 {!isFullYear && ' · scoped'}
               </p>
 
+              {/* Fixed-height chart area so container doesn't jump between
+                  data / no-data states while user scopes the range. */}
+              <div style={{ height: 240 }} className="flex items-center justify-center">
               {stats.categoryData.length === 0 ? (
-                <div className="py-10 text-center">
-                  <p className="text-white/40 text-sm">
-                    {isFullYear ? `No receipts in ${effectiveYear}` : 'No receipts in this range'}
-                  </p>
-                </div>
+                <p className="text-white/40 text-sm text-center">
+                  {isFullYear ? `No receipts in ${effectiveYear}` : 'No receipts in this range'}
+                </p>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart
@@ -181,6 +182,7 @@ export default function DashboardPage() {
                   </BarChart>
                 </ResponsiveContainer>
               )}
+              </div>
 
               {/* ── Month range slider — sits inside chart card, below bars ── */}
               <div className="mt-3 pt-1 border-t border-white/[0.06]">

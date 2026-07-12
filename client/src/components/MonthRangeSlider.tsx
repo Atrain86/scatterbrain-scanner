@@ -230,10 +230,25 @@ export default function MonthRangeSlider({ start, end, onChange }: Props) {
           />
         </div>
 
-        {/* Anchor labels — only Jan and Dec */}
-        <div className="flex justify-between mt-3 px-0.5">
-          <span className="text-white/50 text-xs">{MONTH_NAMES_SHORT[0]}</span>
-          <span className="text-white/50 text-xs">{MONTH_NAMES_SHORT[11]}</span>
+        {/* Month labels under every detent.
+            Alignment: each label's CENTER sits under its detent's center EXCEPT
+            Jan (i=0), which anchors LEFT (so the "J" starts at 0%), and Dec
+            (i=11), which anchors RIGHT (so the "c" ends at 100%). This
+            maximises breathing room between the outer labels and their
+            neighbours (Feb, Nov) without cramping the middle. */}
+        <div className="relative mt-3 h-4 text-white/50 text-[10px]">
+          {MONTH_NAMES_SHORT.map((label, i) => {
+            const isFirst = i === 0;
+            const isLast  = i === 11;
+            const style: React.CSSProperties = {
+              position: 'absolute',
+              top: 0,
+              left: `${(i / 11) * 100}%`,
+              transform: isFirst ? 'translateX(0)' : isLast ? 'translateX(-100%)' : 'translateX(-50%)',
+              whiteSpace: 'nowrap',
+            };
+            return <span key={i} style={style}>{label}</span>;
+          })}
         </div>
       </div>
 
