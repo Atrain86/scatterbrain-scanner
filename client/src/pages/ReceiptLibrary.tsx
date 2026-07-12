@@ -342,32 +342,39 @@ interface MonthGroupProps {
 function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit, onNewReceipt, selectMode, selectedIds, onToggleSelect, onEnterSelectMode }: MonthGroupProps) {
   const total = receipts.reduce((s, r) => s + r.total, 0);
   return (
-    <div className="mb-1">
-      <div className="flex items-center gap-1">
+    <div className="mb-3">
+      {/*
+        Header layout per Phase 3 spec:
+          LEFT cluster  = month name + green total + silver count
+          RIGHT         = "Select" alone
+        Whole left cluster is one toggle button; Select is a separate button
+        so a small tap area doesn't accidentally collapse the group.
+      */}
+      <div className="flex items-baseline justify-between gap-2 px-2 pt-2 pb-1">
         <button
           onClick={onToggle}
-          className="flex-1 flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-white/5 transition active:bg-white/10"
+          className="flex items-baseline gap-2.5 min-w-0 text-left group"
         >
-          <span className="text-sb-muted" style={{ width: 14 }}>
-            {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          <span className="text-white/40 group-hover:text-white/60 transition" style={{ width: 12 }}>
+            {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
           </span>
-          <span className="flex-1 text-white text-sm font-semibold text-left">{label}</span>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-sb-card border border-sb-border text-sb-muted mr-1">
-            {receipts.length} receipt{receipts.length !== 1 ? 's' : ''}
+          <span className="text-white text-[17px] font-bold leading-none tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>{label}</span>
+          <span className="text-sb-green text-[15px] font-bold leading-none">${total.toFixed(2)}</span>
+          <span className="text-white/40 text-[11px] leading-none">
+            {receipts.length}
           </span>
-          <span className="text-sb-green text-sm font-bold">${total.toFixed(2)}</span>
         </button>
         {!selectMode && onEnterSelectMode && (
           <button
             onClick={onEnterSelectMode}
-            className="px-2.5 py-1 rounded-lg text-[11px] text-sb-muted hover:text-white border border-transparent hover:border-sb-border transition flex-shrink-0"
+            className="text-[12px] text-white/50 hover:text-white transition flex-shrink-0"
           >
             Select
           </button>
         )}
       </div>
       {!collapsed && (
-        <div className="space-y-1.5 pl-1 animate-fade-in">
+        <div className="animate-fade-in">
           {receipts.map(r => (
             <ReceiptCard
               key={r.id}

@@ -422,58 +422,63 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     setSplitMode(false);
   }
 
-  // ── Collapsed badge row (store name line 1, client+cat line 1, date line 2) ──
+  // ── Collapsed row body — calm, flat style ────────────────────────────────
+  // Line 1: category dot · store name · (dim silver) category name
+  // Line 2: (dim) client · date
+  // No filled pills, no colored client badge — just a small dot and quiet text.
   function CollapsedBadges() {
     return (
-      <div className="flex-1 min-w-0 px-3 py-3">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <p className="text-white font-bold text-sm leading-tight truncate"
-             style={{ fontFamily: "'Poppins', sans-serif" }}>
+      <div className="flex-1 min-w-0 px-3 py-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className="w-2 h-2 rounded-full flex-shrink-0"
+            style={{ backgroundColor: catColor }}
+            aria-hidden="true"
+          />
+          <p
+            className="text-white font-semibold text-[15px] leading-tight truncate"
+            style={{ fontFamily: "'Poppins', sans-serif" }}
+          >
             {receipt.storeName || 'Unknown Store'}
           </p>
-          {receipt.clientName && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-800/40 leading-none">
-              {receipt.clientName}
-            </span>
-          )}
           {receipt.category && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full leading-none"
-              style={{ backgroundColor: catColor + '22', color: catColor, border: `1px solid ${catColor}44` }}>
+            <span className="text-[11px] text-white/45 leading-none truncate">
               {receipt.category}
             </span>
           )}
         </div>
-        <p className="text-[11px] text-sb-muted leading-snug mt-0.5">{dateDisplay}</p>
+        <p className="text-[11px] text-white/40 leading-snug mt-1 truncate">
+          {receipt.clientName ? `${receipt.clientName}  ·  ${dateDisplay}` : dateDisplay}
+        </p>
       </div>
     );
   }
 
   return (
     <>
-      <div className={`bg-sb-card rounded-xl border transition-colors ${selected ? 'border-sb-green' : 'border-sb-border'} overflow-visible`}>
+      <div className={`transition-colors border-b border-white/[0.05] ${expanded ? 'bg-sb-card rounded-xl border border-sb-border mb-1' : selected ? 'bg-sb-green/5' : ''} overflow-visible`}>
 
-        {/* ── Collapsed row ── */}
+        {/* ── Collapsed row — flat, calm ── */}
         {!expanded && (
           <div
-            className="flex items-stretch gap-0 cursor-pointer active:bg-white/5 hover:bg-white/[0.03] transition rounded-xl"
+            className="flex items-stretch gap-0 cursor-pointer active:bg-white/[0.04] hover:bg-white/[0.02] transition"
             onClick={() => selectMode ? onToggleSelect?.(receipt.id) : setExpanded(true)}
           >
-            <div className={`flex items-center justify-center transition-all duration-200 overflow-hidden ${selectMode ? 'w-10 opacity-100' : 'w-0 opacity-0'}`}>
+            <div className={`flex items-center justify-center transition-all duration-200 overflow-hidden ${selectMode ? 'w-9 opacity-100' : 'w-0 opacity-0'}`}>
               <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${selected ? 'bg-sb-green border-sb-green' : 'border-sb-muted bg-transparent'}`}>
                 {selected && <Check size={11} className="text-black" strokeWidth={3} />}
               </div>
             </div>
-            <span className="w-1 rounded-l-xl flex-shrink-0 self-stretch" style={{ backgroundColor: catColor, minHeight: 52 }} />
             <CollapsedBadges />
-            <div className="flex flex-col items-center justify-between px-3 py-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+            <div className="flex flex-col items-end justify-between pr-3 pl-2 py-2.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+              <span className="text-sb-green font-bold text-[15px] leading-tight">${receipt.total.toFixed(2)}</span>
               {confirmDelete ? (
                 <button onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }} onBlur={() => setConfirmDelete(false)}
-                  className="text-red-400 bg-red-950/40 rounded-lg p-1 transition"><Trash2 size={14} /></button>
+                  className="text-red-400 bg-red-950/30 rounded p-0.5 transition mt-1"><Trash2 size={12} /></button>
               ) : (
                 <button onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
-                  className="text-sb-muted hover:text-red-400 transition p-1"><Trash2 size={14} /></button>
+                  className="text-white/25 hover:text-red-400 transition p-0.5 mt-1"><Trash2 size={12} /></button>
               )}
-              <span className="text-sb-green font-bold text-sm leading-tight mt-1">${receipt.total.toFixed(2)}</span>
             </div>
           </div>
         )}
