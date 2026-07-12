@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { Receipt, Search, X, ChevronDown, ChevronRight, Trash2, CheckSquare, Funnel } from 'lucide-react';
 import { useReceipts } from '../hooks/useReceipts';
 import { useAuth } from '../contexts/AuthContext';
+import { useUserPref } from '../lib/userStorage';
 import ScanModal from '../components/ScanModal';
 import ReceiptCard from '../components/ReceiptCard';
 import { APP_VERSION } from './SettingsPage';
@@ -28,9 +29,27 @@ export default function ReceiptLibrary() {
   const [selectMode,    setSelectMode]    = useState(false);
   const [selectedIds,   setSelectedIds]   = useState<Set<number>>(new Set());
 
-  // Home is hard-scoped to CURRENT calendar year per redesign spec Phase 3.
-  // Archive / prior-year drilldown lives on Dashboard, not here.
+  // Home is scoped to ONE year at a time. The year picker in the header
+  // lets users browse past years too (Dashboard is still analysis-only).
+  // Selection persists per-user via useUserPref so refresh preserves scope.
   const thisYear = String(new Date().getFullYear());
+
+  // Only offer years that actually have receipts. Always include current year
+  // so a brand-new account still sees a valid picker with the current year.
+  const availableYears = useMemo(() => {
+    const set = new Set<string>();
+    set.add(thisYear);
+    receipts.forEach(r => {
+      const y = (r.receiptDate || '').slice(0, 4);
+      if (y.length === 4) set.add(y);
+    });
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [receipts, thisYear]);
+
+  const [storedYear, setStoredYear] = useUserPref<string>(user?.id, 'home_selected_year', thisYear);
+  // Clamp: if the stored year no longer has any receipts (e.g. deleted all),
+  // fall back to current year so we don't show an empty picker option.
+  const selectedYear = availableYears.includes(storedYear) ? storedYear : thisYear;
 
   // current year months: collapsed set (month key → collapsed)
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
@@ -42,8 +61,8 @@ export default function ReceiptLibrary() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return receipts.filter(r => {
-      // Current-year scope
-      if ((r.receiptDate || '').slice(0, 4) !== thisYear) return false;
+      // Selected-year scope
+      if ((r.receiptDate || '').slice(0, 4) !== selectedYear) return false;
 
       // Category filter (from funnel)
       if (categoryFilter && (r.category || '') !== categoryFilter) return false;
@@ -59,7 +78,7 @@ export default function ReceiptLibrary() {
       } catch {}
       return false;
     });
-  }, [receipts, search, categoryFilter, thisYear]);
+  }, [receipts, search, categoryFilter, selectedYear]);
 
   // ── Group receipts ──────────────────────────────────────────────────────────
 
@@ -143,11 +162,24 @@ export default function ReceiptLibrary() {
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
 
-      {/* Home header — "Home" + current year, per Phase 3 spec */}
-      <header className="flex items-baseline justify-between px-5 pt-12 pb-3 safe-top max-w-2xl mx-auto w-full">
-        <div className="flex items-baseline gap-2">
-          <h1 className="text-white text-2xl font-bold tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>Home</h1>
-          <span className="text-white/40 text-lg font-medium select-none">{thisYear}</span>
+      {/* Home header — bold year picker (native select) sitting above the
+          receipt list. Replaces the "Home 2026" text. Picker options are
+          data-driven (only years with receipts, current year always shown).
+          Same Poppins 2xl bold as Dashboard for visual consistency. */}
+      <header className="flex items-center justify-between px-5 pt-12 pb-3 safe-top max-w-2xl mx-auto w-full">
+        <div className="relative">
+          <select
+            value={selectedYear}
+            onChange={e => setStoredYear(e.target.value)}
+            aria-label="Select year"
+            className="appearance-none bg-transparent text-white text-2xl font-bold tracking-tight pr-6 pl-0 focus:outline-none cursor-pointer"
+            style={{ fontFamily: "'Poppins', sans-serif" }}
+          >
+            {availableYears.map(y => (
+              <option key={y} value={y} className="bg-sb-card2 text-white">{y}</option>
+            ))}
+          </select>
+          <ChevronDown size={16} className="absolute right-0 top-1/2 -translate-y-1/2 text-white/50 pointer-events-none" />
         </div>
         <span className="text-[13px] text-white tracking-wider select-none">v{APP_VERSION}</span>
       </header>
@@ -167,7 +199,7 @@ export default function ReceiptLibrary() {
               <div className="flex flex-col items-center justify-center py-14 text-center px-6">
                 <Search size={24} className="text-white opacity-30 mb-3" />
                 <p className="text-white font-semibold text-sm mb-1">
-                  {isSearching || categoryFilter ? 'No receipts match' : `No receipts in ${thisYear} yet`}
+                  {isSearching || categoryFilter ? 'No receipts match' : `No receipts in ${selectedYear} yet`}
                 </p>
                 {(isSearching || categoryFilter) && (
                   <p className="text-white text-xs opacity-50">Try clearing your search or filter.</p>

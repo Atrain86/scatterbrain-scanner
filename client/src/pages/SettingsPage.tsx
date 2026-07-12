@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.15.0-phase7.4';
+export const APP_VERSION = '0.16.0-headers.1';
 
 interface CustomCategory {
   name: string;
@@ -228,10 +228,10 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
-      <header className="sticky top-0 z-20 bg-sb-bg border-b border-sb-border safe-top">
-        <div className="px-4 py-3 max-w-2xl mx-auto w-full">
-          <h1 className="text-base font-bold text-white text-center">Settings</h1>
-        </div>
+      <header className="flex items-center justify-between px-5 pt-12 pb-3 safe-top max-w-2xl mx-auto w-full">
+        <h1 className="text-white text-2xl font-bold tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
+          Settings
+        </h1>
       </header>
 
       <main className="flex-1 px-4 py-4 pb-24 space-y-4 max-w-2xl mx-auto w-full">
