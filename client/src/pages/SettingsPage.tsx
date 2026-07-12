@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.17.0-settings-reorder.1';
+export const APP_VERSION = '0.17.0-settings-reorder.2';
 
 interface CustomCategory {
   name: string;
@@ -543,8 +543,13 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* About — version, account, Sign Out. Dev/admin tools live under
-            Administrator (admin-gated) below. */}
+        {/* Administrator — admin allowlist only. Raw diagnostics + one-time
+            migrations kept for support/debugging. Hidden from normal users. */}
+        {isAdmin && <AdminPanel userId={userId} />}
+
+        {/* About — version, account, Sign Out. Sits LAST so the footer of
+            Settings is the identity + exit action, and admin tools (when
+            visible) don't push it further down. */}
         <Section icon={<Info size={16} />} title="About" defaultOpen={false}>
           <div className="space-y-3 text-sm">
             <div className="flex justify-between">
@@ -564,10 +569,6 @@ export default function SettingsPage() {
             </button>
           </div>
         </Section>
-
-        {/* Administrator — admin allowlist only. Raw diagnostics + one-time
-            migrations kept for support/debugging. Hidden from normal users. */}
-        {isAdmin && <AdminPanel userId={userId} />}
 
       </main>
     </div>
