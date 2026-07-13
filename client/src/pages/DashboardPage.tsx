@@ -58,12 +58,25 @@ export default function DashboardPage() {
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const categories = useMemo(() => (userId ? getAllCategories(userId) : []), [userId]);
 
-  // Selection for Stage 2 (scoped share). Default: everything currently in
-  // scope is selected; the user unchecks the ones they want to EXCLUDE from
-  // the share. Storing exclusions (not inclusions) means that when a scope
-  // change reveals a new receipt, it's automatically selected — which
-  // matches user intent ("share everything I'm looking at").
+  // Selection is OPT-IN — matches Home's Select-to-enter-mode idiom.
+  // Default: list is calm read-only, tapping a row deep-links to Home.
+  // User taps "Select" in the header to enter select mode → checkboxes
+  // appear, rows toggle selection instead of deep-linking, and a "Done"
+  // button in the header exits back to read-only.
+  //
+  // While in select mode, the storage is EXCLUSIONS (deselectedUuids) so
+  // that when a scope change reveals a new receipt it's included by default
+  // — matches "share everything I'm looking at."
+  const [selectMode,      setSelectMode]      = useState(false);
   const [deselectedUuids, setDeselectedUuids] = useState<Set<string>>(new Set());
+  function enterSelectMode() {
+    setSelectMode(true);
+    setDeselectedUuids(new Set()); // start with everything selected
+  }
+  function exitSelectMode() {
+    setSelectMode(false);
+    setDeselectedUuids(new Set()); // clear any pending deselections
+  }
   function toggleSelection(uuid: string) {
     setDeselectedUuids(prev => {
       const next = new Set(prev);
@@ -284,6 +297,9 @@ export default function DashboardPage() {
                 allCategories={categories}
                 categoryFilter={categoryFilter}
                 onCategoryFilterChange={setCategoryFilter}
+                selectMode={selectMode}
+                onEnterSelectMode={enterSelectMode}
+                onExitSelectMode={exitSelectMode}
                 deselectedUuids={deselectedUuids}
                 onToggleSelection={toggleSelection}
                 onSelectAll={selectAllInScope}
@@ -411,6 +427,9 @@ function ScopedReceiptList({
   allCategories,
   categoryFilter,
   onCategoryFilterChange,
+  selectMode,
+  onEnterSelectMode,
+  onExitSelectMode,
   deselectedUuids,
   onToggleSelection,
   onSelectAll,
@@ -426,6 +445,9 @@ function ScopedReceiptList({
   allCategories: { name: string; color: string }[];
   categoryFilter: string | null;
   onCategoryFilterChange: (next: string | null) => void;
+  selectMode: boolean;
+  onEnterSelectMode: () => void;
+  onExitSelectMode: () => void;
   deselectedUuids: Set<string>;
   onToggleSelection: (uuid: string) => void;
   onSelectAll: () => void;
@@ -461,18 +483,46 @@ function ScopedReceiptList({
                 ? 'Receipts this year'
                 : 'Receipts in range'}
           </p>
-          <p className="text-white/70 text-[12px] mt-0.5 truncate">
-            <span className="text-sb-green font-semibold">{selectedCount}</span>
-            <span className="text-white/50"> of {receipts.length} selected · </span>
-            <span className="text-sb-green font-semibold">${selectedTotal.toFixed(2)}</span>
-          </p>
-          {receipts.length > 0 && (
-            <div className="flex gap-3 mt-1 text-[11px]">
-              <button onClick={onSelectAll}  className="text-white/50 hover:text-white transition">All</button>
-              <button onClick={onSelectNone} className="text-white/50 hover:text-white transition">None</button>
-            </div>
+          {selectMode ? (
+            <>
+              <p className="text-white/70 text-[12px] mt-0.5 truncate">
+                <span className="text-sb-green font-semibold">{selectedCount}</span>
+                <span className="text-white/50"> of {receipts.length} selected · </span>
+                <span className="text-sb-green font-semibold">${selectedTotal.toFixed(2)}</span>
+              </p>
+              {receipts.length > 0 && (
+                <div className="flex gap-3 mt-1 text-[11px]">
+                  <button onClick={onSelectAll}  className="text-white/50 hover:text-white transition">All</button>
+                  <button onClick={onSelectNone} className="text-white/50 hover:text-white transition">None</button>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-white/40 text-[11px] mt-0.5">
+              {receipts.length} · read-only
+            </p>
           )}
         </div>
+
+        {/* Right cluster: Select/Done button + funnel */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {receipts.length > 0 && (
+            selectMode ? (
+              <button
+                onClick={onExitSelectMode}
+                className="text-[12px] text-sb-green hover:brightness-110 transition px-2 py-1"
+              >
+                Done
+              </button>
+            ) : (
+              <button
+                onClick={onEnterSelectMode}
+                className="text-[12px] text-white/60 hover:text-white transition px-2 py-1"
+              >
+                Select
+              </button>
+            )
+          )}
 
         {/* Silver funnel — same visual pattern as Home's search-bar filter.
             Tint fills with the category color when a filter is active. */}
@@ -520,6 +570,7 @@ function ScopedReceiptList({
             </div>
           )}
         </div>
+        </div>{/* /right cluster */}
       </div>
 
       {receipts.length === 0 ? (
@@ -537,25 +588,36 @@ function ScopedReceiptList({
         {receipts.map(r => {
           const catColor = userId ? getCategoryColorDynamic(r.category || '', userId) : '#6B7280';
           const uuid = r.uuid || '';
-          const isDeselected = !!uuid && deselectedUuids.has(uuid);
+          const isDeselected = selectMode && !!uuid && deselectedUuids.has(uuid);
           const isSelected   = !isDeselected;
+          // Behavior gate: OUT of select mode, the whole row deep-links to
+          // Home. IN select mode, the row toggles selection and a small
+          // chevron on the right handles the (secondary) deep-link.
+          const onRowClick = () => {
+            if (!uuid) return;
+            if (selectMode) onToggleSelection(uuid);
+            else onOpenOnHome(uuid);
+          };
           return (
             <div
               key={r.id}
               className={`w-full flex items-stretch border-b border-white/[0.05] last:border-0 transition ${isDeselected ? 'opacity-50' : ''}`}
             >
-              {/* Whole-body tap = toggle selection. Primary action for this
-                  surface since Dashboard is about picking WHAT TO SHARE. */}
               <button
-                onClick={() => uuid && onToggleSelection(uuid)}
+                onClick={onRowClick}
                 className="flex-1 min-w-0 flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-white/[0.02] active:bg-white/[0.04] transition"
               >
-                {/* Checkbox */}
+                {/* Checkbox — only rendered in select mode. Slides in via
+                    width transition so the row doesn't jump. */}
                 <span
                   aria-hidden="true"
-                  className={`mt-0.5 w-[18px] h-[18px] rounded-md flex-shrink-0 flex items-center justify-center border-2 transition-colors ${isSelected ? 'bg-sb-green border-sb-green' : 'border-white/25 bg-transparent'}`}
+                  className={`mt-0.5 flex-shrink-0 flex items-center justify-center transition-all overflow-hidden ${selectMode ? 'w-[18px] opacity-100 mr-0' : 'w-0 opacity-0 mr-[-10px]'}`}
                 >
-                  {isSelected && <Check size={11} className="text-black" strokeWidth={3} />}
+                  <span
+                    className={`w-[18px] h-[18px] rounded-md flex items-center justify-center border-2 transition-colors ${isSelected ? 'bg-sb-green border-sb-green' : 'border-white/25 bg-transparent'}`}
+                  >
+                    {isSelected && <Check size={11} className="text-black" strokeWidth={3} />}
+                  </span>
                 </span>
 
                 <div className="flex-1 min-w-0">
@@ -588,16 +650,18 @@ function ScopedReceiptList({
                 </span>
               </button>
 
-              {/* Secondary action: chevron → deep-link to Home for editing.
-                  Deliberately small so it doesn't compete with the whole-row
-                  select tap. */}
-              <button
-                onClick={() => uuid && onOpenOnHome(uuid)}
-                aria-label="Open on Home"
-                className="flex items-center justify-center pr-3 pl-1 text-white/30 hover:text-white/70 transition"
-              >
-                <ChevronRight size={16} />
-              </button>
+              {/* Chevron only shown in select mode as the escape hatch to
+                  Home. Out of select mode the whole row already deep-links,
+                  so no chevron needed. */}
+              {selectMode && (
+                <button
+                  onClick={() => uuid && onOpenOnHome(uuid)}
+                  aria-label="Open on Home"
+                  className="flex items-center justify-center pr-3 pl-1 text-white/30 hover:text-white/70 transition"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              )}
             </div>
           );
         })}
