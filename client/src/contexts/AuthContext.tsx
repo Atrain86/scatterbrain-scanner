@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { migrateUnnamedDb } from '../lib/db';
-import { clearAllOtherUsersStorage } from '../lib/userStorage';
+import { clearAllOtherUsersStorage, isEstablishedUser, markUserEstablished } from '../lib/userStorage';
 import { resetSyncCaches } from '../lib/cloudSync';
 import {
   getPriorUserSnapshots,
@@ -27,9 +27,13 @@ export interface HandoverConsent {
   pendingUser: AuthUser;
   pendingToken: string;
   priorUsers: PriorUserSnapshot[];
-  // Called by the UI when the user chooses to proceed (wipe prior data + sign in)
+  // Primary action: keep everything as-is and sign in. Nothing gets deleted.
+  // This is what the modal's big button now does.
+  onKeepAndProceed: () => void;
+  // Secondary (opt-in): wipe the at-risk prior data + sign in. Explicit
+  // user action required — modal exposes this as a small "clean up" link.
   onApproveWipe: () => void;
-  // Called by the UI when the user chooses NOT to proceed (cancel sign-in)
+  // Cancel — aborts the sign-in entirely, prior data stays untouched.
   onCancel: () => void;
 }
 
@@ -70,35 +74,54 @@ async function apiFetch(path: string, body: object): Promise<{ token: string; us
   return data as { token: string; user: AuthUser };
 }
 
-// Called when we're about to activate a user session on the device. If any
-// prior user has data here, either wipe it (if verified safe) or park a
-// HandoverConsent for the UI to resolve. Returns true if it's safe to activate
-// the session now, false if the caller should wait for consent.
+// Called when we're about to activate a user session on the device.
+//
+// Two-tier short-circuit before we even build the priors list:
+//   1. Established-user bypass: if this userId has successfully activated a
+//      session on THIS browser before, they are not a handover risk — they
+//      live here. Skip reconciliation entirely. Nothing gets touched, no
+//      modal, no prompt. First-time arrivals still fall through.
+//   2. Risk-only prompt: for a genuinely first-time arrival, we only prompt
+//      if at least one OTHER account on this device has unbacked-up receipts
+//      (localReceiptCount > 0 AND !backupVerified). If every other account
+//      is either empty or verified-backed-up, there's no data at risk —
+//      just proceed silently, leaving their data intact.
+//
+// When we DO prompt, the default action is now KEEP (not wipe). onApproveWipe
+// is still available if the user explicitly chooses to clean up — but the
+// modal's primary button just proceeds and preserves everything.
 async function reconcilePriorUsers(
   incoming: AuthUser,
   token: string,
   parkConsent: (c: HandoverConsent | null) => void,
 ): Promise<'proceed' | 'awaiting-consent'> {
+  // Tier 1 — established user. Nothing to reconcile; they're already at home.
+  if (isEstablishedUser(incoming.id)) return 'proceed';
+
   const priors = await getPriorUserSnapshots(incoming.id);
   if (priors.length === 0) return 'proceed';
 
-  const allVerified = priors.every(p => p.backupVerified);
-  if (allVerified) {
-    // Safe to wipe silently.
-    for (const p of priors) await deletePriorUserDb(p.userId);
-    clearAllOtherUsersStorage(incoming.id);
-    return 'proceed';
-  }
+  // Tier 2 — risk gate. Only care about priors with unbacked-up local
+  // receipts. Empty accounts and verified-backed-up accounts are safe to
+  // leave untouched.
+  const atRisk = priors.filter(p => !p.backupVerified && p.localReceiptCount > 0);
+  if (atRisk.length === 0) return 'proceed';
 
-  // Need explicit user consent. Park the state and return a promise the UI
-  // will resolve.
+  // Genuine first-time arrival with genuinely-at-risk data. Park a consent
+  // modal — but note the modal's PRIMARY action is "keep everything & sign
+  // in" (no wipe). Wipe is opt-in via the modal's secondary path.
   return new Promise<'proceed' | 'awaiting-consent'>(resolve => {
     parkConsent({
       pendingUser: incoming,
       pendingToken: token,
-      priorUsers: priors,
+      priorUsers: atRisk,
+      onKeepAndProceed: () => {
+        // Primary path: keep prior data untouched, sign in normally.
+        parkConsent(null);
+        resolve('proceed');
+      },
       onApproveWipe: async () => {
-        for (const p of priors) await deletePriorUserDb(p.userId);
+        for (const p of atRisk) await deletePriorUserDb(p.userId);
         clearAllOtherUsersStorage(incoming.id);
         parkConsent(null);
         resolve('proceed');
@@ -121,6 +144,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // in background. Prior-user reconciliation is NOT run on mount — mount is
   // for the same user resuming their own session. Reconciliation runs only
   // on explicit login/signup where a different user might be arriving.
+  //
+  // Also — if the JWT decodes to a valid userId, mark that user as
+  // established on this device. This "self-heals" any pre-feature users
+  // (like Alan on his current browser): the moment they reload the app,
+  // they're recognized as established and the next sign-in won't hit the
+  // handover modal. No manual step required.
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEY);
     if (!token) { setLoading(false); return; }
@@ -129,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const payload = JSON.parse(atob(token.split('.')[1]));
       if (payload.id && payload.email) {
         migrateUnnamedDb(payload.id).catch(() => {});
+        markUserEstablished(payload.id);
         setUser({ id: payload.id, email: payload.email });
         setLoading(false);
       } else {
@@ -166,6 +196,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     localStorage.setItem(TOKEN_KEY, token);
     await migrateUnnamedDb(u.id);
+    // Successful activation = this user is established on this browser.
+    // Future sign-ins as this user will bypass the handover check entirely.
+    markUserEstablished(u.id);
     setUser(u);
   }, []);
 

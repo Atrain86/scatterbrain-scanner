@@ -121,4 +121,45 @@ router.get('/admin/users', async (req: Request, res: Response) => {
   }
 });
 
+// Admin-only account delete. Removes a user row from the users table by id.
+// Used during alpha to free up burned test emails so we can re-verify signup
+// flows. Guardrails:
+//   - Admin allowlist enforced (same as /admin/users).
+//   - Cannot delete your own account (self-lockout protection).
+//   - Cannot delete other admins (safety against a mistake wiping the other
+//     admin's account).
+// Does NOT touch client-side data (Dexie, localStorage, Drive). That's a
+// separate cleanup problem the client handles via LocalAccountsCleanupButton
+// and the handover flow.
+router.delete('/admin/users/:id', async (req: Request, res: Response) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) { res.status(401).json({ error: 'Unauthorized' }); return; }
+  try {
+    const payload = jwt.verify(auth.slice(7), JWT_SECRET) as { id: string; email: string };
+    const requesterEmail = payload.email.toLowerCase();
+    if (!ADMIN_EMAILS.includes(requesterEmail)) {
+      res.status(403).json({ error: 'Forbidden' }); return;
+    }
+    const targetId = req.params.id;
+    if (!targetId) { res.status(400).json({ error: 'Missing user id' }); return; }
+    if (targetId === payload.id) {
+      res.status(400).json({ error: 'Cannot delete your own account' }); return;
+    }
+    const db = getDb();
+    const lookup = await db.execute({ sql: 'SELECT email FROM users WHERE id = ?', args: [targetId] });
+    if (lookup.rows.length === 0) {
+      res.status(404).json({ error: 'User not found' }); return;
+    }
+    const targetEmail = String(lookup.rows[0].email ?? '').toLowerCase();
+    if (ADMIN_EMAILS.includes(targetEmail)) {
+      res.status(400).json({ error: 'Cannot delete an admin account from here' }); return;
+    }
+    await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [targetId] });
+    res.json({ deleted: true, id: targetId, email: targetEmail });
+  } catch (err) {
+    console.error('[auth] delete user error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 export default router;

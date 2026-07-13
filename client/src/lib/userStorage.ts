@@ -67,6 +67,58 @@ export function listUserIdsWithLocalData(): string[] {
   return Array.from(ids);
 }
 
+// ── Established-user tracking ───────────────────────────────────────────────
+// The handover consent flow needs to distinguish a genuinely NEW arrival on
+// this browser from a RETURNING user. A returning established user is not
+// a handover risk — they've been here before, this browser is their normal
+// place, we don't need to prompt "you're about to replace prior user data"
+// every single time they sign in.
+//
+// A user becomes "established" on this device the moment they successfully
+// activate a session here (login/signup succeeded AND any handover check
+// passed). We also treat a valid resumed session (mount-time token decode
+// with server-verify still succeeding) as an implicit re-establishment,
+// which covers users who were established before this feature landed.
+//
+// The Set is stored under a device-scope key. Not per-user by design — it's
+// a device-local roster of "who has ever been here." Reading it doesn't
+// leak anything; a userID alone can't be used to impersonate.
+
+const ESTABLISHED_KEY = 'sb_device_established_users';
+
+function readEstablishedSet(): Set<string> {
+  try {
+    const raw = localStorage.getItem(ESTABLISHED_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? new Set(arr.filter((v): v is string => typeof v === 'string')) : new Set();
+  } catch { return new Set(); }
+}
+
+function writeEstablishedSet(set: Set<string>): void {
+  try {
+    localStorage.setItem(ESTABLISHED_KEY, JSON.stringify(Array.from(set)));
+  } catch { /* quota — non-fatal */ }
+}
+
+export function isEstablishedUser(userId: string): boolean {
+  return readEstablishedSet().has(userId);
+}
+
+export function markUserEstablished(userId: string): void {
+  const set = readEstablishedSet();
+  if (set.has(userId)) return;
+  set.add(userId);
+  writeEstablishedSet(set);
+}
+
+export function unmarkUserEstablished(userId: string): void {
+  const set = readEstablishedSet();
+  if (!set.has(userId)) return;
+  set.delete(userId);
+  writeEstablishedSet(set);
+}
+
 // Clear every user's data EXCEPT the one being kept. Called on sign-in AFTER
 // the conditional-wipe safety check has confirmed the outgoing user's data
 // is backed up (or the user has explicitly overridden). Never called
