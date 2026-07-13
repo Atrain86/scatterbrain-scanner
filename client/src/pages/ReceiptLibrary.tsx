@@ -184,7 +184,7 @@ export default function ReceiptLibrary() {
         <span className="text-[13px] text-white tracking-wider select-none">v{APP_VERSION}</span>
       </header>
 
-      <main className="flex-1 px-3 pt-1 pb-40 overflow-y-auto max-w-2xl mx-auto w-full">
+      <main className="flex-1 px-3 pt-1 pb-48 overflow-y-auto max-w-2xl mx-auto w-full">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
@@ -242,7 +242,7 @@ export default function ReceiptLibrary() {
       */}
       <div
         className="fixed left-0 right-0 z-20 px-4 pointer-events-none"
-        style={{ bottom: 'calc(84px + env(safe-area-inset-bottom))' }}
+        style={{ bottom: 'calc(104px + env(safe-area-inset-bottom))' }}
       >
         <div className="relative max-w-2xl mx-auto w-full pointer-events-auto">
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/45" />
@@ -301,7 +301,7 @@ export default function ReceiptLibrary() {
       {(isSearching || categoryFilter) && (
         <div
           className="fixed left-0 right-0 z-10 px-5 pointer-events-none"
-          style={{ bottom: 'calc(148px + env(safe-area-inset-bottom))' }}
+          style={{ bottom: 'calc(168px + env(safe-area-inset-bottom))' }}
         >
           <div className="flex items-center justify-end gap-3 max-w-2xl mx-auto w-full pointer-events-auto">
             {filteredTotal > 0 && (
@@ -321,7 +321,7 @@ export default function ReceiptLibrary() {
       {selectMode && (
         <div
           className="fixed left-0 right-0 z-30 bg-sb-card2 border-t border-sb-border px-4 py-3 flex items-center gap-3 animate-fade-in max-w-2xl mx-auto"
-          style={{ bottom: 'calc(76px + env(safe-area-inset-bottom))' }}
+          style={{ bottom: 'calc(96px + env(safe-area-inset-bottom))' }}
         >
           <button onClick={exitSelectMode} className="p-2 text-sb-muted hover:text-white transition">
             <X size={18} />

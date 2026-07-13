@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.19.0-handover-established.2';
+export const APP_VERSION = '0.19.1-search-bar-gap';
 
 interface CustomCategory {
   name: string;
