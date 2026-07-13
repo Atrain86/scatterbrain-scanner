@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Check, ChevronDown, Plus, X, Trash2 } from 'lucide-react';
 import { computeReceiptTotals, isTaxLine, fmt } from '../utils/taxCalc';
 import type { ScannedReceiptData, ReceiptLineItem } from '../utils/types';
-import { getAllCategories } from '../utils/types';
+import { getAllCategories, ensureCategoryExists } from '../utils/types';
 import { loadClients, addClient, getLastClient, setLastClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -156,6 +156,11 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
 
   function handleSave() {
     if (clientName) setLastClient(userId, clientName);
+    // Blank-canvas support: auto-add the AI-suggested (or user-picked)
+    // category to the user's custom_categories list if it isn't already
+    // there. Otherwise a fresh user's picker would stay empty forever
+    // and the receipt's category text would render greyed-out.
+    if (category) ensureCategoryExists(userId, category);
     const saveItems = items.filter(i => i.isSelected).map(i => ({ description: i.description, amount: i.amount }));
     onSave({
       storeName,
@@ -172,7 +177,13 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
   }
 
   const allCategories = getAllCategories(userId);
-  const selectedCategory = allCategories.find(c => c.name === category) ?? allCategories[0];
+  // Fallback when the user's list is empty (fresh account) or the currently
+  // selected category isn't in it yet (AI suggested a new name). Grey
+  // placeholder color; ensureCategoryExists() will bind a real palette
+  // color on save.
+  const selectedCategory =
+    allCategories.find(c => c.name === category) ??
+    { name: category || 'Other', color: '#6B7280' };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden max-w-2xl mx-auto w-full">

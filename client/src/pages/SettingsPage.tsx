@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.19.1-search-bar-gap';
+export const APP_VERSION = '0.20.0-blank-canvas';
 
 interface CustomCategory {
   name: string;
@@ -25,38 +25,44 @@ interface CustomCategory {
 // non-curated categories.
 const PALETTE_COLORS: readonly string[] = CURATED_PALETTE;
 
-// Kept in sync with utils/types.ts CATEGORIES — nearest curated palette colors.
-const DEFAULT_CATEGORIES: CustomCategory[] = [
-  { name: 'Comm',                color: '#5cbfae' },
-  { name: 'Loan/Interest',       color: '#e0725f' },
-  { name: 'Meals',               color: '#6bc48a' },
-  { name: 'Medical',             color: '#6b95d9' },
-  { name: 'Postage',             color: '#e0a35f' },
-  { name: 'Supplies & Hardware', color: '#d9c15c' },
-  { name: 'AI Services',         color: '#af7bd1' },
-  { name: 'Insurance',           color: '#8b83d9' },
-  { name: 'Rent',                color: '#5cb0c9' },
-  { name: 'Travel',              color: '#5cbfae' },
-  { name: 'Subscriptions',       color: '#d16b93' },
-];
+// New users start with a BLANK CANVAS. Categories are personal — one user's
+// curated list is theirs, not something to seed onto strangers. Previously
+// this file hardcoded 11 defaults (Comm, Meals, Travel, etc.) that seeded
+// for every new account, which made brand-new users think another user's
+// list had bled through when it was really just the app's built-in seed.
+//
+// Existing users already have their entries persisted in localStorage — we
+// do NOT wipe those. We only change what happens when the storage key is
+// empty (fresh user): return [], let the user build their list from scratch.
+const DEFAULT_CATEGORIES: CustomCategory[] = [];
 
 function catStorageKey(userId: string)        { return `sb_u${userId}_custom_categories`; }
 function catVersionKey(userId: string)        { return `sb_u${userId}_category_version`; }
-const CURRENT_CATEGORY_VERSION = '2';
+// Bumped to '3' when the blank-canvas change shipped. Version-bump path
+// PRESERVES existing entries instead of overwriting them — nobody loses
+// their customs on a version bump. The marker is now just proof that a
+// user has been through the current-schema code once.
+const CURRENT_CATEGORY_VERSION = '3';
 
 function loadCustomCategories(userId: string): CustomCategory[] {
   try {
     const storedVersion = localStorage.getItem(catVersionKey(userId));
-    if (storedVersion !== CURRENT_CATEGORY_VERSION) {
+    const raw = localStorage.getItem(catStorageKey(userId));
+
+    // Fresh user — no storage yet. Seed empty (blank canvas) + mark version.
+    if (raw === null) {
       localStorage.setItem(catStorageKey(userId), JSON.stringify(DEFAULT_CATEGORIES));
       localStorage.setItem(catVersionKey(userId), CURRENT_CATEGORY_VERSION);
       return DEFAULT_CATEGORIES;
     }
-    const raw = localStorage.getItem(catStorageKey(userId));
-    if (!raw) {
-      localStorage.setItem(catStorageKey(userId), JSON.stringify(DEFAULT_CATEGORIES));
-      return DEFAULT_CATEGORIES;
+
+    // Existing user, version changed — DO NOT overwrite their existing
+    // categories. Just bump the marker. Preserves anyone who already built
+    // a curated set.
+    if (storedVersion !== CURRENT_CATEGORY_VERSION) {
+      localStorage.setItem(catVersionKey(userId), CURRENT_CATEGORY_VERSION);
     }
+
     return JSON.parse(raw) as CustomCategory[];
   } catch { return DEFAULT_CATEGORIES; }
 }
@@ -266,7 +272,7 @@ export default function SettingsPage() {
         <Section icon={<Tag size={16} />} title="Categories" defaultOpen={false}>
           <div className="space-y-1.5 mb-4">
             {customCategories.length === 0 ? (
-              <p className="text-xs text-sb-muted italic">No categories yet. Add one below.</p>
+              <p className="text-xs text-sb-muted italic">No categories yet. Categories are added automatically as you scan receipts, or add one below.</p>
             ) : (
               customCategories.map(cat => (
                 <div key={cat.name} className="flex items-center justify-between bg-sb-card2 border border-sb-border rounded-xl px-3 py-2">
