@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.19.0-handover-established.1';
+export const APP_VERSION = '0.19.0-handover-established.2';
 
 interface CustomCategory {
   name: string;
@@ -581,7 +581,12 @@ function AdminPanel({ userId }: { userId: string }) {
   const [users, setUsers] = useState<{ id: string; email: string; createdAt: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const token = localStorage.getItem('sb_auth_token');
+  // Same allowlist as auth.ts. Kept client-side only for UI decisions; the
+  // server enforces the real gate on the DELETE endpoint.
+  const ADMIN_EMAILS_LOWER = ['cortespainter@gmail.com', 'alankohl@hotmail.com'];
 
   async function loadUsers() {
     setLoading(true);
@@ -596,6 +601,25 @@ function AdminPanel({ userId }: { userId: string }) {
       // silent
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function deleteUser(u: { id: string; email: string }) {
+    if (!confirm(`Delete account ${u.email}?\n\nThis frees the email for re-signup. It does NOT delete their local receipts on their own device or their Drive backup.`)) return;
+    setDeletingId(u.id);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/user/admin/users/${encodeURIComponent(u.id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
+      setUsers(prev => prev.filter(x => x.id !== u.id));
+    } catch (err) {
+      setDeleteError((err as Error).message || 'Delete failed');
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -615,13 +639,36 @@ function AdminPanel({ userId }: { userId: string }) {
         ) : (
           <div className="space-y-2">
             <p className="text-xs text-sb-muted">{users.length} user{users.length !== 1 ? 's' : ''} registered</p>
+            {deleteError && (
+              <p className="text-xs text-red-400 bg-red-950/30 border border-red-900/40 rounded-lg px-2.5 py-1.5">{deleteError}</p>
+            )}
             <div className="divide-y divide-sb-border rounded-xl overflow-hidden border border-sb-border">
-              {users.map(u => (
-                <div key={u.id} className="px-3 py-2.5 bg-sb-card2">
-                  <p className="text-white text-sm">{u.email}</p>
-                  <p className="text-sb-muted text-xs">{new Date(u.createdAt).toLocaleDateString()}</p>
-                </div>
-              ))}
+              {users.map(u => {
+                const isSelf  = u.id === userId;
+                const isAdmin = ADMIN_EMAILS_LOWER.includes(u.email.toLowerCase());
+                const canDelete = !isSelf && !isAdmin;
+                return (
+                  <div key={u.id} className="flex items-center justify-between gap-2 px-3 py-2.5 bg-sb-card2">
+                    <div className="min-w-0">
+                      <p className="text-white text-sm truncate">{u.email}</p>
+                      <p className="text-sb-muted text-xs">{new Date(u.createdAt).toLocaleDateString()}</p>
+                    </div>
+                    {canDelete ? (
+                      <button
+                        onClick={() => deleteUser(u)}
+                        disabled={deletingId === u.id}
+                        className="shrink-0 rounded-lg px-2.5 py-1 text-[11px] text-red-300 border border-red-900/50 hover:bg-red-950/40 transition disabled:opacity-50"
+                      >
+                        {deletingId === u.id ? 'Removing…' : 'Delete'}
+                      </button>
+                    ) : (
+                      <span className="shrink-0 text-[10px] text-sb-muted italic">
+                        {isSelf ? 'you' : 'admin'}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
