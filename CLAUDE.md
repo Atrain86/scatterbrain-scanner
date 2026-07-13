@@ -143,6 +143,45 @@ Defined in `client/tailwind.config.ts`. Prefix: `sb-*`
 
 ---
 
+## ALPHA CHECKLIST (current focus)
+
+- 🔴 **Category bleed fix** — the alpha gate. Categories drift between accounts / devices. Diagnostic prompt already given.
+- 🔴 **Google Drive verification** — start the clock on Google's OAuth verification review. Doc still to write.
+- 🟡 **xlsx quality upgrade** — deferred, see below.
+- 🟡 **Auto-crop, readable filenames, scoped-share merge** — in flight / near done.
+- 🟡 **Feature ideas** — payment-method field, manual entry. Banked.
+
+---
+
+## DEFERRED FEATURES (do NOT build until alpha blockers are cleared)
+
+### xlsx quality upgrade — accountant-facing spreadsheet polish
+
+**Status:** Deferred. Current xlsx is functional-but-ugly (garbled OCR text in `Items` column, tax lines mixed in with real items), not broken. Ship the bleed fix + verification first.
+
+**No backfill of existing receipts** — test data. Normalize at scan time going forward only.
+
+**Three cohesive changes:**
+
+1. **Smart-name line items at scan time**
+   - Add a normalization pass after the gpt-4o-mini vision returns `lineItems`.
+   - Cleans descriptions to readable free-text ("EREG" → "Regular gas"). NOT a rigid enum — receipts vary too much (materials, food, misc). Just remove OCR debris, make readable.
+   - Strip tax lines (GST/PST/HST/QST/VAT) OUT of items — they belong in the Tax column.
+   - Store in a NEW field `normalizedLineItems`, per-user, namespaced. NEVER overwrite `lineItems` or `rawLineItems` (safety copies). No global storage keys per account-safety-v2 discipline.
+   - Do it ONCE at scan (not at export — no per-share AI calls).
+
+2. **xlsx columns — add + refine**
+   - **Add a CATEGORY column** between `Client` and `Items` so each row is self-describing.
+   - **Items column uses normalized names** from `normalizedLineItems`.
+   - **Split tax into GST / PST columns** when the receipt provides them separately (Canadian filing). Fall back to single "Tax" if not split.
+
+3. **Color continuity**
+   - Color-code the Category cell in Excel to match the app's curated 12-hue palette (Excel cell fill), so categories are visually consistent between app and spreadsheet.
+
+**Scope discipline:** this is ONE cohesive follow-on project. Do it AFTER alpha blockers, in one branch.
+
+---
+
 ## SESSION LOG
 
 | Date | Completed | Notes |

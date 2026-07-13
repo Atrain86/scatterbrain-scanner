@@ -69,31 +69,72 @@ export function getCategoryColor(name: string): string {
 // settings bucket. User A's custom "Materials — Metro Site" category would
 // appear in User B's picker on the same device.
 //
-// Canonical-store principle (redesign spec Phase 5): the user's own
-// custom_categories bucket is the source of truth for color. Built-in
-// CATEGORIES defaults are only used to seed the list — once the user has
-// their own entry with the same name, THEIR color wins. Otherwise Settings
-// (which reads custom_categories directly) and receipt cards (which read
-// through this helper) can drift out of sync, e.g. after a palette migration.
+// Blank-canvas contract (post-bleed-alarm): this function returns ONLY the
+// user's own custom entries. Built-in CATEGORIES are NOT merged in — that
+// merge was the source of the "bleed" complaint (every new user saw the 11
+// built-ins and thought Alan's categories had leaked). Categories are now
+// personal from day one; a new user's list is empty until they add entries
+// or scan receipts that generate them.
+//
+// CATEGORIES is kept for the getCategoryColor() legacy fallback (used by
+// receipt cards when a receipt has a category name that isn't in the user's
+// custom list — e.g. imported from Drive with a name that predates the
+// user's own list). Nothing else in the app should rely on the built-ins.
 export function getAllCategories(userId: string): { name: string; color: string }[] {
   try {
     const stored = JSON.parse(localStorage.getItem(`sb_u${userId}_custom_categories`) || '[]');
-    const custom = Array.isArray(stored)
-      ? stored.filter(
-          (c): c is { name: string; color: string } =>
-            typeof c === 'object' && c !== null && typeof (c as { name: unknown }).name === 'string' && typeof (c as { color: unknown }).color === 'string'
-        )
-      : [];
-
-    // Custom entries win on name conflict — see docstring. Merge order:
-    // start with built-ins, then let custom overwrite by name.
-    const byName = new Map<string, { name: string; color: string }>();
-    for (const c of CATEGORIES) byName.set(c.name.toLowerCase(), { name: c.name, color: c.color });
-    for (const c of custom)     byName.set(c.name.toLowerCase(), { name: c.name, color: c.color });
-    return Array.from(byName.values());
+    if (!Array.isArray(stored)) return [];
+    return stored.filter(
+      (c): c is { name: string; color: string } =>
+        typeof c === 'object' && c !== null &&
+        typeof (c as { name: unknown }).name === 'string' &&
+        typeof (c as { color: unknown }).color === 'string'
+    );
   } catch {
-    return CATEGORIES.map(c => ({ name: c.name, color: c.color }));
+    return [];
   }
+}
+
+// Auto-add a category to the user's custom list if it isn't already there.
+// Called at receipt-save time (LineItemSelector.handleSave) so the user's
+// category list grows organically from real receipts, matching the
+// blank-canvas contract without leaving the picker empty forever. If the
+// category already exists (case-insensitive), this is a no-op — we don't
+// touch the existing entry (preserves any color the user has assigned).
+// Never called with an empty name.
+export function ensureCategoryExists(userId: string, name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const key = `sb_u${userId}_custom_categories`;
+  let existing: { name: string; color: string }[] = [];
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) existing = parsed;
+    }
+  } catch { /* fall through — will overwrite corrupted value */ }
+
+  if (existing.some(c => c.name.toLowerCase() === trimmed.toLowerCase())) return;
+
+  // Pick a palette color the user hasn't used yet; if all 12 are taken,
+  // just start reusing from the top (color reuse is allowed — the name
+  // is the identity, per the older category-sync gap memo).
+  // Uses CATEGORIES built-ins for a stable name→color hint when we can,
+  // otherwise falls back to the next unused palette hue.
+  const usedColors = new Set(existing.map(c => c.color.toLowerCase()));
+  const preferred = CATEGORIES.find(c => c.name.toLowerCase() === trimmed.toLowerCase())?.color;
+  let color: string;
+  if (preferred && !usedColors.has(preferred.toLowerCase())) {
+    color = preferred;
+  } else {
+    const palette = CATEGORIES.map(c => c.color); // curated palette hue set
+    const firstUnused = palette.find(c => !usedColors.has(c.toLowerCase()));
+    color = firstUnused ?? palette[existing.length % palette.length];
+  }
+
+  const next = [...existing, { name: trimmed, color }];
+  localStorage.setItem(key, JSON.stringify(next));
 }
 
 export function getCategoryColorDynamic(name: string, userId: string): string {
