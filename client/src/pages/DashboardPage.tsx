@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import { Tag, Receipt as ReceiptIcon, Download, ChevronDown, ChevronRight, Check, Funnel } from 'lucide-react';
+import { Tag, Receipt as ReceiptIcon, Download, ChevronDown, ChevronRight, Check, Funnel, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
@@ -10,6 +10,12 @@ import { useUserPref } from '../lib/userStorage';
 import { getCategoryColorDynamic, getAllCategories } from '../utils/types';
 import type { Receipt } from '../utils/types';
 import MonthRangeSlider from '../components/MonthRangeSlider';
+import { buildReceiptWorkbook, downloadWorkbook, workbookToFile } from '../lib/xlsxExport';
+
+// Used by the scope label + filename. Kept in sync with MONTH_ABBR near
+// the bottom of the file (same list, different scope for hoisting).
+const MONTH_ABBR_TOP = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function monthAbbrev(i: number): string { return MONTH_ABBR_TOP[i] ?? ''; }
 
 // Phase 6 Stage 1 — Dashboard (analysis lens; NO writes, read-only)
 // Absorbs the prior-year drilldown that got removed from Home in Phase 3.
@@ -165,6 +171,59 @@ export default function DashboardPage() {
   );
   const selectedTotal = selectedReceipts.reduce((s, r) => s + r.total, 0);
 
+  // Stage 3 — share the selected subset as an xlsx spreadsheet.
+  // Prefers the Web Share API (native share sheet on mobile → Mail /
+  // Messages / Drive / etc), falls back to plain download on desktop or
+  // browsers without file-share support. Same shape as the Export tab
+  // via the shared buildReceiptWorkbook util.
+  //
+  // Photo-zip export is deferred (see the redesign spec Stage 3
+  // note): would require ~100KB of jszip dep + multi-MB payloads;
+  // spreadsheet-only is an acceptable v1, easy to add later.
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+  async function handleShareSelected() {
+    if (selectedReceipts.length === 0) return;
+    setShareBusy(true);
+    setShareError(null);
+    try {
+      const scopeLabel = isFullYear
+        ? `${effectiveYear}`
+        : `${effectiveYear} ${monthAbbrev(rangeStart)}–${monthAbbrev(rangeEnd)}`;
+      const title = `Expense Summary — ${scopeLabel}`;
+      const wb = buildReceiptWorkbook({
+        rows: selectedReceipts,
+        title,
+        clientLabel: categoryFilter,
+      });
+      const fileBase = `Expenses_${effectiveYear}${!isFullYear ? `_${monthAbbrev(rangeStart)}-${monthAbbrev(rangeEnd)}` : ''}${categoryFilter ? `_${categoryFilter.replace(/[^a-z0-9]/gi, '_')}` : ''}`;
+
+      // Web Share API path — must be triggered by user gesture; canShare
+      // guard means we don't attempt on browsers that would just reject.
+      const file = workbookToFile(wb, fileBase);
+      const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+      if (nav.canShare && nav.canShare({ files: [file] })) {
+        try {
+          await nav.share({
+            files: [file],
+            title,
+            text: `${selectedReceipts.length} receipt${selectedReceipts.length === 1 ? '' : 's'} · $${selectedTotal.toFixed(2)}`,
+          });
+          return;
+        } catch (err) {
+          // User cancelled the share sheet — treat as no-op, not an error.
+          if ((err as Error).name === 'AbortError') return;
+          // Any other share failure falls through to download.
+        }
+      }
+      downloadWorkbook(wb, fileBase);
+    } catch (err) {
+      setShareError((err as Error).message || 'Share failed');
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
       <header className="flex items-baseline justify-between px-5 pt-12 pb-3 safe-top max-w-2xl mx-auto w-full">
@@ -307,6 +366,9 @@ export default function DashboardPage() {
                 selectedCount={selectedReceipts.length}
                 selectedTotal={selectedTotal}
                 onOpenOnHome={uuid => navigate(`/receipts?receipt=${encodeURIComponent(uuid)}`)}
+                onShareSelected={handleShareSelected}
+                shareBusy={shareBusy}
+                shareError={shareError}
               />
             )}
 
@@ -437,6 +499,9 @@ function ScopedReceiptList({
   selectedCount,
   selectedTotal,
   onOpenOnHome,
+  onShareSelected,
+  shareBusy,
+  shareError,
 }: {
   receipts: Receipt[];
   userId: string | undefined;
@@ -455,6 +520,9 @@ function ScopedReceiptList({
   selectedCount: number;
   selectedTotal: number;
   onOpenOnHome: (uuid: string) => void;
+  onShareSelected: () => void;
+  shareBusy: boolean;
+  shareError: string | null;
 }) {
   const [showCatPicker, setShowCatPicker] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -570,8 +638,29 @@ function ScopedReceiptList({
             </div>
           )}
         </div>
+
+        {/* Share button — primary commit action on the selected subset.
+            Only in select mode + when at least one row is selected. Solid
+            green (#4ade80) per color discipline: green = money / commit. */}
+        {selectMode && selectedCount > 0 && (
+          <button
+            onClick={onShareSelected}
+            disabled={shareBusy}
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 bg-sb-green text-black text-[12px] font-bold hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition"
+          >
+            <Share2 size={13} strokeWidth={2.5} />
+            {shareBusy ? 'Preparing…' : 'Share'}
+          </button>
+        )}
         </div>{/* /right cluster */}
       </div>
+
+      {/* Share error banner — thin, only appears if share failed hard. */}
+      {shareError && (
+        <div className="px-4 py-2 bg-red-950/30 border-b border-red-900/40 text-red-300 text-[11px]">
+          {shareError}
+        </div>
+      )}
 
       {receipts.length === 0 ? (
         <div className="py-8 text-center">

@@ -1,8 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Download, CheckCircle, User } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { useReceipts } from '../hooks/useReceipts';
-import type { Receipt } from '../utils/types';
+import { buildReceiptWorkbook, downloadWorkbook } from '../lib/xlsxExport';
 
 export default function ExportPage() {
   const { receipts } = useReceipts();
@@ -51,124 +50,6 @@ export default function ExportPage() {
     return yearReceipts.filter(r => selectedClients.has(r.clientName?.trim() || ''));
   }, [yearReceipts, selectedClients]);
 
-  const exportTotal = exportReceipts.reduce((s, r) => s + r.total, 0);
-
-  /**
-   * Sanitize a category name for use as an Excel worksheet TAB.
-   * Excel forbids: : \ / ? * [ ] in tab names, and caps them at 31 chars.
-   * We also trim whitespace / apostrophes (leading/trailing apostrophes
-   * are also disallowed).
-   *
-   * The category's REAL name is preserved everywhere else (sheet contents,
-   * summary rows, headers). Only the tab label is sanitized.
-   *
-   * De-dupes with a "(N)" suffix if two categories sanitize to the same tab
-   * name (e.g. "A/B" and "A B" both become "A-B" without dedupe).
-   *
-   * NEVER silently drops a row — this only affects TAB LABELS, not the data
-   * inside the sheet.
-   */
-  function safeSheetName(raw: string, used: Set<string>): string {
-    let name = raw.replace(/[:\\/?*\[\]]/g, '-').trim();
-    if (!name) name = 'Category';
-    name = name.replace(/^'+|'+$/g, '');
-    let candidate = name.slice(0, 31);
-    if (!used.has(candidate.toLowerCase())) { used.add(candidate.toLowerCase()); return candidate; }
-    for (let n = 2; n < 1000; n++) {
-      const suffix = ` (${n})`;
-      const base = name.slice(0, 31 - suffix.length);
-      candidate = `${base}${suffix}`;
-      if (!used.has(candidate.toLowerCase())) { used.add(candidate.toLowerCase()); return candidate; }
-    }
-    return `Category${used.size}`.slice(0, 31);
-  }
-
-  function buildWorkbook(rows: Receipt[], clientLabel: string | null) {
-    const wb = XLSX.utils.book_new();
-    // Track used tab names — start with "summary" reserved so no category
-    // can accidentally clash with the Summary tab.
-    const usedSheetNames = new Set<string>(['summary']);
-
-    // ── Summary sheet ──────────────────────────────────────────────────────────
-    const byCat: Record<string, { count: number; subtotal: number; tax: number; total: number }> = {};
-    rows.forEach(r => {
-      if (!byCat[r.category]) byCat[r.category] = { count: 0, subtotal: 0, tax: 0, total: 0 };
-      byCat[r.category].count++;
-      byCat[r.category].subtotal += r.subtotal;
-      byCat[r.category].tax      += r.taxAmount;
-      byCat[r.category].total    += r.total;
-    });
-
-    const summaryRows: (string | number)[][] = [
-      [`Expense Summary — ${year}${clientLabel ? ` — ${clientLabel}` : ''}`],
-      [],
-      ['Category', 'Receipts', 'Subtotal', 'Tax', 'Total'],
-    ];
-    Object.entries(byCat).sort((a, b) => b[1].total - a[1].total).forEach(([cat, v]) => {
-      summaryRows.push([cat, v.count, v.subtotal, v.tax, v.total]);
-    });
-    const grandSubtotal = rows.reduce((s, r) => s + r.subtotal, 0);
-    const grandTax      = rows.reduce((s, r) => s + r.taxAmount, 0);
-    summaryRows.push(['Grand Total', rows.length, grandSubtotal, grandTax, exportTotal]);
-
-    const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
-    // Currency format for columns C-E (subtotal, tax, total)
-    const range = XLSX.utils.decode_range(summarySheet['!ref'] || 'A1');
-    for (let row = 3; row <= range.e.r; row++) {
-      ['C', 'D', 'E'].forEach(col => {
-        const cell = summarySheet[`${col}${row + 1}`];
-        if (cell) cell.z = '"$"#,##0.00';
-      });
-    }
-    summarySheet['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 12 }];
-    XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary');
-
-    // ── Per-category sheets ────────────────────────────────────────────────────
-    Object.entries(byCat).forEach(([cat]) => {
-      const catRows = rows.filter(r => r.category === cat).sort((a, b) => a.receiptDate.localeCompare(b.receiptDate));
-      const sheetRows: (string | number)[][] = [
-        [cat],
-        [],
-        ['Date', 'Store', 'Client', 'Items', 'Subtotal', 'Tax', 'Total'],
-      ];
-      catRows.forEach(r => {
-        let items = '';
-        try {
-          const parsed = JSON.parse(r.lineItems || '[]') as { description: string }[];
-          items = parsed.map(i => i.description).join(', ');
-        } catch {}
-        sheetRows.push([
-          r.receiptDate,
-          r.storeName,
-          r.clientName || '',
-          items,
-          r.subtotal,
-          r.taxAmount,
-          r.total,
-        ]);
-      });
-      const catSubtotal = catRows.reduce((s, r) => s + r.subtotal, 0);
-      const catTax      = catRows.reduce((s, r) => s + r.taxAmount, 0);
-      const catTotal    = catRows.reduce((s, r) => s + r.total, 0);
-      sheetRows.push(['Category Total', '', '', '', catSubtotal, catTax, catTotal]);
-
-      const sheet = XLSX.utils.aoa_to_sheet(sheetRows);
-      const sheetRange = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
-      for (let row = 3; row <= sheetRange.e.r; row++) {
-        ['E', 'F', 'G'].forEach(col => {
-          const cell = sheet[`${col}${row + 1}`];
-          if (cell) cell.z = '"$"#,##0.00';
-        });
-      }
-      sheet['!cols'] = [{ wch: 12 }, { wch: 22 }, { wch: 16 }, { wch: 40 }, { wch: 10 }, { wch: 8 }, { wch: 10 }];
-      // Sanitize category name for the WORKSHEET TAB. Excel forbids
-      // : \ / ? * [ ] and caps at 31 chars. Row data is untouched.
-      XLSX.utils.book_append_sheet(wb, sheet, safeSheetName(cat, usedSheetNames));
-    });
-
-    return wb;
-  }
-
   async function handleDownload() {
     setError('');
     setExporting(true);
@@ -179,10 +60,13 @@ export default function ExportPage() {
           ? exportReceipts.filter(r => (r.clientName?.trim() || '') === client)
           : exportReceipts;
 
-        const wb = buildWorkbook(rows, client);
+        const wb = buildReceiptWorkbook({
+          rows,
+          title: `Expense Summary — ${year}`,
+          clientLabel: client,
+        });
         const suffix = client ? `_${client.replace(/[^a-z0-9]/gi, '_')}` : '';
-        const fileName = `Expenses_${year}${suffix}.xlsx`;
-        XLSX.writeFile(wb, fileName);
+        downloadWorkbook(wb, `Expenses_${year}${suffix}`);
       }
       setDone(true);
     } catch (err) {
