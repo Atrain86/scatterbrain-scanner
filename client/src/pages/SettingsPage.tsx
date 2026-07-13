@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.17.0-settings-reorder.2';
+export const APP_VERSION = '0.19.0-handover-established.1';
 
 interface CustomCategory {
   name: string;
@@ -638,6 +638,7 @@ function AdminPanel({ userId }: { userId: string }) {
         <LocalDedupeButton userId={userId} />
         <YearCleanupButton userId={userId} />
         <PaletteMigrationButton userId={userId} />
+        <LocalAccountsCleanupButton currentUserId={userId} />
       </div>
     </Section>
   );
@@ -1405,6 +1406,97 @@ function LocalReceiptsAuditButton({ userId }: { userId: string }) {
         <pre className={`mt-2 whitespace-pre-wrap break-words rounded-lg p-2 text-[11px] leading-snug ${state === 'done' ? 'bg-sb-card text-sb-green' : 'bg-sb-card text-red-300'}`}>
           {message}
         </pre>
+      )}
+    </div>
+  );
+}
+
+// Admin-only tool: list every account with local data on this browser
+// (Dexie DB + localStorage keys), let the admin remove leftover test-account
+// data without going through the handover consent flow. Safe by design:
+// only removes accounts other than the currently-signed-in user, and each
+// removal is a deliberate per-account button (no bulk "remove all").
+function LocalAccountsCleanupButton({ currentUserId }: { currentUserId: string }) {
+  const [state, setState] = useState<'idle' | 'loading' | 'ready'>('idle');
+  const [snapshots, setSnapshots] = useState<{ userId: string; receiptCount: number }[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function loadSnapshots() {
+    setState('loading');
+    try {
+      const { listUserIdsWithLocalData } = await import('../lib/userStorage');
+      const ids = listUserIdsWithLocalData().filter(id => id !== currentUserId);
+      const out: { userId: string; receiptCount: number }[] = [];
+      for (const id of ids) {
+        let count = 0;
+        try {
+          const { getDb } = await import('../lib/db');
+          count = await getDb(id).receipts.count();
+        } catch { /* DB may not exist for that userId; count = 0 */ }
+        out.push({ userId: id, receiptCount: count });
+      }
+      setSnapshots(out.sort((a, b) => b.receiptCount - a.receiptCount));
+      setState('ready');
+    } catch {
+      setState('idle');
+    }
+  }
+
+  async function removeOne(userId: string) {
+    if (!confirm(`Remove all local data for account ${userId.slice(0, 8)}…?\nThis deletes the local Dexie DB and localStorage keys for that account on THIS browser only. Data on other devices / in Drive is untouched.`)) return;
+    setBusy(userId);
+    try {
+      const { deletePriorUserDb } = await import('../lib/deviceHandover');
+      const { clearUserStorage, unmarkUserEstablished } = await import('../lib/userStorage');
+      await deletePriorUserDb(userId);
+      clearUserStorage(userId);
+      unmarkUserEstablished(userId);
+      setSnapshots(prev => prev.filter(s => s.userId !== userId));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-sb-border bg-sb-card p-3">
+      <p className="text-xs text-sb-muted mb-2">
+        Leftover local account data on this browser. Removing an account here
+        deletes ONLY the data on this browser — other devices and Drive backups
+        are untouched.
+      </p>
+      {state === 'idle' && (
+        <button
+          onClick={loadSnapshots}
+          className="w-full py-2 rounded-lg border border-sb-border text-xs text-sb-muted hover:text-white hover:border-sb-green transition"
+        >
+          List local accounts
+        </button>
+      )}
+      {state === 'loading' && (
+        <p className="text-xs text-sb-muted text-center py-2">Scanning…</p>
+      )}
+      {state === 'ready' && (
+        snapshots.length === 0 ? (
+          <p className="text-xs text-sb-green text-center py-2">No other account data on this browser.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {snapshots.map(s => (
+              <div key={s.userId} className="flex items-center justify-between gap-2 rounded-lg bg-sb-card2 border border-sb-border px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-white text-xs font-mono truncate">{s.userId.slice(0, 12)}…</p>
+                  <p className="text-[10px] text-sb-muted">{s.receiptCount} receipt{s.receiptCount === 1 ? '' : 's'}</p>
+                </div>
+                <button
+                  onClick={() => removeOne(s.userId)}
+                  disabled={busy === s.userId}
+                  className="shrink-0 rounded-lg px-2.5 py-1 text-[11px] text-red-300 border border-red-900/50 hover:bg-red-950/40 transition disabled:opacity-50"
+                >
+                  {busy === s.userId ? 'Removing…' : 'Remove'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )
       )}
     </div>
   );
