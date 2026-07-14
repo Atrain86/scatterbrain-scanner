@@ -1,16 +1,25 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ReceiptLibrary from './pages/ReceiptLibrary';
 import DashboardPage from './pages/DashboardPage';
 import ExportPage from './pages/ExportPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
+import LandingPage from './pages/marketing/LandingPage';
+import PrivacyPage from './pages/marketing/PrivacyPage';
+import TermsPage from './pages/marketing/TermsPage';
 import BottomNav from './components/BottomNav';
 import HandoverConsentModal from './components/HandoverConsentModal';
 import { backgroundSync } from './lib/cloudSync';
 import { loadCloudSettings, saveCloudSettings } from './hooks/useCloudAuth';
 import type { CloudProvider } from './utils/types';
+
+// Routes that render for anyone, signed in or not. Landing, privacy, terms
+// bypass the auth gate — they're public marketing/legal surfaces, and
+// Google OAuth verification specifically requires the homepage + privacy
+// policy to be reachable without authentication.
+const PUBLIC_ROUTES = ['/landing', '/privacy', '/terms'];
 
 function CloudAuthHandler() {
   const navigate = useNavigate();
@@ -98,9 +107,36 @@ function AuthenticatedApp() {
     };
   }, [user]);
 
-  if (isLoading) return null; // only true for <5ms now (local JWT decode)
-  if (!user) return <LoginPage />;
+  const location = useLocation();
+  const isPublic = PUBLIC_ROUTES.some(p => location.pathname.startsWith(p));
 
+  if (isLoading) return null; // only true for <5ms now (local JWT decode)
+
+  // Public marketing/legal surfaces render regardless of auth state — Google
+  // verification needs the homepage + privacy reachable without login, and
+  // an unauthenticated visitor's default entry point is the landing page,
+  // not the login form.
+  if (isPublic) {
+    return (
+      <Routes>
+        <Route path="/landing" element={<LandingPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms"   element={<TermsPage />} />
+      </Routes>
+    );
+  }
+
+  // Unauthenticated + hitting a non-public route:
+  //   - Root '/' → land on the marketing homepage (not login).
+  //   - Any /login variant → LoginPage.
+  //   - Anything else (app deep-link like /receipts, /dashboard) → login,
+  //     which will bring them back after sign-in.
+  if (!user) {
+    if (location.pathname === '/') return <Navigate to="/landing" replace />;
+    return <LoginPage />;
+  }
+
+  // Authenticated app.
   return (
     <>
       <Routes>
@@ -109,6 +145,8 @@ function AuthenticatedApp() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/export"    element={<ExportPage />} />
         <Route path="/settings"  element={<SettingsPage />} />
+        {/* Signed-in users hitting a marketing route also go to /receipts —
+            marketing surfaces are for prospects, not existing users. */}
         <Route path="*"          element={<Navigate to="/receipts" replace />} />
       </Routes>
       <BottomNav />

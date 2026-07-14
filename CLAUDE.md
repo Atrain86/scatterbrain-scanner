@@ -148,6 +148,7 @@ Defined in `client/tailwind.config.ts`. Prefix: `sb-*`
 - 🔴 **Category bleed fix** — the alpha gate. Categories drift between accounts / devices. Diagnostic prompt already given.
 - 🔴 **Google Drive verification** — start the clock on Google's OAuth verification review. Doc still to write.
 - 🟡 **xlsx quality upgrade** — deferred, see below.
+- 🟡 **Try-before-signup (anon session)** — deferred. Landing copy softened in v0.22.1 so it's honest today. Real flow is own-branch work after verification.
 - 🟡 **Auto-crop, readable filenames, scoped-share merge** — in flight / near done.
 - 🟡 **Feature ideas** — payment-method field, manual entry. Banked.
 
@@ -179,6 +180,33 @@ Defined in `client/tailwind.config.ts`. Prefix: `sb-*`
    - Color-code the Category cell in Excel to match the app's curated 12-hue palette (Excel cell fill), so categories are visually consistent between app and spreadsheet.
 
 **Scope discipline:** this is ONE cohesive follow-on project. Do it AFTER alpha blockers, in one branch.
+
+### try-before-signup — real anon-session flow
+
+**Status:** Deferred. Landing page copy was softened in v0.22.1 ("Try Scatterbrain free" instead of "Try it now — no signup") so the page is honest today. The real flow is filed for its own focused branch/PR.
+
+**Why not yet:** ~4-6 hours careful work, medium risk. Touches the account-safety-v2 user-namespacing invariant. Rushing this reopens the exact cross-user bleed vector the audit closed.
+
+**Server side is already ready.** `POST /api/ocr/receipt` has zero auth check — anonymous clients can already scan. The gate is entirely client-side.
+
+**What the full build needs:**
+1. **Anonymous userId** — synthesized `anon-<uuid>` per browser, stored under `sb_anon_id`. Used everywhere `user.id` currently goes.
+2. **Anonymous state through the auth stack** — recommend making `useAuth()` return `{ user: { id: 'anon-xyz', email: null, anonymous: true } }` when no JWT; grep-check consumers for the `anonymous` flag.
+3. **Scan counter** — `sb_anon_scan_count` in localStorage, limit 20, warm prompt at limit ("You've scanned 20 receipts — nice. Create a free account to keep going.")
+4. **Signup migration** — anon Dexie DB → real Dexie DB (Dexie has no rename, copy rows + drop source); anon localStorage keys → real prefix; idempotent + race-safe.
+5. **Router change** — `/receipts` for unauthed visitors bootstraps anon session instead of showing LoginPage.
+6. **Handover bypass** — anon signup activation must NOT trigger reconcilePriorUsers.
+
+**Definition of Done (A→B→A isolation test — non-negotiable):**
+- Anon → signup → migration: all anon receipts land in the new account, no lingering anon data.
+- Cross-user isolation: a different user signing in on the same browser after signup sees ZERO of the previous anon receipts/categories/clients.
+- Re-sign-in: sign out, sign back in as the migrated account — all data intact, no re-migration, no duplicates.
+
+Same discipline as account-safety-v2.
+
+**When to build:** after Google Drive OAuth verification (the last alpha blocker). Try-before-signup is the strongest onboarding hook the app can have — worth doing right, after alpha ships.
+
+**Related:** full architecture notes in `~/.claude/projects/.../memory/project_deferred_try_before_signup.md`.
 
 ---
 
