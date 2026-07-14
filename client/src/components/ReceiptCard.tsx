@@ -30,6 +30,10 @@ interface Props {
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
+  // Deep-link support (from Dashboard scoped list). When true, the card
+  // expands on mount and scrolls itself into view. One-shot — the parent
+  // clears this flag after the URL param is consumed.
+  autoExpand?: boolean;
 }
 
 // Standard iOS-style share arrow: box with upward arrow
@@ -171,11 +175,21 @@ function CatPicker({
   );
 }
 
-export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReEdit, onNewReceipt, selectMode, selected, onToggleSelect }: Props) {
+export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReEdit, onNewReceipt, selectMode, selected, onToggleSelect, autoExpand }: Props) {
   const { user } = useAuth();
   const userId = user!.id;
 
-  const [expanded,         setExpanded]         = useState(false);
+  const [expanded,         setExpanded]         = useState(!!autoExpand);
+  const rootRef                                  = useRef<HTMLDivElement>(null);
+  // One-shot deep-link: scroll into view when the parent hands us autoExpand.
+  useEffect(() => {
+    if (!autoExpand) return;
+    setExpanded(true);
+    const t = setTimeout(() => {
+      rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 60);
+    return () => clearTimeout(t);
+  }, [autoExpand]);
   const [editingStore,     setEditingStore]     = useState(false);
   const [editStore,        setEditStore]        = useState(receipt.storeName);
   const [editingItems,     setEditingItems]     = useState(false);
@@ -456,7 +470,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
 
   return (
     <>
-      <div className={`transition-colors border-b border-white/[0.05] ${expanded ? 'bg-sb-card rounded-xl border border-sb-border mb-1' : selected ? 'bg-sb-green/5' : ''} overflow-visible`}>
+      <div ref={rootRef} className={`transition-colors border-b border-white/[0.05] ${expanded ? 'bg-sb-card rounded-xl border border-sb-border mb-1' : selected ? 'bg-sb-green/5' : ''} overflow-visible`}>
 
         {/* ── Collapsed row — flat, calm ── */}
         {!expanded && (

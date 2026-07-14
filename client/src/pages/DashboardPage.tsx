@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import { Tag, Receipt as ReceiptIcon, Download, ChevronDown, Check } from 'lucide-react';
+import { Tag, Receipt as ReceiptIcon, Download, ChevronDown, ChevronRight, Check, Funnel, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
@@ -7,8 +7,15 @@ import {
 import { useReceipts } from '../hooks/useReceipts';
 import { useAuth } from '../contexts/AuthContext';
 import { useUserPref } from '../lib/userStorage';
-import { getCategoryColorDynamic } from '../utils/types';
+import { getCategoryColorDynamic, getAllCategories } from '../utils/types';
+import type { Receipt } from '../utils/types';
 import MonthRangeSlider from '../components/MonthRangeSlider';
+import { buildReceiptWorkbook, downloadWorkbook, workbookToFile } from '../lib/xlsxExport';
+
+// Used by the scope label + filename. Kept in sync with MONTH_ABBR near
+// the bottom of the file (same list, different scope for hoisting).
+const MONTH_ABBR_TOP = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function monthAbbrev(i: number): string { return MONTH_ABBR_TOP[i] ?? ''; }
 
 // Phase 6 Stage 1 — Dashboard (analysis lens; NO writes, read-only)
 // Absorbs the prior-year drilldown that got removed from Home in Phase 3.
@@ -50,6 +57,48 @@ export default function DashboardPage() {
   const [rangeStart, rangeEnd] = range;
   const isFullYear = rangeStart === 0 && rangeEnd === 11;
 
+  // Category filter for the scoped receipt list. NOT persisted per-user via
+  // useUserPref because it's an active drill-down action, not a preference —
+  // the user picks it in the moment ("show me just Auto/Gas") and expects it
+  // to clear when they move away.
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const categories = useMemo(() => (userId ? getAllCategories(userId) : []), [userId]);
+
+  // Selection is OPT-IN — matches Home's Select-to-enter-mode idiom.
+  // Default: list is calm read-only, tapping a row deep-links to Home.
+  // User taps "Select" in the header to enter select mode → checkboxes
+  // appear, rows toggle selection instead of deep-linking, and a "Done"
+  // button in the header exits back to read-only.
+  //
+  // While in select mode, the storage is EXCLUSIONS (deselectedUuids) so
+  // that when a scope change reveals a new receipt it's included by default
+  // — matches "share everything I'm looking at."
+  const [selectMode,      setSelectMode]      = useState(false);
+  const [deselectedUuids, setDeselectedUuids] = useState<Set<string>>(new Set());
+  function enterSelectMode() {
+    setSelectMode(true);
+    setDeselectedUuids(new Set()); // start with everything selected
+  }
+  function exitSelectMode() {
+    setSelectMode(false);
+    setDeselectedUuids(new Set()); // clear any pending deselections
+  }
+  function toggleSelection(uuid: string) {
+    setDeselectedUuids(prev => {
+      const next = new Set(prev);
+      if (next.has(uuid)) next.delete(uuid); else next.add(uuid);
+      return next;
+    });
+  }
+  function selectAllInScope() { setDeselectedUuids(new Set()); }
+  function selectNoneInScope(uuids: string[]) { setDeselectedUuids(new Set(uuids)); }
+
+  // NOTE: no auto-reset when year/range changes. The user's category filter
+  // is intentional — e.g. narrowing to Q1 while filtered on Auto/Gas SHOULD
+  // hold the filter, not silently clear it. If the new scope has zero
+  // matches, the empty state ("No receipts match this filter" + Clear
+  // button) makes the situation legible without dropping the user's intent.
+
   // Clamp: if the stored year isn't in the available set (e.g. that year's
   // receipts were all deleted), fall back to thisYear so we don't show empty.
   const effectiveYear = availableYears.includes(selectedYear) ? selectedYear : thisYear;
@@ -66,11 +115,13 @@ export default function DashboardPage() {
       return m >= rangeStart && m <= rangeEnd;
     };
 
-    const scoped   = receipts.filter(inRange);
-    const total    = scoped.reduce((s, r) => s + r.total, 0);
+    // Range-only set — drives the CHART. Kept unfiltered by category so the
+    // chart stays useful as "here's the mix; tap the funnel to drill down."
+    // Filtering the chart to one bar wastes the visualization.
+    const rangeScoped = receipts.filter(inRange);
 
     const byCat: Record<string, number> = {};
-    scoped.forEach(r => {
+    rangeScoped.forEach(r => {
       const name = r.category || 'Uncategorized';
       byCat[name] = (byCat[name] ?? 0) + r.total;
     });
@@ -85,15 +136,93 @@ export default function DashboardPage() {
         shortName: name.split(/[\s/&]/)[0],
       }));
 
-    const topCategory = categoryData[0] ?? null;
+    // Category-scoped set — drives the LIST, TOTAL, and STAT CARDS. Everything
+    // downstream of the funnel reflects the drilldown.
+    const listScoped = categoryFilter
+      ? rangeScoped.filter(r => (r.category || 'Uncategorized') === categoryFilter)
+      : rangeScoped;
+
+    const total = listScoped.reduce((s, r) => s + r.total, 0);
+
+    // Top category is meaningless once a filter has picked a single category —
+    // fall back to the range-scoped top so the stat card stays informative.
+    const topCategory = categoryFilter
+      ? categoryData.find(c => c.name === categoryFilter) ?? null
+      : categoryData[0] ?? null;
+
+    const scopedSorted = [...listScoped].sort((a, b) =>
+      (b.receiptDate || '').localeCompare(a.receiptDate || '')
+    );
 
     return {
       total,
-      count: scoped.length,
+      count: listScoped.length,
       categoryData,
       topCategory,
+      scopedReceipts: scopedSorted,
     };
-  }, [receipts, yearStr, userId, rangeStart, rangeEnd]);
+  }, [receipts, yearStr, userId, rangeStart, rangeEnd, categoryFilter]);
+
+  // Selected subset of the scoped list — everything not in deselectedUuids.
+  // Drives the Stage 3 share action + the header "N selected · $total".
+  const selectedReceipts = useMemo(
+    () => stats.scopedReceipts.filter(r => !!r.uuid && !deselectedUuids.has(r.uuid)),
+    [stats.scopedReceipts, deselectedUuids],
+  );
+  const selectedTotal = selectedReceipts.reduce((s, r) => s + r.total, 0);
+
+  // Stage 3 — share the selected subset as an xlsx spreadsheet.
+  // Prefers the Web Share API (native share sheet on mobile → Mail /
+  // Messages / Drive / etc), falls back to plain download on desktop or
+  // browsers without file-share support. Same shape as the Export tab
+  // via the shared buildReceiptWorkbook util.
+  //
+  // Photo-zip export is deferred (see the redesign spec Stage 3
+  // note): would require ~100KB of jszip dep + multi-MB payloads;
+  // spreadsheet-only is an acceptable v1, easy to add later.
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+  async function handleShareSelected() {
+    if (selectedReceipts.length === 0) return;
+    setShareBusy(true);
+    setShareError(null);
+    try {
+      const scopeLabel = isFullYear
+        ? `${effectiveYear}`
+        : `${effectiveYear} ${monthAbbrev(rangeStart)}–${monthAbbrev(rangeEnd)}`;
+      const title = `Expense Summary — ${scopeLabel}`;
+      const wb = buildReceiptWorkbook({
+        rows: selectedReceipts,
+        title,
+        clientLabel: categoryFilter,
+      });
+      const fileBase = `Expenses_${effectiveYear}${!isFullYear ? `_${monthAbbrev(rangeStart)}-${monthAbbrev(rangeEnd)}` : ''}${categoryFilter ? `_${categoryFilter.replace(/[^a-z0-9]/gi, '_')}` : ''}`;
+
+      // Web Share API path — must be triggered by user gesture; canShare
+      // guard means we don't attempt on browsers that would just reject.
+      const file = workbookToFile(wb, fileBase);
+      const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
+      if (nav.canShare && nav.canShare({ files: [file] })) {
+        try {
+          await nav.share({
+            files: [file],
+            title,
+            text: `${selectedReceipts.length} receipt${selectedReceipts.length === 1 ? '' : 's'} · $${selectedTotal.toFixed(2)}`,
+          });
+          return;
+        } catch (err) {
+          // User cancelled the share sheet — treat as no-op, not an error.
+          if ((err as Error).name === 'AbortError') return;
+          // Any other share failure falls through to download.
+        }
+      }
+      downloadWorkbook(wb, fileBase);
+    } catch (err) {
+      setShareError((err as Error).message || 'Share failed');
+    } finally {
+      setShareBusy(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-sb-bg flex flex-col">
@@ -212,6 +341,37 @@ export default function DashboardPage() {
               />
             </div>
 
+            {/* ── Scoped receipt list ─────────────────────────────────────
+                Read-only view of the receipts behind the current scope
+                (year + month range). Same visual language as Home rows so
+                users read them without re-learning. Editing still lives on
+                Home — this is analysis + share only. Stage 1 of scoped-share.
+            */}
+            {(stats.scopedReceipts.length > 0 || categoryFilter) && (
+              <ScopedReceiptList
+                receipts={stats.scopedReceipts}
+                userId={userId}
+                isFullYear={isFullYear}
+                availableCategories={stats.categoryData.map(c => ({ name: c.name, color: c.color }))}
+                allCategories={categories}
+                categoryFilter={categoryFilter}
+                onCategoryFilterChange={setCategoryFilter}
+                selectMode={selectMode}
+                onEnterSelectMode={enterSelectMode}
+                onExitSelectMode={exitSelectMode}
+                deselectedUuids={deselectedUuids}
+                onToggleSelection={toggleSelection}
+                onSelectAll={selectAllInScope}
+                onSelectNone={() => selectNoneInScope(stats.scopedReceipts.map(r => r.uuid).filter(Boolean) as string[])}
+                selectedCount={selectedReceipts.length}
+                selectedTotal={selectedTotal}
+                onOpenOnHome={uuid => navigate(`/receipts?receipt=${encodeURIComponent(uuid)}`)}
+                onShareSelected={handleShareSelected}
+                shareBusy={shareBusy}
+                shareError={shareError}
+              />
+            )}
+
             {/* ── Export button (full-year; partial-period export deferred) ── */}
             <button
               onClick={() => navigate('/export')}
@@ -300,6 +460,302 @@ function StatCard({
       </div>
       <p className="text-white font-bold text-base leading-tight truncate">{value}</p>
       <p className="text-white/50 text-xs mt-0.5 truncate">{sub}</p>
+    </div>
+  );
+}
+
+// ── Scoped receipt list ────────────────────────────────────────────────────
+// Read-only flat list of receipts in the current Dashboard scope. Same visual
+// language as Home's collapsed rows (category dot + store + dim category text
+// on line 1; client + date on line 2; green price right; silver trash omitted
+// since this is read-only). Tapping a row deep-links to that receipt on Home
+// where it IS editable — Dashboard doesn't own the edit surface.
+
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function formatShortDate(iso: string): string {
+  // 'YYYY-MM-DD' → 'MMM D'
+  if (!iso || iso.length < 10) return iso;
+  const m = Number(iso.slice(5, 7)) - 1;
+  const d = Number(iso.slice(8, 10));
+  return `${MONTH_ABBR[m] ?? ''} ${d}`;
+}
+
+function ScopedReceiptList({
+  receipts,
+  userId,
+  isFullYear,
+  availableCategories,
+  allCategories,
+  categoryFilter,
+  onCategoryFilterChange,
+  selectMode,
+  onEnterSelectMode,
+  onExitSelectMode,
+  deselectedUuids,
+  onToggleSelection,
+  onSelectAll,
+  onSelectNone,
+  selectedCount,
+  selectedTotal,
+  onOpenOnHome,
+  onShareSelected,
+  shareBusy,
+  shareError,
+}: {
+  receipts: Receipt[];
+  userId: string | undefined;
+  isFullYear: boolean;
+  availableCategories: { name: string; color: string }[];
+  allCategories: { name: string; color: string }[];
+  categoryFilter: string | null;
+  onCategoryFilterChange: (next: string | null) => void;
+  selectMode: boolean;
+  onEnterSelectMode: () => void;
+  onExitSelectMode: () => void;
+  deselectedUuids: Set<string>;
+  onToggleSelection: (uuid: string) => void;
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+  selectedCount: number;
+  selectedTotal: number;
+  onOpenOnHome: (uuid: string) => void;
+  onShareSelected: () => void;
+  shareBusy: boolean;
+  shareError: string | null;
+}) {
+  const [showCatPicker, setShowCatPicker] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  // Close picker on outside click.
+  useEffect(() => {
+    if (!showCatPicker) return;
+    function onDown(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setShowCatPicker(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [showCatPicker]);
+
+  const activeColor = categoryFilter
+    ? (allCategories.find(c => c.name === categoryFilter)?.color ?? '#b0aabf')
+    : '#b0aabf';
+
+  return (
+    <div className="bg-sb-card border border-sb-border rounded-2xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between gap-3">
+        <div className="flex flex-col min-w-0">
+          <p className="text-white/70 text-[11px] uppercase tracking-wider font-medium truncate">
+            {categoryFilter
+              ? categoryFilter
+              : isFullYear
+                ? 'Receipts this year'
+                : 'Receipts in range'}
+          </p>
+          {selectMode ? (
+            <>
+              <p className="text-white/70 text-[12px] mt-0.5 truncate">
+                <span className="text-sb-green font-semibold">{selectedCount}</span>
+                <span className="text-white/50"> of {receipts.length} selected · </span>
+                <span className="text-sb-green font-semibold">${selectedTotal.toFixed(2)}</span>
+              </p>
+              {receipts.length > 0 && (
+                <div className="flex gap-3 mt-1 text-[11px]">
+                  <button onClick={onSelectAll}  className="text-white/50 hover:text-white transition">All</button>
+                  <button onClick={onSelectNone} className="text-white/50 hover:text-white transition">None</button>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-white/40 text-[11px] mt-0.5">
+              {receipts.length} · read-only
+            </p>
+          )}
+        </div>
+
+        {/* Right cluster: Select/Done button + funnel */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {receipts.length > 0 && (
+            selectMode ? (
+              <button
+                onClick={onExitSelectMode}
+                className="text-[12px] text-sb-green hover:brightness-110 transition px-2 py-1"
+              >
+                Done
+              </button>
+            ) : (
+              <button
+                onClick={onEnterSelectMode}
+                className="text-[12px] text-white/60 hover:text-white transition px-2 py-1"
+              >
+                Select
+              </button>
+            )
+          )}
+
+        {/* Silver funnel — same visual pattern as Home's search-bar filter.
+            Tint fills with the category color when a filter is active. */}
+        <div className="relative flex-shrink-0" ref={pickerRef}>
+          <button
+            onClick={() => setShowCatPicker(p => !p)}
+            aria-label={categoryFilter ? `Filtered by ${categoryFilter} — tap to change` : 'Filter by category'}
+            className="flex items-center justify-center transition active:scale-90"
+            style={{ width: 32, height: 32 }}
+          >
+            <Funnel
+              size={18}
+              strokeWidth={1.75}
+              style={{
+                color: activeColor,
+                fill: categoryFilter ? activeColor : 'transparent',
+              }}
+            />
+          </button>
+          {showCatPicker && (
+            <div className="absolute top-full right-0 mt-2 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl min-w-[200px] max-h-[60vh] overflow-y-auto animate-fade-in">
+              <button
+                onClick={() => { onCategoryFilterChange(null); setShowCatPicker(false); }}
+                className={`w-full px-3 py-2.5 text-[13px] text-left transition hover:bg-white/5 flex items-center gap-2 ${!categoryFilter ? 'text-sb-green' : 'text-white'}`}
+              >
+                <span className="w-2 h-2 rounded-full bg-white/20 inline-block" />
+                All categories
+              </button>
+              {availableCategories.length > 0 && (
+                <div className="border-t border-white/[0.06]" />
+              )}
+              {availableCategories.map(cat => (
+                <button
+                  key={cat.name}
+                  onClick={() => { onCategoryFilterChange(cat.name); setShowCatPicker(false); }}
+                  className={`w-full px-3 py-2.5 text-[13px] text-left transition hover:bg-white/5 flex items-center gap-2 ${categoryFilter === cat.name ? 'text-sb-green' : 'text-white'}`}
+                >
+                  <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: cat.color }} />
+                  {cat.name}
+                </button>
+              ))}
+              {availableCategories.length === 0 && (
+                <p className="px-3 py-2.5 text-[11px] text-white/40 italic">No categories in this range.</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Share button — primary commit action on the selected subset.
+            Only in select mode + when at least one row is selected. Solid
+            green (#4ade80) per color discipline: green = money / commit. */}
+        {selectMode && selectedCount > 0 && (
+          <button
+            onClick={onShareSelected}
+            disabled={shareBusy}
+            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 bg-sb-green text-black text-[12px] font-bold hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed transition"
+          >
+            <Share2 size={13} strokeWidth={2.5} />
+            {shareBusy ? 'Preparing…' : 'Share'}
+          </button>
+        )}
+        </div>{/* /right cluster */}
+      </div>
+
+      {/* Share error banner — thin, only appears if share failed hard. */}
+      {shareError && (
+        <div className="px-4 py-2 bg-red-950/30 border-b border-red-900/40 text-red-300 text-[11px]">
+          {shareError}
+        </div>
+      )}
+
+      {receipts.length === 0 ? (
+        <div className="py-8 text-center">
+          <p className="text-white/40 text-sm">No receipts match this filter</p>
+          <button
+            onClick={() => onCategoryFilterChange(null)}
+            className="mt-3 text-[11px] text-sb-green hover:underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      ) : (
+      <div>
+        {receipts.map(r => {
+          const catColor = userId ? getCategoryColorDynamic(r.category || '', userId) : '#6B7280';
+          const uuid = r.uuid || '';
+          const isDeselected = selectMode && !!uuid && deselectedUuids.has(uuid);
+          const isSelected   = !isDeselected;
+          // Behavior gate: OUT of select mode, the whole row deep-links to
+          // Home. IN select mode, the row toggles selection and a small
+          // chevron on the right handles the (secondary) deep-link.
+          const onRowClick = () => {
+            if (!uuid) return;
+            if (selectMode) onToggleSelection(uuid);
+            else onOpenOnHome(uuid);
+          };
+          return (
+            <div
+              key={r.id}
+              className={`w-full flex items-stretch border-b border-white/[0.05] last:border-0 transition ${isDeselected ? 'opacity-50' : ''}`}
+            >
+              <button
+                onClick={onRowClick}
+                className="flex-1 min-w-0 flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-white/[0.02] active:bg-white/[0.04] transition"
+              >
+                {/* Checkbox — only rendered in select mode. Slides in via
+                    width transition so the row doesn't jump. */}
+                <span
+                  aria-hidden="true"
+                  className={`mt-0.5 flex-shrink-0 flex items-center justify-center transition-all overflow-hidden ${selectMode ? 'w-[18px] opacity-100 mr-0' : 'w-0 opacity-0 mr-[-10px]'}`}
+                >
+                  <span
+                    className={`w-[18px] h-[18px] rounded-md flex items-center justify-center border-2 transition-colors ${isSelected ? 'bg-sb-green border-sb-green' : 'border-white/25 bg-transparent'}`}
+                  >
+                    {isSelected && <Check size={11} className="text-black" strokeWidth={3} />}
+                  </span>
+                </span>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: catColor }}
+                      aria-hidden="true"
+                    />
+                    <p
+                      className="text-white font-semibold text-[15px] leading-tight truncate"
+                      style={{ fontFamily: "'Poppins', sans-serif" }}
+                    >
+                      {r.storeName || 'Unknown Store'}
+                    </p>
+                    {r.category && (
+                      <span className="text-[11px] text-white/45 leading-none truncate">
+                        {r.category}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-white/40 leading-snug mt-1 truncate">
+                    {r.clientName
+                      ? `${r.clientName}  ·  ${formatShortDate(r.receiptDate)}`
+                      : formatShortDate(r.receiptDate)}
+                  </p>
+                </div>
+                <span className="text-sb-green font-bold text-[15px] leading-tight flex-shrink-0 pl-2">
+                  ${r.total.toFixed(2)}
+                </span>
+              </button>
+
+              {/* Chevron only shown in select mode as the escape hatch to
+                  Home. Out of select mode the whole row already deep-links,
+                  so no chevron needed. */}
+              {selectMode && (
+                <button
+                  onClick={() => uuid && onOpenOnHome(uuid)}
+                  aria-label="Open on Home"
+                  className="flex items-center justify-center pr-3 pl-1 text-white/30 hover:text-white/70 transition"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      )}
     </div>
   );
 }
