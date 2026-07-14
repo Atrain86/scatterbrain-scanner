@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.21.0-scoped-share';
+export const APP_VERSION = '0.22.0-landing-page';
 
 interface CustomCategory {
   name: string;
