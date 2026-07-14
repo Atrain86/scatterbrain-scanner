@@ -107,7 +107,7 @@ function Hero() {
             className="inline-flex items-center gap-2 rounded-full bg-sb-green text-black font-bold text-base px-6 py-3.5 hover:brightness-110 active:scale-[0.98] transition shadow-lg shadow-sb-green/20"
           >
             <Camera size={18} strokeWidth={2.5} />
-            Try it now — no signup
+            Try Scatterbrain free
           </Link>
           <a
             href="#how-it-works"
@@ -118,7 +118,7 @@ function Hero() {
           </a>
         </div>
         <p className="mt-5 text-white/40 text-xs">
-          Free · Works on your phone · No account needed to start
+          Free · Works on your phone · Backup free during beta
         </p>
       </div>
     </section>
@@ -142,7 +142,7 @@ function DemoSection() {
             Try it right now.
           </h2>
           <p className="mt-3 text-white/60 text-base max-w-xl mx-auto">
-            No signup, no download. Scan a real receipt, see it filed in seconds.
+            No download. Scan a real receipt, see it filed in seconds.
           </p>
         </div>
 
@@ -370,7 +370,7 @@ function Pricing() {
           <PricingCard
             tier="Free"
             price="$0"
-            period="forever"
+            period=""
             highlight={false}
             perks={[
               'Unlimited scanning',
@@ -488,7 +488,7 @@ function FounderNote() {
           bookkeeping software pretending to be simple. I built the app I wished existed — one
           that gets out of the way so I can get on with my day.
         </p>
-        <p className="mt-4 text-white/50 text-sm">— Alan, a real freelancer</p>
+        <p className="mt-4 text-white/50 text-sm">— the founder</p>
       </div>
     </section>
   );
