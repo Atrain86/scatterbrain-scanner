@@ -87,7 +87,7 @@ export default function TermsPage() {
 
           <Section title="9. Contact">
             <p>
-              Questions: <a href="mailto:kohlmeister@gmail.com" className="text-sb-green hover:underline">kohlmeister@gmail.com</a>
+              Questions: <a href="mailto:scatterbrainscanner@gmail.com" className="text-sb-green hover:underline">scatterbrainscanner@gmail.com</a>
             </p>
           </Section>
         </div>

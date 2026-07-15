@@ -91,7 +91,7 @@ export default function PrivacyPage() {
 
           <Section title="8. Contact">
             <p>
-              Questions or requests: <a href="mailto:kohlmeister@gmail.com" className="text-sb-green hover:underline">kohlmeister@gmail.com</a>
+              Questions or requests: <a href="mailto:scatterbrainscanner@gmail.com" className="text-sb-green hover:underline">scatterbrainscanner@gmail.com</a>
             </p>
           </Section>
         </div>

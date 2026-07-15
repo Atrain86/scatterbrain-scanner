@@ -539,7 +539,7 @@ function Footer() {
             Terms
           </Link>
           <a
-            href="mailto:support@scatterbrainscanner.com"
+            href="mailto:scatterbrainscanner@gmail.com"
             className="text-white/50 hover:text-white transition"
           >
             Support
