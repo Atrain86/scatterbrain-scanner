@@ -125,50 +125,75 @@ function Hero() {
   );
 }
 
-// ── Demo placeholder ───────────────────────────────────────────────────────
+// ── App screenshots ────────────────────────────────────────────────────────
 
 function DemoSection() {
   return (
     <section id="how-it-works" className="border-t border-white/5">
       <div className="max-w-5xl mx-auto px-5 py-16 sm:py-24">
-        <div className="text-center mb-10">
+        <div className="text-center mb-12">
           <p className="text-sb-green text-xs font-semibold uppercase tracking-wider mb-3">
-            Don't take our word for it
+            See it in action
           </p>
           <h2
             className="text-white text-3xl sm:text-4xl font-bold tracking-tight"
             style={{ fontFamily: "'Poppins', sans-serif" }}
           >
-            Try it right now.
+            Everything filed. Nothing lost.
           </h2>
           <p className="mt-3 text-white/60 text-base max-w-xl mx-auto">
-            No download. Scan a real receipt, see it filed in seconds.
+            Your receipts, organized automatically — with the numbers ready when you need them.
           </p>
         </div>
 
-        {/* Phone mockup placeholder — swap for live embedded demo later */}
-        <div className="flex justify-center">
-          <div className="relative w-full max-w-[280px] aspect-[9/19] rounded-[42px] bg-black border border-white/10 shadow-2xl shadow-black overflow-hidden">
-            {/* Notch */}
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 bg-black rounded-b-2xl z-10" />
-            {/* Screen — placeholder for live iframe / screenshot carousel */}
-            <div className="absolute inset-2 rounded-[36px] bg-sb-bg flex flex-col items-center justify-center gap-4 p-6 text-center">
-              <div className="w-16 h-16 rounded-2xl border-2 border-sb-green/40 bg-sb-green/10 flex items-center justify-center">
-                <Camera size={28} className="text-sb-green" strokeWidth={2} />
-              </div>
-              <p className="text-white/60 text-xs">
-                Live demo mode<br />
-                <span className="text-white/30">(embed goes here)</span>
+        <div className="grid sm:grid-cols-2 gap-6 sm:gap-10 items-start max-w-3xl mx-auto">
+          {/* Screenshot 1 — Receipt library */}
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-full rounded-[28px] overflow-hidden border border-white/10 shadow-2xl shadow-black">
+              <img
+                src="/screenshot-library.jpg"
+                alt="Receipt library — every receipt filed by date and category"
+                className="w-full block"
+              />
+            </div>
+            <div className="text-center px-2">
+              <p className="text-white text-sm font-semibold mb-1" style={{ fontFamily: "'Poppins', sans-serif" }}>
+                Every receipt, in one place
               </p>
-              <Link
-                to="/receipts"
-                className="mt-2 inline-flex items-center gap-1.5 text-sb-green text-xs font-semibold hover:brightness-110"
-              >
-                Open the full app
-                <ArrowRight size={12} strokeWidth={3} />
-              </Link>
+              <p className="text-white/50 text-[13px] leading-relaxed">
+                Auto-filed by store, category, and date. Search or filter any time.
+              </p>
             </div>
           </div>
+
+          {/* Screenshot 2 — Dashboard */}
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-full rounded-[28px] overflow-hidden border border-white/10 shadow-2xl shadow-black">
+              <img
+                src="/screenshot-dashboard.jpg"
+                alt="Dashboard — spending by category with date range slider"
+                className="w-full block"
+              />
+            </div>
+            <div className="text-center px-2">
+              <p className="text-white text-sm font-semibold mb-1" style={{ fontFamily: "'Poppins', sans-serif" }}>
+                Spending at a glance
+              </p>
+              <p className="text-white/50 text-[13px] leading-relaxed">
+                Totals by category, any date range. Filter to exactly what your accountant needs.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="text-center mt-10">
+          <Link
+            to="/receipts"
+            className="inline-flex items-center gap-2 rounded-full bg-sb-green text-black font-bold text-sm px-5 py-3 hover:brightness-110 active:scale-[0.98] transition shadow-lg shadow-sb-green/20"
+          >
+            Try it free
+            <ArrowRight size={14} strokeWidth={2.5} />
+          </Link>
         </div>
       </div>
     </section>
