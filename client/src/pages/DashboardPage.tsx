@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
-import { Tag, Receipt as ReceiptIcon, Download, ChevronDown, ChevronRight, Check, Funnel, Share2 } from 'lucide-react';
+import { Tag, Download, ChevronDown, ChevronRight, Check, Funnel, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList,
@@ -323,23 +323,9 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* ── Two stat cards: top category · receipts count ── */}
-            <div className="grid grid-cols-2 gap-3">
-              <StatCard
-                icon={<Tag size={15} />}
-                label="Top category"
-                value={stats.topCategory?.name ?? '—'}
-                sub={stats.topCategory ? `$${stats.topCategory.total.toFixed(2)}` : 'No spend yet'}
-                accentColor={stats.topCategory?.color ?? '#6B7280'}
-              />
-              <StatCard
-                icon={<ReceiptIcon size={15} />}
-                label="Receipts"
-                value={String(stats.count)}
-                sub={`$${stats.total.toFixed(2)}`}
-                accentColor="#4ade80"
-              />
-            </div>
+            {/* Two stat cards (Top category, Receipts) removed — that info
+                is either already on the chart card above or now folded into
+                the scoped receipt list header below when a filter is active. */}
 
             {/* ── Scoped receipt list ─────────────────────────────────────
                 Read-only view of the receipts behind the current scope
@@ -441,29 +427,6 @@ function YearSelector({
   );
 }
 
-// ── Compact stat card ──────────────────────────────────────────────────────
-
-function StatCard({
-  icon, label, value, sub, accentColor,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  sub: string;
-  accentColor: string;
-}) {
-  return (
-    <div className="bg-sb-card border border-sb-border rounded-2xl p-4">
-      <div className="flex items-center gap-1.5 mb-2">
-        <span style={{ color: accentColor }}>{icon}</span>
-        <span className="text-[11px] text-white/50 uppercase tracking-wider">{label}</span>
-      </div>
-      <p className="text-white font-bold text-base leading-tight truncate">{value}</p>
-      <p className="text-white/50 text-xs mt-0.5 truncate">{sub}</p>
-    </div>
-  );
-}
-
 // ── Scoped receipt list ────────────────────────────────────────────────────
 // Read-only flat list of receipts in the current Dashboard scope. Same visual
 // language as Home's collapsed rows (category dot + store + dim category text
@@ -536,43 +499,88 @@ function ScopedReceiptList({
     return () => document.removeEventListener('mousedown', onDown);
   }, [showCatPicker]);
 
+  // Funnel is yellow by default (Alan's ask — differentiates from Home's
+  // silver funnel so it's clear this one is the Dashboard scope drilldown,
+  // not a search filter). When a category is active, the funnel tints
+  // with the picked category's color so the filter state is obvious.
   const activeColor = categoryFilter
-    ? (allCategories.find(c => c.name === categoryFilter)?.color ?? '#b0aabf')
-    : '#b0aabf';
+    ? (allCategories.find(c => c.name === categoryFilter)?.color ?? '#eab308')
+    : '#eab308';
+
+  // When a category filter is active, the header flips to the big
+  // "Top category"-style presentation: orange Tag icon + big Poppins
+  // category name + green total below. Absorbs what used to live in the
+  // deleted Top Category stat card.
+  const filteredTotal = receipts.reduce((s, r) => s + r.total, 0);
 
   return (
     <div className="bg-sb-card border border-sb-border rounded-2xl overflow-hidden">
       <div className="px-4 py-3 border-b border-white/[0.05] flex items-center justify-between gap-3">
         <div className="flex flex-col min-w-0">
-          <p className="text-white/70 text-[11px] uppercase tracking-wider font-medium truncate">
-            {categoryFilter
-              ? categoryFilter
-              : isFullYear
-                ? 'Receipts this year'
-                : 'Receipts in range'}
-          </p>
-          {selectMode ? (
+          {categoryFilter ? (
+            // Filtered state — big bold header, matches the deleted Top
+            // Category card's style. Orange Tag icon (Lucide default),
+            // Poppins bold name, green total.
             <>
-              <p className="text-white/70 text-[12px] mt-0.5 truncate">
-                <span className="text-sb-green font-semibold">{selectedCount}</span>
-                <span className="text-white/50"> of {receipts.length} selected · </span>
-                <span className="text-sb-green font-semibold">${selectedTotal.toFixed(2)}</span>
+              <div className="flex items-center gap-1.5 mb-1">
+                <Tag size={15} style={{ color: '#e0a35f' }} />
+                <span className="text-[11px] text-white/50 uppercase tracking-wider">Filtered</span>
+              </div>
+              <p
+                className="text-white text-lg font-bold leading-tight truncate"
+                style={{ fontFamily: "'Poppins', sans-serif" }}
+              >
+                {categoryFilter}
               </p>
-              {receipts.length > 0 && (
-                <div className="flex gap-3 mt-1 text-[11px]">
-                  <button onClick={onSelectAll}  className="text-white/50 hover:text-white transition">All</button>
-                  <button onClick={onSelectNone} className="text-white/50 hover:text-white transition">None</button>
-                </div>
+              <p className="text-sb-green text-sm font-semibold mt-0.5">
+                ${filteredTotal.toFixed(2)}
+              </p>
+              {selectMode && (
+                <>
+                  <p className="text-white/70 text-[12px] mt-2 truncate">
+                    <span className="text-sb-green font-semibold">{selectedCount}</span>
+                    <span className="text-white/50"> of {receipts.length} selected · </span>
+                    <span className="text-sb-green font-semibold">${selectedTotal.toFixed(2)}</span>
+                  </p>
+                  {receipts.length > 0 && (
+                    <div className="flex gap-3 mt-1 text-[11px]">
+                      <button onClick={onSelectAll}  className="text-white/50 hover:text-white transition">All</button>
+                      <button onClick={onSelectNone} className="text-white/50 hover:text-white transition">None</button>
+                    </div>
+                  )}
+                </>
               )}
             </>
           ) : (
-            <p className="text-white/40 text-[11px] mt-0.5">
-              {receipts.length} · read-only
-            </p>
+            // Default (no filter) — unchanged: small uppercase label + count.
+            <>
+              <p className="text-white/70 text-[11px] uppercase tracking-wider font-medium truncate">
+                {isFullYear ? 'Receipts this year' : 'Receipts in range'}
+              </p>
+              {selectMode ? (
+                <>
+                  <p className="text-white/70 text-[12px] mt-0.5 truncate">
+                    <span className="text-sb-green font-semibold">{selectedCount}</span>
+                    <span className="text-white/50"> of {receipts.length} selected · </span>
+                    <span className="text-sb-green font-semibold">${selectedTotal.toFixed(2)}</span>
+                  </p>
+                  {receipts.length > 0 && (
+                    <div className="flex gap-3 mt-1 text-[11px]">
+                      <button onClick={onSelectAll}  className="text-white/50 hover:text-white transition">All</button>
+                      <button onClick={onSelectNone} className="text-white/50 hover:text-white transition">None</button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-white/40 text-[11px] mt-0.5">
+                  {receipts.length} · read-only
+                </p>
+              )}
+            </>
           )}
         </div>
 
-        {/* Right cluster: Select/Done button + funnel */}
+        {/* Right cluster: Filter/Done button + funnel */}
         <div className="flex items-center gap-1 flex-shrink-0">
           {receipts.length > 0 && (
             selectMode ? (
@@ -587,7 +595,7 @@ function ScopedReceiptList({
                 onClick={onEnterSelectMode}
                 className="text-[12px] text-white/60 hover:text-white transition px-2 py-1"
               >
-                Select
+                Filter
               </button>
             )
           )}
