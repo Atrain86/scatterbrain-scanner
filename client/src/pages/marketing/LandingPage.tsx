@@ -33,7 +33,7 @@ export default function LandingPage() {
       <TopNav />
       <Hero />
       <DemoSection />
-      <PainContrast />
+      {/* <PainContrast /> — hidden, revisit later */}
       <Features />
       <Pricing />
       <FounderNote />
@@ -403,7 +403,7 @@ function Pricing() {
               'Excel tax export',
               'Split & share receipts',
               'Works fully offline',
-              'No signup needed to start',
+              'Free to use, no credit card',
             ]}
             cta={{ label: 'Start using free', to: '/receipts' }}
           />

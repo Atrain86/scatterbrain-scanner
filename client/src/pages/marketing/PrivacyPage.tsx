@@ -63,11 +63,12 @@ export default function PrivacyPage() {
 
           <Section title="5. Third-party services we use">
             <ul className="list-disc pl-6 space-y-1.5">
-              <li>OpenAI (for OCR / auto-categorization of receipt images) — images are processed and not retained by OpenAI beyond what's needed to return a result</li>
-              <li>Google Drive / Dropbox (only if you connect them, and only for backup you control)</li>
-              <li>Resend (only when you email a receipt or export)</li>
-              <li>PostHog (anonymous usage analytics)</li>
-              <li>Netlify + Render (hosting)</li>
+              <li><strong>Google Cloud Vision</strong> — used to extract text from your receipt images (OCR). Images are sent to Google's API and not retained by Google beyond what's required to return a result.</li>
+              <li><strong>OpenAI (GPT-4o)</strong> — used to parse the extracted text into structured line items and suggest a category. Text is processed and not retained by OpenAI beyond what's required to return a result.</li>
+              <li><strong>Google Drive / Dropbox</strong> — only if you connect them, and only for backup files you control in your own account.</li>
+              <li><strong>Resend</strong> — used to send emails when you share a receipt or export your data by email.</li>
+              <li><strong>PostHog</strong> — anonymous usage analytics (no receipt content, no PII beyond account email).</li>
+              <li><strong>Netlify + Render</strong> — hosting for the app and API.</li>
             </ul>
           </Section>
 
@@ -90,7 +91,7 @@ export default function PrivacyPage() {
 
           <Section title="8. Contact">
             <p>
-              Questions or requests: <a href="mailto:support@scatterbrainscanner.com" className="text-sb-green hover:underline">support@scatterbrainscanner.com</a>
+              Questions or requests: <a href="mailto:kohlmeister@gmail.com" className="text-sb-green hover:underline">kohlmeister@gmail.com</a>
             </p>
           </Section>
         </div>
