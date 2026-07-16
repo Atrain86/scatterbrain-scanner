@@ -14,12 +14,6 @@
     Cache-Control = "public, max-age=0, must-revalidate"
 
 [[redirects]]
-  from   = "https://admirable-madeleine-3b44f0.netlify.app/*"
-  to     = "https://scatterbrainscanner.com/:splat"
-  status = 301
-  force  = true
-
-[[redirects]]
   from   = "/*"
   to     = "/index.html"
   status = 200
