@@ -51,7 +51,7 @@ function TopNav() {
         <Link to="/landing" className="flex items-center gap-2.5">
           <img src="/sb-icon.png" alt="" className="w-8 h-8 rounded-lg" />
           <span className="text-white font-bold text-[15px] tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
-            Scatterbrain
+            Scatterbrain Scanner
           </span>
         </Link>
         <div className="flex items-center gap-4">
@@ -98,8 +98,14 @@ function Hero() {
           Snap it and forget it.
         </h1>
         <p className="mt-6 text-white/70 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed">
-          Scatterbrain files every receipt automatically, then hands your accountant a clean
-          spreadsheet — in one tap.
+          Scatterbrain Scanner is a receipt scanning app for freelancers and self-employed people.
+          Snap a photo of a receipt and it automatically extracts the details, categorizes it, and
+          files it. At tax time, export everything as a clean spreadsheet for your accountant.
+        </p>
+        <p className="mt-4 text-white/50 text-sm max-w-xl mx-auto leading-relaxed">
+          Your receipts are stored on your own device. You can optionally back them up to your own
+          Google Drive — Scatterbrain Scanner only accesses files it creates in your Drive, never
+          anything else.
         </p>
         <div className="mt-10 flex flex-col sm:flex-row gap-3 justify-center items-center">
           <Link
