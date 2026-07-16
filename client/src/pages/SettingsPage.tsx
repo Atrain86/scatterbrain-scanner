@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Tag, Plus, Trash2, Cloud, Info, Activity, ChevronDown, DownloadCloud, Download, Users, LogOut, Shield, Archive } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getAllReceipts } from '../lib/db';
+import { getAllReceipts, getDb } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
 import { backgroundSync, restoreFromGoogleDrive, cleanupDriveDuplicates, type RestoreResult, type SyncResult, type CleanupResult } from '../lib/cloudSync';
 import { loadSyncStatus } from '../lib/syncStatus';
@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import React from 'react';
 
-export const APP_VERSION = '0.22.2-dashboard-consolidation';
+export const APP_VERSION = '0.22.9-json-import';
 
 interface CustomCategory {
   name: string;
@@ -99,6 +99,10 @@ export default function SettingsPage() {
   const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
   const [isBackingUp,  setIsBackingUp]  = useState(false);
   const [backupError,  setBackupError]  = useState<string | null>(null);
+  const [isImporting,  setIsImporting]  = useState(false);
+  const [importResult, setImportResult] = useState<{ imported: number; skipped: number; malformed: number } | null>(null);
+  const [importError,  setImportError]  = useState<string | null>(null);
+  const importFileRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     getAllReceipts(userId).then(rows => {
@@ -234,6 +238,97 @@ export default function SettingsPage() {
       setBackupError((err as Error).message || 'Backup failed');
     } finally {
       setIsBackingUp(false);
+    }
+  }
+
+  // Restore from JSON backup file — merge-by-UUID into current user's DB only.
+  // Validates the full file before writing anything. Writes in batches of 20
+  // to reduce peak memory on mobile (avoids holding the full parsed array +
+  // the full Dexie write buffer simultaneously). Idempotent: re-running after
+  // a partial failure (e.g. tab kill) skips already-written UUIDs.
+  async function handleRestoreFromFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset input so the same file can be re-selected after a partial run
+    e.target.value = '';
+
+    setImportError(null);
+    setImportResult(null);
+    setIsImporting(true);
+
+    try {
+      const text = await file.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error('File is not valid JSON. Is this the right file?');
+      }
+
+      if (
+        typeof parsed !== 'object' || parsed === null ||
+        (parsed as Record<string, unknown>).exportVersion !== 1 ||
+        !Array.isArray((parsed as Record<string, unknown>).receipts)
+      ) {
+        throw new Error('File doesn\'t look like a Scatterbrain backup (missing exportVersion or receipts array).');
+      }
+
+      const records = (parsed as { receipts: unknown[] }).receipts;
+
+      // Validate each record — require the fields the app depends on.
+      // Collect valid ones; count malformed separately rather than aborting.
+      type ValidRecord = { uuid: string; storeName: string; receiptDate: string; total: number; [key: string]: unknown };
+      const valid: ValidRecord[] = [];
+      let malformed = 0;
+      for (const r of records) {
+        if (
+          typeof r === 'object' && r !== null &&
+          typeof (r as Record<string, unknown>).uuid === 'string' &&
+          typeof (r as Record<string, unknown>).storeName === 'string' &&
+          typeof (r as Record<string, unknown>).receiptDate === 'string' &&
+          typeof (r as Record<string, unknown>).total === 'number'
+        ) {
+          valid.push(r as ValidRecord);
+        } else {
+          malformed++;
+        }
+      }
+
+      if (valid.length === 0 && malformed > 0) {
+        throw new Error(`All ${malformed} records in this file are malformed — nothing was imported.`);
+      }
+
+      // Fetch existing UUIDs for dedup — keyed to THIS user's DB only
+      const db = getDb(userId);
+      const existing = await db.receipts.toCollection().primaryKeys();
+      const existingRows = await db.receipts.toArray();
+      const existingUuids = new Set(existingRows.map(r => r.uuid).filter(Boolean));
+
+      let imported = 0;
+      let skipped = 0;
+
+      // Batch writes — 20 at a time to limit peak memory pressure on mobile
+      const BATCH = 20;
+      for (let i = 0; i < valid.length; i += BATCH) {
+        const chunk = valid.slice(i, i + BATCH);
+        const toWrite = chunk.filter(r => !existingUuids.has(r.uuid));
+        const toSkip  = chunk.length - toWrite.length;
+        skipped += toSkip;
+
+        if (toWrite.length > 0) {
+          // Strip any numeric `id` from the export so Dexie auto-assigns a new one
+          const rows = toWrite.map(({ id: _id, ...rest }) => rest);
+          await db.receipts.bulkAdd(rows as unknown as Parameters<typeof db.receipts.bulkAdd>[0]);
+          toWrite.forEach(r => existingUuids.add(r.uuid));
+          imported += toWrite.length;
+        }
+      }
+
+      setImportResult({ imported, skipped, malformed });
+    } catch (err) {
+      setImportError((err as Error).message || 'Import failed');
+    } finally {
+      setIsImporting(false);
     }
   }
 
@@ -523,28 +618,59 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* Complete Backup — full JSON dump of data + photos.
-            Sits after Cloud Backup because it's a manual safety/maintenance
-            action; Cloud Backup is the primary/automatic path. */}
+        {/* Complete Backup — full JSON dump of data + photos + restore from file. */}
         <Section icon={<Archive size={16} />} title="Complete Backup" defaultOpen={false}>
-          <div className="space-y-3">
+          <div className="space-y-4">
             <p className="text-white text-sm">
-              Full backup of every receipt — data <em>and</em> photos — as a single JSON file.
+              Export every receipt — data and photos — as a single JSON file. Restore it here
+              on any device or origin.
             </p>
             <p className="text-sb-muted text-xs leading-snug">
-              Recommended before signing out or clearing browser data. The file will be
-              large (~1&nbsp;MB per 10&nbsp;receipts with photos).
+              The file will be large (~1&nbsp;MB per 10&nbsp;receipts with photos). Restore
+              merges by UUID — importing the same file twice won't create duplicates.
             </p>
+
+            {/* Export */}
             <button
               onClick={handleFullBackup}
               disabled={isBackingUp}
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted disabled:opacity-40 transition"
             >
               <Download size={15} />
-              {isBackingUp ? 'Preparing…' : 'Download Complete Backup (.json)'}
+              {isBackingUp ? 'Preparing…' : 'Download Backup (.json)'}
             </button>
             {backupError && (
               <p className="text-red-400 text-xs">{backupError}</p>
+            )}
+
+            {/* Divider */}
+            <div className="border-t border-sb-border" />
+
+            {/* Import */}
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={handleRestoreFromFile}
+            />
+            <button
+              onClick={() => { setImportResult(null); setImportError(null); importFileRef.current?.click(); }}
+              disabled={isImporting}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted disabled:opacity-40 transition"
+            >
+              <DownloadCloud size={15} />
+              {isImporting ? 'Importing…' : 'Restore from Backup File (.json)'}
+            </button>
+            {importResult && (
+              <p className="text-sb-green text-xs">
+                Imported {importResult.imported} receipt{importResult.imported !== 1 ? 's' : ''}.
+                {importResult.skipped > 0 ? ` Skipped ${importResult.skipped} already present.` : ''}
+                {importResult.malformed > 0 ? ` ${importResult.malformed} record${importResult.malformed !== 1 ? 's' : ''} were malformed and skipped.` : ''}
+              </p>
+            )}
+            {importError && (
+              <p className="text-red-400 text-xs">{importError}</p>
             )}
           </div>
         </Section>
