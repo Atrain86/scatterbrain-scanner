@@ -25,6 +25,7 @@ interface Props {
   receipt: Receipt;
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, category: string) => void;
+  onUpdatePayment?: (id: number, paymentMethod: string | null) => void;
   onReEdit: (id: number, updates: ReEditUpdates) => void;
   onNewReceipt?: (r: Receipt) => void;
   selectMode?: boolean;
@@ -175,7 +176,7 @@ function CatPicker({
   );
 }
 
-export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReEdit, onNewReceipt, selectMode, selected, onToggleSelect, autoExpand }: Props) {
+export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpdatePayment, onReEdit, onNewReceipt, selectMode, selected, onToggleSelect, autoExpand }: Props) {
   const { user } = useAuth();
   const userId = user!.id;
 
@@ -197,8 +198,9 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
   const [imgFullscreen,    setImgFullscreen]    = useState(false);
   const [shareOpen,        setShareOpen]        = useState(false);
   const [confirmDelete,    setConfirmDelete]    = useState(false);
-  const [showCatPicker,    setShowCatPicker]    = useState(false);
-  const [showClientPicker, setShowClientPicker] = useState(false);
+  const [showCatPicker,     setShowCatPicker]     = useState(false);
+  const [showClientPicker,  setShowClientPicker]  = useState(false);
+  const [showPaymentPicker, setShowPaymentPicker] = useState(false);
   const [clients,          setClients]          = useState<string[]>(() => loadClients(userId));
   const [newClientInput,   setNewClientInput]   = useState('');
   const [newCatInput,      setNewCatInput]      = useState('');
@@ -248,7 +250,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
     month: 'short', day: 'numeric', year: 'numeric',
   });
 
-  const anyPickerOpen = showCatPicker || showClientPicker;
+  const anyPickerOpen = showCatPicker || showClientPicker || showPaymentPicker;
   const anyEditActive = editingStore || editingItems || splitMode || anyPickerOpen;
 
   useEffect(() => {
@@ -536,8 +538,9 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
             if (editingStore)   { setEditingStore(false); return; }
             if (editingItems)   { setEditingItems(false); return; }
             if (splitMode)      { setSplitMode(false); return; }
-            if (showClientPicker) { setShowClientPicker(false); return; }
-            if (showCatPicker)    { setShowCatPicker(false);    return; }
+            if (showClientPicker)  { setShowClientPicker(false);  return; }
+            if (showCatPicker)     { setShowCatPicker(false);     return; }
+            if (showPaymentPicker) { setShowPaymentPicker(false); return; }
             setExpanded(false);
           };
         return (
@@ -639,6 +642,35 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
                         <button onClick={() => addNewCategory()}
                           className={`p-1 transition ${newCatInput.trim() ? 'text-sb-green' : 'text-white/20'}`}><Plus size={12} /></button>
                       </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Payment method pill */}
+                <div className="relative flex-shrink-0">
+                  <button
+                    onClick={e => { e.stopPropagation(); setShowPaymentPicker(p => !p); }}
+                    className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
+                    style={{
+                      backgroundColor: receipt.paymentMethod ? '#ffffff11' : 'transparent',
+                      color: receipt.paymentMethod === 'Debit' ? '#6ea882' : receipt.paymentMethod === 'Visa' ? '#5a7fc4' : receipt.paymentMethod === 'Mastercard' ? '#d97c4a' : receipt.paymentMethod === 'Amex' ? '#8b83d9' : receipt.paymentMethod === 'Cash' ? '#6bc48a' : '#71717a',
+                      border: `1px solid ${receipt.paymentMethod ? '#ffffff22' : '#ffffff18'}`,
+                    }}
+                  >
+                    {receipt.paymentMethod ?? '+ pay'}<ChevronDown size={8} />
+                  </button>
+                  {showPaymentPicker && (
+                    <div className="absolute top-full left-0 mt-1 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl" style={{ minWidth: 130 }} onClick={e => e.stopPropagation()}>
+                      {[null, 'Debit', 'Visa', 'Mastercard', 'Amex', 'Cash', 'Other'].map(opt => (
+                        <button
+                          key={opt ?? 'none'}
+                          onClick={() => { onUpdatePayment?.(receipt.id, opt); setShowPaymentPicker(false); }}
+                          className={`w-full px-3 py-2 text-xs text-left hover:bg-white/5 flex items-center gap-2 transition ${receipt.paymentMethod === opt ? 'text-sb-green' : 'text-white'}`}
+                        >
+                          {opt === null ? <span className="text-white/40">None</span> : opt}
+                          {receipt.paymentMethod === opt && <Check size={10} className="text-sb-green ml-auto" />}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>

@@ -131,21 +131,8 @@ export default function MonthRangeSlider({ start, end, onChange }: Props) {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const readout = start === end
-    ? MONTH_NAMES_LONG[start]
-    : `${MONTH_NAMES_LONG[start]} – ${MONTH_NAMES_LONG[end]}`;
-
   return (
     <div className="w-full select-none">
-      {/* Readout — only when narrowed */}
-      <div className="h-6 flex items-center justify-center mb-2">
-        {!isFullYear && (
-          <p className="text-white text-base font-bold tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
-            {readout}
-          </p>
-        )}
-      </div>
-
       {/* Rail row */}
       <div className="relative px-1 py-3">
         <div

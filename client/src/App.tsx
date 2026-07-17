@@ -11,7 +11,6 @@ import LandingPage from './pages/marketing/LandingPage';
 import PrivacyPage from './pages/marketing/PrivacyPage';
 import TermsPage from './pages/marketing/TermsPage';
 import BottomNav from './components/BottomNav';
-import FilterBand from './components/FilterBand';
 import HandoverConsentModal from './components/HandoverConsentModal';
 import { backgroundSync } from './lib/cloudSync';
 import { loadCloudSettings, saveCloudSettings } from './hooks/useCloudAuth';
@@ -139,7 +138,6 @@ function AuthenticatedApp() {
   }
 
   // Authenticated app.
-  const showBand = location.pathname === '/receipts' || location.pathname === '/dashboard';
   return (
     <FilterProvider>
       <Routes>
@@ -152,7 +150,6 @@ function AuthenticatedApp() {
             marketing surfaces are for prospects, not existing users. */}
         <Route path="*"          element={<Navigate to="/receipts" replace />} />
       </Routes>
-      {showBand && <FilterBand />}
       <BottomNav />
     </FilterProvider>
   );

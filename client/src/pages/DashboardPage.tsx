@@ -261,20 +261,20 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              {/* ── Range readout + count — above the slider so thumb doesn't cover it ── */}
-              <div className="mt-2 text-center">
+              {/* ── Range readout + count — compressed, above slider ── */}
+              <div className="mt-2 text-center leading-none">
                 {!isFullYear && (
-                  <p className="text-white text-[15px] font-bold leading-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
+                  <p className="text-white text-[13px] font-bold" style={{ fontFamily: "'Poppins', sans-serif" }}>
                     {rangeReadout}
                   </p>
                 )}
-                <p className="text-[10.5px] mt-0.5" style={{ color: '#b0aabf' }}>
+                <p className="text-[10px]" style={{ color: '#b0aabf', marginTop: 2 }}>
                   {stats.count} receipt{stats.count !== 1 ? 's' : ''}{!isFullYear ? ' · scoped' : ''}
                 </p>
               </div>
 
               {/* ── Month range slider ── */}
-              <div className="mt-2 pt-1 border-t border-white/[0.06]">
+              <div className="mt-1 border-t border-white/[0.06]">
                 <MonthRangeSlider
                   start={rangeStart}
                   end={rangeEnd}
@@ -551,9 +551,27 @@ function ScopedReceiptList({
                       {r.clientName ? `${r.clientName}  ·  ${formatShortDate(r.receiptDate)}` : formatShortDate(r.receiptDate)}
                     </p>
                   </div>
-                  <span className="text-sb-green font-bold text-[15px] leading-tight flex-shrink-0 pl-2">
-                    ${r.total.toFixed(2)}
-                  </span>
+                  <div className="flex flex-col items-end justify-between pl-2 flex-shrink-0">
+                    <span className="text-sb-green font-bold text-[15px] leading-tight">
+                      ${r.total.toFixed(2)}
+                    </span>
+                    {r.paymentMethod && (
+                      <span
+                        aria-label={r.paymentMethod}
+                        className="rounded-full mt-1"
+                        style={{
+                          width: 11, height: 11, display: 'inline-block',
+                          backgroundColor:
+                            r.paymentMethod === 'Debit'      ? '#6ea882' :
+                            r.paymentMethod === 'Visa'       ? '#5a7fc4' :
+                            r.paymentMethod === 'Mastercard' ? '#d97c4a' :
+                            r.paymentMethod === 'Amex'       ? '#8b83d9' :
+                            r.paymentMethod === 'Cash'       ? '#6bc48a' :
+                            '#71717a',
+                        }}
+                      />
+                    )}
+                  </div>
                 </button>
 
                 {selectMode && (

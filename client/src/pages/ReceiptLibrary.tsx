@@ -149,6 +149,10 @@ export default function ReceiptLibrary() {
     await update(id, { category });
   }
 
+  async function onUpdatePayment(id: number, paymentMethod: string | null) {
+    await update(id, { paymentMethod });
+  }
+
   async function onReEdit(id: number, updates: {
     storeName: string; lineItems: string; taxLines: string;
     subtotal: number; taxAmount: number; total: number;
@@ -218,7 +222,7 @@ export default function ReceiptLibrary() {
         <span className="text-[13px] text-white tracking-wider select-none">v{APP_VERSION}</span>
       </header>
 
-      <main className="flex-1 px-3 pt-1 pb-56 overflow-y-auto max-w-2xl mx-auto w-full">
+      <main className="flex-1 px-3 pt-1 pb-52 overflow-y-auto max-w-2xl mx-auto w-full">
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-7 h-7 border-2 border-sb-green border-t-transparent rounded-full animate-spin" />
@@ -255,6 +259,7 @@ export default function ReceiptLibrary() {
                   }}
                   onDelete={onDelete}
                   onUpdateCategory={onUpdateCategory}
+                  onUpdatePayment={onUpdatePayment}
                   onReEdit={onReEdit}
                   onNewReceipt={r => add(r)}
                   selectMode={selectMode}
@@ -269,25 +274,12 @@ export default function ReceiptLibrary() {
         )}
       </main>
 
-      {/* Active filter summary — sits above FilterBand, right-aligned */}
-      {isSearching && (
-        <div
-          className="fixed left-0 right-0 z-10 px-5 pointer-events-none"
-          style={{ bottom: 'calc(118px + env(safe-area-inset-bottom))' }}
-        >
-          <div className="flex items-center justify-end gap-3 max-w-2xl mx-auto w-full pointer-events-auto">
-            {filteredTotal > 0 && (
-              <span className="text-sb-green text-xs font-bold">${filteredTotal.toFixed(2)}</span>
-            )}
-          </div>
-        </div>
-      )}
 
-      {/* ── Select mode action bar — sits above FilterBand ── */}
+      {/* ── Select mode action bar — sits above the nav ── */}
       {selectMode && (
         <div
           className="fixed left-0 right-0 z-30 bg-sb-card2 border-t border-sb-border px-4 py-3 flex items-center gap-3 animate-fade-in max-w-2xl mx-auto"
-          style={{ bottom: 'calc(114px + env(safe-area-inset-bottom))' }}
+          style={{ bottom: 'calc(148px + env(safe-area-inset-bottom))' }}
         >
           <button onClick={exitSelectMode} className="p-2 text-sb-muted hover:text-white transition">
             <X size={18} />
@@ -329,6 +321,7 @@ interface MonthGroupProps {
   onToggle: () => void;
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, cat: string) => void;
+  onUpdatePayment: (id: number, paymentMethod: string | null) => void;
   onReEdit: (id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number; clientName: string | null; category: string; receiptDate?: string }) => void;
   onNewReceipt?: (r: ReceiptType) => void;
   selectMode?: boolean;
@@ -338,7 +331,7 @@ interface MonthGroupProps {
   autoExpandUuid?: string | null;
 }
 
-function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onReEdit, onNewReceipt, selectMode, selectedIds, onToggleSelect, onEnterSelectMode, autoExpandUuid }: MonthGroupProps) {
+function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCategory, onUpdatePayment, onReEdit, onNewReceipt, selectMode, selectedIds, onToggleSelect, onEnterSelectMode, autoExpandUuid }: MonthGroupProps) {
   const total = receipts.reduce((s, r) => s + r.total, 0);
   return (
     <div className="mb-3">
@@ -380,6 +373,7 @@ function MonthGroup({ label, receipts, collapsed, onToggle, onDelete, onUpdateCa
               receipt={r}
               onDelete={onDelete}
               onUpdateCategory={onUpdateCategory}
+              onUpdatePayment={onUpdatePayment}
               onReEdit={onReEdit}
               onNewReceipt={onNewReceipt}
               selectMode={selectMode}
