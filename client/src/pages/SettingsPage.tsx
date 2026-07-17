@@ -11,7 +11,7 @@ import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from 
 import { getAllCategories, saveUserCategories, ensureCategoryExists } from '../utils/types';
 import React from 'react';
 
-export const APP_VERSION = '0.24.5';
+export const APP_VERSION = '0.24.6';
 
 interface CustomCategory {
   name: string;

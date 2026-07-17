@@ -22,10 +22,10 @@ const SCAN_RING = '#4ade80';
 const SCAN_FILL = 'rgba(74,222,128,0.14)';
 const SCAN_GLOW = '0 0 14px rgba(74,222,128,0.4)';
 
-const PILL_STYLES: Record<PaymentFilter, { border: string; bg: string }> = {
-  All:   { border: '#b0aabf', bg: 'rgba(176,170,191,0.13)' },
-  Debit: { border: '#6ea882', bg: 'rgba(110,168,130,0.15)' },
-  Visa:  { border: '#5a7fc4', bg: 'rgba(90,127,196,0.15)'  },
+const PILL_STYLES: Record<PaymentFilter, { border: string; bg: string; color: string }> = {
+  All:   { border: '#b0aabf', bg: 'rgba(176,170,191,0.22)', color: '#d4cfe0' },
+  Debit: { border: '#6ea882', bg: 'rgba(110,168,130,0.28)', color: '#6ea882' },
+  Visa:  { border: '#5a7fc4', bg: 'rgba(90,127,196,0.28)',  color: '#7fa4e8' },
 };
 const PAYMENT_OPTIONS: PaymentFilter[] = ['All', 'Debit', 'Visa'];
 
@@ -153,7 +153,7 @@ export default function BottomNav() {
                     style={{
                       fontSize: 10.5,
                       fontWeight: 600,
-                      color: '#ffffff',
+                      color: active ? s.color : 'rgba(255,255,255,0.5)',
                       padding: '5px 9px',
                       borderRadius: 7,
                       border: `1.3px solid ${active ? s.border : 'rgba(255,255,255,0.13)'}`,
