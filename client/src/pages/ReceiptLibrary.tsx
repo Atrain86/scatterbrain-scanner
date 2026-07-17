@@ -96,9 +96,8 @@ export default function ReceiptLibrary() {
       // Category filter
       if (categoryFilter && (r.category || '') !== categoryFilter) return false;
 
-      // Payment filter — strict match. Only receipts tagged with the selected method show.
-      if (paymentFilter === 'Debit' && r.paymentMethod !== 'Debit') return false;
-      if (paymentFilter === 'Visa'  && r.paymentMethod !== 'Visa')  return false;
+      // Payment filter — strict match on any selected method.
+      if (paymentFilter !== 'All' && r.paymentMethod !== paymentFilter) return false;
 
       if (!q) return true;
 

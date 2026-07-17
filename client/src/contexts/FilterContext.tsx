@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState } from 'react';
 
-export type PaymentFilter = 'All' | 'Debit' | 'Visa';
+export type PaymentFilter = 'All' | 'Debit' | 'Visa' | 'Mastercard' | 'Amex' | 'Cash' | 'Other';
 
 interface FilterState {
   search: string;

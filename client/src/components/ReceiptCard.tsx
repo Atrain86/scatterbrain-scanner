@@ -583,13 +583,13 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                   <button
                     onClick={e => { e.stopPropagation(); setShowPaymentPicker(p => !p); }}
                     className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
-                    style={receipt.paymentMethod === 'Debit' ? { backgroundColor: 'rgba(110,168,130,0.25)', color: '#6ea882', border: '1px solid rgba(110,168,130,0.45)' }
-                      : receipt.paymentMethod === 'Visa'       ? { backgroundColor: 'rgba(90,127,196,0.25)',  color: '#5a7fc4', border: '1px solid rgba(90,127,196,0.45)' }
-                      : receipt.paymentMethod === 'Mastercard' ? { backgroundColor: 'rgba(217,124,74,0.25)', color: '#d97c4a', border: '1px solid rgba(217,124,74,0.45)' }
-                      : receipt.paymentMethod === 'Amex'       ? { backgroundColor: 'rgba(139,131,217,0.25)',color: '#8b83d9', border: '1px solid rgba(139,131,217,0.45)' }
-                      : receipt.paymentMethod === 'Cash'       ? { backgroundColor: 'rgba(107,196,138,0.25)',color: '#6bc48a', border: '1px solid rgba(107,196,138,0.45)' }
-                      : receipt.paymentMethod === 'Other'      ? { backgroundColor: 'rgba(113,113,122,0.25)',color: '#71717a', border: '1px solid rgba(113,113,122,0.45)' }
-                      : { backgroundColor: 'rgba(255,255,255,0.05)', color: '#6b7280', border: '1px solid rgba(255,255,255,0.1)' }
+                    style={receipt.paymentMethod === 'Debit' ? { backgroundColor: 'rgba(110,168,130,0.25)', color: '#ffffff', border: '1px solid rgba(110,168,130,0.55)' }
+                      : receipt.paymentMethod === 'Visa'       ? { backgroundColor: 'rgba(90,127,196,0.25)',  color: '#ffffff', border: '1px solid rgba(90,127,196,0.55)' }
+                      : receipt.paymentMethod === 'Mastercard' ? { backgroundColor: 'rgba(217,124,74,0.25)', color: '#ffffff', border: '1px solid rgba(217,124,74,0.55)' }
+                      : receipt.paymentMethod === 'Amex'       ? { backgroundColor: 'rgba(139,131,217,0.25)',color: '#ffffff', border: '1px solid rgba(139,131,217,0.55)' }
+                      : receipt.paymentMethod === 'Cash'       ? { backgroundColor: 'rgba(107,196,138,0.25)',color: '#ffffff', border: '1px solid rgba(107,196,138,0.55)' }
+                      : receipt.paymentMethod === 'Other'      ? { backgroundColor: 'rgba(113,113,122,0.25)',color: '#ffffff', border: '1px solid rgba(113,113,122,0.55)' }
+                      : { backgroundColor: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.1)' }
                     }
                   >
                     {receipt.paymentMethod ?? '+ pay'}<ChevronDown size={8} />

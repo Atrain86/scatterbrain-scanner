@@ -22,12 +22,16 @@ const SCAN_RING = '#4ade80';
 const SCAN_FILL = 'rgba(74,222,128,0.14)';
 const SCAN_GLOW = '0 0 14px rgba(74,222,128,0.4)';
 
-const PILL_STYLES: Record<PaymentFilter, { border: string; bg: string; color: string }> = {
-  All:   { border: '#b0aabf', bg: 'rgba(176,170,191,0.22)', color: '#d4cfe0' },
-  Debit: { border: '#6ea882', bg: 'rgba(110,168,130,0.28)', color: '#6ea882' },
-  Visa:  { border: '#5a7fc4', bg: 'rgba(90,127,196,0.28)',  color: '#7fa4e8' },
+const PAYMENT_COLORS: Record<string, { border: string; bg: string; color: string }> = {
+  All:        { border: '#b0aabf', bg: 'rgba(176,170,191,0.22)', color: '#ffffff' },
+  Debit:      { border: '#6ea882', bg: 'rgba(110,168,130,0.28)', color: '#ffffff' },
+  Visa:       { border: '#5a7fc4', bg: 'rgba(90,127,196,0.28)',  color: '#ffffff' },
+  Mastercard: { border: '#d97c4a', bg: 'rgba(217,124,74,0.28)',  color: '#ffffff' },
+  Amex:       { border: '#8b83d9', bg: 'rgba(139,131,217,0.28)', color: '#ffffff' },
+  Cash:       { border: '#6bc48a', bg: 'rgba(107,196,138,0.28)', color: '#ffffff' },
+  Other:      { border: '#71717a', bg: 'rgba(113,113,122,0.28)', color: '#ffffff' },
 };
-const PAYMENT_OPTIONS: PaymentFilter[] = ['All', 'Debit', 'Visa'];
+const PAYMENT_OPTIONS: PaymentFilter[] = ['All', 'Debit', 'Visa', 'Mastercard', 'Amex', 'Cash', 'Other'];
 
 export default function BottomNav() {
   const [scanOpen, setScanOpen] = useState(false);
@@ -41,8 +45,10 @@ export default function BottomNav() {
   const { user } = useAuth();
   const categories = user ? getAllCategories(user.id) : [];
 
-  const [showCatPicker, setShowCatPicker] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
+  const [showCatPicker,     setShowCatPicker]     = useState(false);
+  const [showPaymentPicker, setShowPaymentPicker] = useState(false);
+  const pickerRef        = useRef<HTMLDivElement>(null);
+  const paymentPickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!showCatPicker) return;
@@ -52,6 +58,15 @@ export default function BottomNav() {
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [showCatPicker]);
+
+  useEffect(() => {
+    if (!showPaymentPicker) return;
+    function onDown(e: MouseEvent) {
+      if (paymentPickerRef.current && !paymentPickerRef.current.contains(e.target as Node)) setShowPaymentPicker(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [showPaymentPicker]);
 
   const funnelColor = categoryFilter
     ? (categories.find(c => c.name === categoryFilter)?.color ?? '#d9c15c')
@@ -140,31 +155,57 @@ export default function BottomNav() {
               )}
             </div>
 
-            {/* Payment toggle pills */}
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {PAYMENT_OPTIONS.map(opt => {
-                const active = paymentFilter === opt;
-                const s = PILL_STYLES[opt];
-                return (
-                  <button
-                    key={opt}
-                    onClick={() => setPaymentFilter(opt)}
-                    className="transition active:scale-95"
-                    style={{
-                      fontSize: 10.5,
-                      fontWeight: 600,
-                      color: active ? s.color : 'rgba(255,255,255,0.5)',
-                      padding: '5px 9px',
-                      borderRadius: 7,
-                      border: `1.3px solid ${active ? s.border : 'rgba(255,255,255,0.13)'}`,
-                      background: active ? s.bg : 'transparent',
-                      lineHeight: 1,
-                    }}
+            {/* Payment filter dropdown */}
+            <div className="relative flex-shrink-0" ref={paymentPickerRef}>
+              <button
+                onClick={() => setShowPaymentPicker(p => !p)}
+                className="flex items-center gap-1 transition active:scale-95"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: '#ffffff',
+                  padding: '6px 10px',
+                  borderRadius: 9,
+                  border: `1.3px solid ${PAYMENT_COLORS[paymentFilter]?.border ?? '#b0aabf'}`,
+                  background: PAYMENT_COLORS[paymentFilter]?.bg ?? 'rgba(176,170,191,0.22)',
+                  lineHeight: 1,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {paymentFilter === 'All' ? 'Payment' : paymentFilter}
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ marginLeft: 2, opacity: 0.7 }}>
+                  <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              {showPaymentPicker && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setShowPaymentPicker(false)} />
+                  <div
+                    className="absolute z-40 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden shadow-2xl animate-fade-in"
+                    style={{ bottom: '100%', right: 0, marginBottom: 8, minWidth: 140 }}
                   >
-                    {opt}
-                  </button>
-                );
-              })}
+                    {PAYMENT_OPTIONS.map(opt => {
+                      const s = PAYMENT_COLORS[opt];
+                      const active = paymentFilter === opt;
+                      return (
+                        <button
+                          key={opt}
+                          onClick={() => { setPaymentFilter(opt); setShowPaymentPicker(false); }}
+                          className="w-full px-3 py-2.5 text-[13px] text-left transition hover:bg-white/5 flex items-center gap-2"
+                          style={{ color: active ? s.color : '#ffffff' }}
+                        >
+                          {opt !== 'All' && (
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.border }} />
+                          )}
+                          {opt === 'All' && <span className="w-2 h-2 rounded-full bg-white/20 flex-shrink-0" />}
+                          {opt}
+                          {active && <svg className="ml-auto" width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
