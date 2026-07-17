@@ -5,13 +5,13 @@ import { getAllReceipts, getDb, addDeletedCategory, addDeletedClient } from '../
 import { useCloudAuth } from '../hooks/useCloudAuth';
 import { backgroundSync, restoreFromGoogleDrive, cleanupDriveDuplicates, type RestoreResult, type SyncResult, type CleanupResult } from '../lib/cloudSync';
 import { loadSyncStatus } from '../lib/syncStatus';
-import { loadClients, addClient, removeClient } from '../utils/clients';
+import { loadClients, saveClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
-import { ensureCategoryExists } from '../utils/types';
+import { getAllCategories, saveUserCategories, ensureCategoryExists } from '../utils/types';
 import React from 'react';
 
-export const APP_VERSION = '0.23.0-metadata-sync';
+export const APP_VERSION = '0.23.1-import-categories-exact';
 
 interface CustomCategory {
   name: string;
@@ -283,15 +283,30 @@ export default function SettingsPage() {
         throw new Error('File is not valid JSON. Is this the right file?');
       }
 
+      const p = parsed as Record<string, unknown>;
+      const exportVersion = p.exportVersion;
       if (
         typeof parsed !== 'object' || parsed === null ||
-        (parsed as Record<string, unknown>).exportVersion !== 1 ||
-        !Array.isArray((parsed as Record<string, unknown>).receipts)
+        (exportVersion !== 1 && exportVersion !== 2) ||
+        !Array.isArray(p.receipts)
       ) {
         throw new Error('File doesn\'t look like a Scatterbrain backup (missing exportVersion or receipts array).');
       }
 
       const records = (parsed as { receipts: unknown[] }).receipts;
+
+      // v2 backup includes categories and clients — extract them for restore below
+      const backupCategories = (exportVersion === 2 && Array.isArray(p.categories))
+        ? (p.categories as unknown[]).filter(
+            (c): c is { name: string; color: string } =>
+              typeof c === 'object' && c !== null &&
+              typeof (c as Record<string, unknown>).name === 'string' &&
+              typeof (c as Record<string, unknown>).color === 'string'
+          )
+        : null;
+      const backupClients = (exportVersion === 2 && Array.isArray(p.clients))
+        ? (p.clients as unknown[]).filter((c): c is string => typeof c === 'string')
+        : null;
 
       // Validate each record — require the fields the app depends on.
       // Collect valid ones; count malformed separately rather than aborting.
@@ -342,16 +357,34 @@ export default function SettingsPage() {
         }
       }
 
-      // Seed category colours for every category name in the imported receipts.
-      // Receipts carry the category name as a string but not a colour — without
-      // this pass the dots would be grey/missing because the name has no entry
-      // in the user's localStorage category list.
-      const importedCategories = new Set(
-        valid
-          .map(r => (r as Record<string, unknown>).category)
-          .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
-      );
-      importedCategories.forEach(name => ensureCategoryExists(userId, name));
+      // Restore categories — exact colours from v2 backup, algorithmic for v1.
+      if (backupCategories) {
+        // v2: merge backup category list (name + exact colour) into current user's list
+        const existing = getAllCategories(userId);
+        const existingNames = new Set(existing.map(c => c.name.toLowerCase()));
+        const toAdd = backupCategories.filter(c => !existingNames.has(c.name.toLowerCase()));
+        if (toAdd.length > 0) {
+          saveUserCategories(userId, [...existing, ...toAdd]);
+        }
+      } else {
+        // v1: no colour info — seed algorithmically from receipt category names
+        const receiptCategories = new Set(
+          valid
+            .map(r => (r as Record<string, unknown>).category)
+            .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+        );
+        receiptCategories.forEach(name => ensureCategoryExists(userId, name));
+      }
+
+      // Restore clients from v2 backup — merge, don't overwrite
+      if (backupClients) {
+        const existingClients = loadClients(userId);
+        const existingSet = new Set(existingClients.map(c => c.toLowerCase()));
+        const toAdd = backupClients.filter(c => !existingSet.has(c.toLowerCase()));
+        if (toAdd.length > 0) {
+          saveClients(userId, [...existingClients, ...toAdd]);
+        }
+      }
 
       setImportResult({ imported, skipped, malformed });
     } catch (err) {
