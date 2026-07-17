@@ -11,7 +11,7 @@ import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from 
 import { getAllCategories, saveUserCategories, ensureCategoryExists } from '../utils/types';
 import React from 'react';
 
-export const APP_VERSION = '0.23.3-landing-carousel';
+export const APP_VERSION = '0.24.0-payment-method';
 
 interface CustomCategory {
   name: string;

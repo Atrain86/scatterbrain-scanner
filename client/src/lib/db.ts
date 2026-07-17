@@ -24,6 +24,11 @@ class ScatterbrainDB extends Dexie {
         }
       }
     });
+    // v3: index paymentMethod for fast toggle filtering. Existing rows have
+    // paymentMethod undefined (treated as null by the filter) — no backfill needed.
+    this.version(3).stores({
+      receipts: '++id, uuid, receiptDate, category, storeName, clientName, paymentMethod',
+    });
   }
 }
 

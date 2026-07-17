@@ -662,10 +662,11 @@ async function backgroundSyncInternal(userId: string): Promise<SyncResult> {
             rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
             taxLines:     typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
             imagePath:    null,
-            imageUrl:     meta.imageUrl != null ? String(meta.imageUrl) : null,
-            notes:        meta.notes    != null ? String(meta.notes)    : null,
-            createdAt:    String(meta.createdAt ?? now),
-            updatedAt:    driveUpdatedAt || now,
+            imageUrl:      meta.imageUrl      != null ? String(meta.imageUrl)      : null,
+            notes:         meta.notes         != null ? String(meta.notes)         : null,
+            paymentMethod: meta.paymentMethod != null ? String(meta.paymentMethod) : null,
+            createdAt:     String(meta.createdAt ?? now),
+            updatedAt:     driveUpdatedAt || now,
           });
           result.pulled += 1;
         }

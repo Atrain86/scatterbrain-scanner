@@ -422,11 +422,12 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
       clientName: newClient || null,
       category: newCat,
       imagePath: receipt.imagePath ?? null,
-      imageUrl: receipt.imageUrl ?? null,
-      notes: receipt.notes ?? null,
-      uuid: crypto.randomUUID(),
-      updatedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
+      imageUrl:      receipt.imageUrl ?? null,
+      notes:         receipt.notes ?? null,
+      paymentMethod: receipt.paymentMethod ?? null,
+      uuid:          crypto.randomUUID(),
+      updatedAt:     new Date().toISOString(),
+      createdAt:     new Date().toISOString(),
     });
 
     pushReceiptNow(newReceipt, userId).catch(err => {
@@ -486,13 +487,31 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onReE
             <CollapsedBadges />
             <div className="flex flex-col items-end justify-between pr-3 pl-2 py-2.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
               <span className="text-sb-green font-bold text-[15px] leading-tight">${receipt.total.toFixed(2)}</span>
-              {confirmDelete ? (
-                <button onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }} onBlur={() => setConfirmDelete(false)}
-                  className="text-red-400 bg-red-950/30 rounded p-0.5 transition mt-1"><Trash2 size={12} /></button>
-              ) : (
-                <button onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
-                  className="text-white/25 hover:text-red-400 transition p-0.5 mt-1"><Trash2 size={12} /></button>
-              )}
+              <div className="flex items-center gap-1.5 mt-1">
+                {receipt.paymentMethod && (
+                  <span
+                    aria-label={receipt.paymentMethod}
+                    className="rounded-full flex-shrink-0"
+                    style={{
+                      width: 11, height: 11,
+                      backgroundColor:
+                        receipt.paymentMethod === 'Debit'      ? '#6ea882' :
+                        receipt.paymentMethod === 'Visa'       ? '#5a7fc4' :
+                        receipt.paymentMethod === 'Mastercard' ? '#d97c4a' :
+                        receipt.paymentMethod === 'Amex'       ? '#8b83d9' :
+                        receipt.paymentMethod === 'Cash'       ? '#6bc48a' :
+                        '#71717a', // Other
+                    }}
+                  />
+                )}
+                {confirmDelete ? (
+                  <button onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }} onBlur={() => setConfirmDelete(false)}
+                    className="text-red-400 bg-red-950/30 rounded p-0.5 transition"><Trash2 size={12} /></button>
+                ) : (
+                  <button onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
+                    className="text-white/25 hover:text-red-400 transition p-0.5"><Trash2 size={12} /></button>
+                )}
+              </div>
             </div>
           </div>
         )}

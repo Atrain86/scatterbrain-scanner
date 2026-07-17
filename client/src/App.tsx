@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { FilterProvider } from './contexts/FilterContext';
 import ReceiptLibrary from './pages/ReceiptLibrary';
 import DashboardPage from './pages/DashboardPage';
 import ExportPage from './pages/ExportPage';
@@ -10,6 +11,7 @@ import LandingPage from './pages/marketing/LandingPage';
 import PrivacyPage from './pages/marketing/PrivacyPage';
 import TermsPage from './pages/marketing/TermsPage';
 import BottomNav from './components/BottomNav';
+import FilterBand from './components/FilterBand';
 import HandoverConsentModal from './components/HandoverConsentModal';
 import { backgroundSync } from './lib/cloudSync';
 import { loadCloudSettings, saveCloudSettings } from './hooks/useCloudAuth';
@@ -137,8 +139,9 @@ function AuthenticatedApp() {
   }
 
   // Authenticated app.
+  const showBand = location.pathname === '/receipts' || location.pathname === '/dashboard';
   return (
-    <>
+    <FilterProvider>
       <Routes>
         <Route path="/"          element={<Navigate to="/receipts" replace />} />
         <Route path="/receipts"  element={<ReceiptLibrary />} />
@@ -149,8 +152,9 @@ function AuthenticatedApp() {
             marketing surfaces are for prospects, not existing users. */}
         <Route path="*"          element={<Navigate to="/receipts" replace />} />
       </Routes>
+      {showBand && <FilterBand />}
       <BottomNav />
-    </>
+    </FilterProvider>
   );
 }
 

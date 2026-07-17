@@ -110,6 +110,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     lineItems: string;
     rawLineItems: string;
     taxLines: string;
+    paymentMethod: string | null;
   }) {
     setStep('saving');
     console.log('[Save] step 1: compressing image');
@@ -135,22 +136,23 @@ export default function ScanModal({ onClose, onSaved }: Props) {
 
     try {
       const receipt = await addReceipt(userId, {
-        uuid:         crypto.randomUUID(),
-        storeName:    payload.storeName,
-        receiptDate:  payload.receiptDate,
-        subtotal:     payload.subtotal,
-        taxAmount:    payload.taxAmount,
-        total:        payload.total,
-        category:     payload.category,
-        clientName:   payload.clientName || null,
-        lineItems:    payload.lineItems,
-        rawLineItems: payload.rawLineItems,
-        taxLines:     payload.taxLines,
-        imagePath:    null,
+        uuid:          crypto.randomUUID(),
+        storeName:     payload.storeName,
+        receiptDate:   payload.receiptDate,
+        subtotal:      payload.subtotal,
+        taxAmount:     payload.taxAmount,
+        total:         payload.total,
+        category:      payload.category,
+        clientName:    payload.clientName || null,
+        lineItems:     payload.lineItems,
+        rawLineItems:  payload.rawLineItems,
+        taxLines:      payload.taxLines,
+        paymentMethod: payload.paymentMethod,
+        imagePath:     null,
         imageUrl,
-        notes:        null,
-        createdAt:    now,
-        updatedAt:    now,
+        notes:         null,
+        createdAt:     now,
+        updatedAt:     now,
       });
 
       // Push to Drive immediately — fire and forget, don't block the UI.

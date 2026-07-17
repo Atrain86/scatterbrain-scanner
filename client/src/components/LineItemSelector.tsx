@@ -19,6 +19,7 @@ interface Props {
     lineItems: string;
     rawLineItems: string;
     taxLines: string;
+    paymentMethod: string | null;
   }) => void;
   onBack: () => void;
   error?: string;
@@ -170,9 +171,10 @@ export default function LineItemSelector({ scanned, onSave, onBack, error }: Pro
       total: grandTotal,
       category,
       clientName,
-      lineItems:    JSON.stringify([...saveItems, ...taxLineItems]),
-      rawLineItems: JSON.stringify(items.map(i => ({ description: i.description, amount: i.amount }))),
-      taxLines:     JSON.stringify(proportionalTaxes),
+      lineItems:     JSON.stringify([...saveItems, ...taxLineItems]),
+      rawLineItems:  JSON.stringify(items.map(i => ({ description: i.description, amount: i.amount }))),
+      taxLines:      JSON.stringify(proportionalTaxes),
+      paymentMethod: scanned.paymentMethod ?? null,
     });
   }
 
