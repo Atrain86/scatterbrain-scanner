@@ -4,9 +4,10 @@ import { Home, BarChart2, FileSpreadsheet, Settings, Camera, Funnel } from 'luci
 import ScanModal from './ScanModal';
 import { useQueryClient } from '@tanstack/react-query';
 import SyncHealthDot from './SyncHealthDot';
-import { useFilter, type PaymentFilter } from '../contexts/FilterContext';
+import { useFilter } from '../contexts/FilterContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getAllCategories } from '../utils/types';
+import { getPaymentMethods } from '../lib/paymentStorage';
 
 const TABS_LEFT = [
   { to: '/receipts',  icon: Home,      label: 'Home',      activeColor: '#60a5fa' },
@@ -22,16 +23,18 @@ const SCAN_RING = '#4ade80';
 const SCAN_FILL = 'rgba(74,222,128,0.14)';
 const SCAN_GLOW = '0 0 14px rgba(74,222,128,0.4)';
 
-const PAYMENT_COLORS: Record<string, { border: string; bg: string; color: string }> = {
-  All:        { border: '#b0aabf', bg: 'rgba(176,170,191,0.22)', color: '#ffffff' },
-  Debit:      { border: '#6ea882', bg: 'rgba(110,168,130,0.28)', color: '#ffffff' },
-  Visa:       { border: '#5a7fc4', bg: 'rgba(90,127,196,0.28)',  color: '#ffffff' },
-  Mastercard: { border: '#d97c4a', bg: 'rgba(217,124,74,0.28)',  color: '#ffffff' },
-  Amex:       { border: '#8b83d9', bg: 'rgba(139,131,217,0.28)', color: '#ffffff' },
-  Cash:       { border: '#6bc48a', bg: 'rgba(107,196,138,0.28)', color: '#ffffff' },
-  Other:      { border: '#71717a', bg: 'rgba(113,113,122,0.28)', color: '#ffffff' },
+// Active payment filter button style (non-All selection)
+const PAYMENT_ACTIVE_STYLE = {
+  border: '1.3px solid #a855f7',
+  background: 'rgba(168,85,247,0.14)',
+  color: '#ffffff',
 };
-const PAYMENT_OPTIONS: PaymentFilter[] = ['All', 'Debit', 'Visa', 'Mastercard', 'Amex', 'Cash', 'Other'];
+// Inactive payment filter button style
+const PAYMENT_INACTIVE_STYLE = {
+  color: 'rgba(255,255,255,0.4)',
+  border: '1.3px solid rgba(255,255,255,0.13)',
+  background: 'transparent',
+};
 
 export default function BottomNav() {
   const [scanOpen, setScanOpen] = useState(false);
@@ -44,6 +47,9 @@ export default function BottomNav() {
   const { search, setSearch, categoryFilter, setCategoryFilter, paymentFilter, setPaymentFilter } = useFilter();
   const { user } = useAuth();
   const categories = user ? getAllCategories(user.id) : [];
+  const namedCards = user ? getPaymentMethods(user.id) : [];
+  // Options: All, ...named card labels, Cash, Other
+  const paymentOptions: string[] = ['All', ...namedCards.map(m => m.label), 'Cash', 'Other'];
 
   const [showCatPicker,     setShowCatPicker]     = useState(false);
   const [showPaymentPicker, setShowPaymentPicker] = useState(false);
@@ -163,17 +169,21 @@ export default function BottomNav() {
                 style={{
                   fontSize: 11,
                   fontWeight: 600,
-                  color: '#ffffff',
                   padding: '6px 10px',
                   borderRadius: 9,
-                  border: `1.3px solid ${PAYMENT_COLORS[paymentFilter]?.border ?? '#b0aabf'}`,
-                  background: PAYMENT_COLORS[paymentFilter]?.bg ?? 'rgba(176,170,191,0.22)',
                   lineHeight: 1,
                   whiteSpace: 'nowrap',
+                  ...(paymentFilter !== 'All' ? PAYMENT_ACTIVE_STYLE : PAYMENT_INACTIVE_STYLE),
                 }}
               >
-                {paymentFilter === 'All' ? 'Payment' : paymentFilter}
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ marginLeft: 2, opacity: 0.7 }}>
+                {paymentFilter === 'All' ? (
+                  'Payment ∨'
+                ) : (
+                  <span style={{ maxWidth: '12ch', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
+                    {paymentFilter}
+                  </span>
+                )}
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ marginLeft: 2, opacity: 0.7, flexShrink: 0 }}>
                   <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </button>
@@ -182,24 +192,27 @@ export default function BottomNav() {
                   <div className="fixed inset-0 z-30" onClick={() => setShowPaymentPicker(false)} />
                   <div
                     className="absolute z-40 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden shadow-2xl animate-fade-in"
-                    style={{ bottom: '100%', right: 0, marginBottom: 8, minWidth: 140 }}
+                    style={{ bottom: '100%', right: 0, marginBottom: 8, minWidth: 160, maxHeight: '50vh', overflowY: 'auto' }}
                   >
-                    {PAYMENT_OPTIONS.map(opt => {
-                      const s = PAYMENT_COLORS[opt];
+                    {paymentOptions.map(opt => {
                       const active = paymentFilter === opt;
                       return (
                         <button
                           key={opt}
                           onClick={() => { setPaymentFilter(opt); setShowPaymentPicker(false); }}
                           className="w-full px-3 py-2.5 text-[13px] text-left transition hover:bg-white/5 flex items-center gap-2"
-                          style={{ color: active ? s.color : '#ffffff' }}
+                          style={{ color: active ? '#4ade80' : '#ffffff' }}
                         >
-                          {opt !== 'All' && (
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.border }} />
-                          )}
-                          {opt === 'All' && <span className="w-2 h-2 rounded-full bg-white/20 flex-shrink-0" />}
+                          {opt === 'All'
+                            ? <span className="w-2 h-2 rounded-full bg-white/20 flex-shrink-0" />
+                            : <span className="w-2 h-2 rounded-full flex-shrink-0 bg-purple-400/60" />
+                          }
                           {opt}
-                          {active && <svg className="ml-auto" width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                          {active && (
+                            <svg className="ml-auto" width="10" height="10" viewBox="0 0 10 10">
+                              <path d="M1.5 5L4 7.5L8.5 2.5" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          )}
                         </button>
                       );
                     })}

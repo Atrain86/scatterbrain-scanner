@@ -4,6 +4,8 @@ import { addReceipt, getAllReceipts, getReceiptByUuid, updateReceipt, getDeleted
 import { loadClients, saveClients } from '../utils/clients';
 import { getAllCategories, saveUserCategories, ensureCategoryExists } from '../utils/types';
 import { recordPushSuccess, recordBackgroundSyncSuccess, recordFailure } from './syncStatus';
+import { getPaymentMethods, savePaymentMethods, getStoreDefaults, saveStoreDefaults, getDeletedPaymentMethods, saveDeletedPaymentMethods } from './paymentStorage';
+import type { PaymentMethod } from '../utils/types';
 
 // ── Token management ──────────────────────────────────────────────────────────
 
@@ -359,21 +361,24 @@ async function pushReceiptToDrive(receipt: Receipt, accessToken: string, userId:
   ]);
 
   const meta = {
-    uuid:         receipt.uuid,
-    storeName:    receipt.storeName,
-    receiptDate:  receipt.receiptDate,
-    subtotal:     receipt.subtotal,
-    taxAmount:    receipt.taxAmount,
-    total:        receipt.total,
-    category:     receipt.category,
-    clientName:   receipt.clientName,
-    lineItems:    receipt.lineItems ? JSON.parse(receipt.lineItems) : null,
-    rawLineItems: receipt.rawLineItems ? JSON.parse(receipt.rawLineItems) : null,
-    taxLines:     receipt.taxLines ? JSON.parse(receipt.taxLines) : null,
-    imageUrl:     receipt.imageUrl,
-    notes:        receipt.notes,
-    createdAt:    receipt.createdAt,
-    updatedAt:    receipt.updatedAt,
+    uuid:                receipt.uuid,
+    storeName:           receipt.storeName,
+    receiptDate:         receipt.receiptDate,
+    subtotal:            receipt.subtotal,
+    taxAmount:           receipt.taxAmount,
+    total:               receipt.total,
+    category:            receipt.category,
+    clientName:          receipt.clientName,
+    lineItems:           receipt.lineItems ? JSON.parse(receipt.lineItems) : null,
+    rawLineItems:        receipt.rawLineItems ? JSON.parse(receipt.rawLineItems) : null,
+    taxLines:            receipt.taxLines ? JSON.parse(receipt.taxLines) : null,
+    imageUrl:            receipt.imageUrl,
+    notes:               receipt.notes,
+    paymentMethod:       receipt.paymentMethod,
+    last4:               receipt.last4 ?? null,
+    paymentMethodSource: receipt.paymentMethodSource ?? null,
+    createdAt:           receipt.createdAt,
+    updatedAt:           receipt.updatedAt,
   };
   const jsonBlob = new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' });
   await uploadFileToDrive(accessToken, jsonBlob, jsonName, folderId, existingJsonId);
@@ -398,6 +403,9 @@ interface DriveMetadata {
   clients: string[];
   deletedCategories: string[]; // lowercase tombstones
   deletedClients: string[];    // lowercase tombstones
+  paymentMethods?: PaymentMethod[];
+  storeDefaults?: Record<string, string>;
+  deletedPaymentMethods?: string[];
 }
 
 async function pushMetadataToDrive(accessToken: string, userId: string, folderId: string): Promise<void> {
@@ -405,6 +413,9 @@ async function pushMetadataToDrive(accessToken: string, userId: string, folderId
   const clients = loadClients(userId);
   const deletedCategories = getDeletedCategories(userId);
   const deletedClients = getDeletedClients(userId);
+  const paymentMethods = getPaymentMethods(userId);
+  const storeDefaults = getStoreDefaults(userId);
+  const deletedPaymentMethods = getDeletedPaymentMethods(userId);
 
   const payload: DriveMetadata = {
     metadataVersion: 1,
@@ -413,6 +424,9 @@ async function pushMetadataToDrive(accessToken: string, userId: string, folderId
     clients,
     deletedCategories,
     deletedClients,
+    paymentMethods,
+    storeDefaults,
+    deletedPaymentMethods,
   };
 
   const existingId = await findDriveFileId(accessToken, METADATA_FILENAME, folderId);
@@ -526,6 +540,44 @@ async function pullMetadataFromDrive(accessToken: string, userId: string, folder
       }
     }
   }
+
+  // ── Payment methods ─────────────────────────────────────────────────────────
+  if (Array.isArray(meta.paymentMethods)) {
+    const localMethods = getPaymentMethods(userId);
+    const localById = new Map(localMethods.map(m => [m.id, m]));
+    const deletedIds = new Set(getDeletedPaymentMethods(userId));
+    const remoteDeletedIds = new Set(meta.deletedPaymentMethods ?? []);
+
+    for (const remote of meta.paymentMethods as PaymentMethod[]) {
+      if (!remote.id || typeof remote.label !== 'string') continue;
+      if (deletedIds.has(remote.id)) continue;     // local tombstone wins
+      if (remoteDeletedIds.has(remote.id)) continue; // remote tombstone wins
+      if (!localById.has(remote.id)) {
+        localById.set(remote.id, remote);
+      }
+      // If already exists locally, keep local (preserves label edits)
+    }
+
+    // Apply remote tombstones to local list
+    const merged = [...localById.values()].filter(m => !remoteDeletedIds.has(m.id));
+    savePaymentMethods(userId, merged);
+
+    // Propagate remote tombstones locally
+    if (meta.deletedPaymentMethods && meta.deletedPaymentMethods.length > 0) {
+      const existing = getDeletedPaymentMethods(userId);
+      const existingSet = new Set(existing);
+      const toAdd = meta.deletedPaymentMethods.filter((id: string) => !existingSet.has(id));
+      if (toAdd.length > 0) saveDeletedPaymentMethods(userId, [...existing, ...toAdd]);
+    }
+  }
+
+  // ── Store defaults ──────────────────────────────────────────────────────────
+  if (meta.storeDefaults && typeof meta.storeDefaults === 'object') {
+    const local = getStoreDefaults(userId);
+    // Remote wins for keys not in local (additive merge)
+    const merged = { ...meta.storeDefaults, ...local };
+    saveStoreDefaults(userId, merged);
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -632,41 +684,46 @@ async function backgroundSyncInternal(userId: string): Promise<SyncResult> {
           if (!driveUpdatedAt || (local.updatedAt && local.updatedAt >= driveUpdatedAt)) continue;
 
           await updateReceipt(userId, local.id, {
-            storeName:    String(meta.storeName    ?? local.storeName),
-            receiptDate:  String(meta.receiptDate  ?? local.receiptDate),
-            subtotal:     Number(meta.subtotal     ?? local.subtotal),
-            taxAmount:    Number(meta.taxAmount    ?? local.taxAmount),
-            total:        Number(meta.total        ?? local.total),
-            category:     String(meta.category     ?? local.category),
-            clientName:   meta.clientName != null ? String(meta.clientName) : local.clientName,
-            lineItems:    typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
-            rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
-            taxLines:     typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
-            imageUrl:     meta.imageUrl != null ? String(meta.imageUrl) : local.imageUrl,
-            notes:        meta.notes    != null ? String(meta.notes)    : local.notes,
-            updatedAt:    driveUpdatedAt,
+            storeName:           String(meta.storeName    ?? local.storeName),
+            receiptDate:         String(meta.receiptDate  ?? local.receiptDate),
+            subtotal:            Number(meta.subtotal     ?? local.subtotal),
+            taxAmount:           Number(meta.taxAmount    ?? local.taxAmount),
+            total:               Number(meta.total        ?? local.total),
+            category:            String(meta.category     ?? local.category),
+            clientName:          meta.clientName != null ? String(meta.clientName) : local.clientName,
+            lineItems:           typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
+            rawLineItems:        typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
+            taxLines:            typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
+            imageUrl:            meta.imageUrl != null ? String(meta.imageUrl) : local.imageUrl,
+            notes:               meta.notes    != null ? String(meta.notes)    : local.notes,
+            paymentMethod:       meta.paymentMethod != null ? String(meta.paymentMethod) : local.paymentMethod,
+            last4:               meta.last4 != null ? String(meta.last4) : local.last4,
+            paymentMethodSource: (meta.paymentMethodSource as Receipt['paymentMethodSource']) ?? local.paymentMethodSource,
+            updatedAt:           driveUpdatedAt,
           });
           updated += 1;
         } else {
           // New receipt — add it
           await addReceipt(userId, {
             uuid,
-            storeName:    String(meta.storeName    ?? ''),
-            receiptDate:  String(meta.receiptDate  ?? now.slice(0, 10)),
-            subtotal:     Number(meta.subtotal     ?? 0),
-            taxAmount:    Number(meta.taxAmount    ?? 0),
-            total:        Number(meta.total        ?? 0),
-            category:     String(meta.category     ?? 'Other'),
-            clientName:   meta.clientName != null ? String(meta.clientName) : null,
-            lineItems:    typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
-            rawLineItems: typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
-            taxLines:     typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
-            imagePath:    null,
-            imageUrl:      meta.imageUrl      != null ? String(meta.imageUrl)      : null,
-            notes:         meta.notes         != null ? String(meta.notes)         : null,
-            paymentMethod: meta.paymentMethod != null ? String(meta.paymentMethod) : null,
-            createdAt:     String(meta.createdAt ?? now),
-            updatedAt:     driveUpdatedAt || now,
+            storeName:           String(meta.storeName    ?? ''),
+            receiptDate:         String(meta.receiptDate  ?? now.slice(0, 10)),
+            subtotal:            Number(meta.subtotal     ?? 0),
+            taxAmount:           Number(meta.taxAmount    ?? 0),
+            total:               Number(meta.total        ?? 0),
+            category:            String(meta.category     ?? 'Other'),
+            clientName:          meta.clientName != null ? String(meta.clientName) : null,
+            lineItems:           typeof meta.lineItems    === 'string' ? meta.lineItems    : JSON.stringify(meta.lineItems    ?? []),
+            rawLineItems:        typeof meta.rawLineItems === 'string' ? meta.rawLineItems : JSON.stringify(meta.rawLineItems ?? []),
+            taxLines:            typeof meta.taxLines     === 'string' ? meta.taxLines     : JSON.stringify(meta.taxLines     ?? []),
+            imagePath:           null,
+            imageUrl:            meta.imageUrl      != null ? String(meta.imageUrl)      : null,
+            notes:               meta.notes         != null ? String(meta.notes)         : null,
+            paymentMethod:       meta.paymentMethod != null ? String(meta.paymentMethod) : null,
+            last4:               meta.last4         != null ? String(meta.last4)         : null,
+            paymentMethodSource: (meta.paymentMethodSource as Receipt['paymentMethodSource']) ?? null,
+            createdAt:           String(meta.createdAt ?? now),
+            updatedAt:           driveUpdatedAt || now,
           });
           result.pulled += 1;
         }

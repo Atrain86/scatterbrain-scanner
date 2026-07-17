@@ -147,8 +147,8 @@ export default function ReceiptLibrary() {
     await update(id, { category });
   }
 
-  async function onUpdatePayment(id: number, paymentMethod: string | null) {
-    await update(id, { paymentMethod });
+  async function onUpdatePayment(id: number, paymentMethod: string | null, source: 'manual' | null) {
+    await update(id, { paymentMethod, paymentMethodSource: source });
   }
 
   async function onReEdit(id: number, updates: {
@@ -319,7 +319,7 @@ interface MonthGroupProps {
   onToggle: () => void;
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, cat: string) => void;
-  onUpdatePayment: (id: number, paymentMethod: string | null) => void;
+  onUpdatePayment: (id: number, paymentMethod: string | null, source: 'manual' | null) => void;
   onReEdit: (id: number, updates: { storeName: string; lineItems: string; taxLines: string; subtotal: number; taxAmount: number; total: number; clientName: string | null; category: string; receiptDate?: string }) => void;
   onNewReceipt?: (r: ReceiptType) => void;
   selectMode?: boolean;

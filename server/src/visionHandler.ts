@@ -14,6 +14,7 @@ export interface ScannedReceiptData {
   confidence: number;
   method: string;
   paymentMethod: string | null;
+  last4: string | null;
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
 }
 
@@ -97,7 +98,8 @@ OTHER RULES:
 6. totalAmount = the final printed Total after all taxes (e.g. if Total: $42.07, use 42.07).
 7. date: YYYY-MM-DD format. Default to 2026 if year is ambiguous.
 8. suggestedCategory: pick one from: ${CATEGORY_LIST.join(', ')}. Value Village/thrift → Supplies & Hardware. Restaurants → Meals. Gas → Travel.
-9. paymentMethod: look for "DEBIT SALE", "Interac", "VISA", "MASTERCARD", "AMEX", "CASH" or similar on the receipt. Normalize to exactly one of: "Visa", "Mastercard", "Amex", "Debit", "Cash", "Other". If nothing is found, return null — never guess.
+9. paymentMethod: look for "DEBIT SALE", "Interac", "VISA", "MASTERCARD", "AMEX", "CASH" or similar on the receipt. Normalize to exactly one of: "Visa", "Mastercard", "Amex", "Debit", "Cash". If nothing is found, return null — never guess.
+10. last4: look for patterns like "****7729", "***********7729", "xxxx-xxxx-xxxx-7729", "CARD ****7729". Extract ONLY the last 4 digits as a string. Return null if not found.
 
 Return ONLY valid JSON, no markdown, no explanation:
 {
@@ -110,6 +112,7 @@ Return ONLY valid JSON, no markdown, no explanation:
   "totalAmount": 95.23,
   "suggestedCategory": "Supplies & Hardware",
   "paymentMethod": "Visa",
+  "last4": "7729",
   "confidence": 0.95
 }
 
@@ -185,6 +188,7 @@ Return ONLY valid JSON:
   "totalAmount": 13.64,
   "suggestedCategory": "one of: ${CATEGORY_LIST.join(', ')}",
   "paymentMethod": "Visa",
+  "last4": "7729",
   "confidence": 0.9
 }
 
@@ -200,7 +204,8 @@ Rules:
 - totalAmount = the final printed total after all taxes.
 - date: YYYY-MM-DD, default to 2026 if ambiguous.
 - vendor: Use the shortest recognizable name, 1-3 words max. Drop location numbers, city names, legal suffixes. Examples: "Starbucks Coffee Canada" → "Starbucks", "Mobil 1724 Gas Bar" → "Mobil Gas", "Gorge Harbour Marina & Resort" → "Gorge Harbour", "Canadian Tire #142" → "Canadian Tire".
-- paymentMethod: look for "DEBIT SALE", "Interac", "VISA", "MASTERCARD", "AMEX", "CASH" on the receipt. Normalize to one of: "Visa", "Mastercard", "Amex", "Debit", "Cash", "Other". Return null if not found — never guess.`;
+- paymentMethod: look for "DEBIT SALE", "Interac", "VISA", "MASTERCARD", "AMEX", "CASH" on the receipt. Normalize to one of: "Visa", "Mastercard", "Amex", "Debit", "Cash". Return null if not found — never guess.
+- last4: look for patterns like "****7729", "***********7729", "xxxx-xxxx-xxxx-7729", "CARD ****7729". Extract ONLY the last 4 digits as a string. Return null if not found.`;
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -280,9 +285,12 @@ function buildResult(
     ? (parsed.suggestedCategory as string)
     : 'Other';
 
-  const VALID_PAYMENT_METHODS = ['Visa', 'Mastercard', 'Amex', 'Debit', 'Cash', 'Other'];
+  const VALID_PAYMENT_METHODS = ['Visa', 'Mastercard', 'Amex', 'Debit', 'Cash'];
   const rawPayment = parsed.paymentMethod as string | null | undefined;
   const paymentMethod = rawPayment && VALID_PAYMENT_METHODS.includes(rawPayment) ? rawPayment : null;
+
+  const rawLast4 = parsed.last4 as string | null | undefined;
+  const last4 = (typeof rawLast4 === 'string' && /^\d{4}$/.test(rawLast4)) ? rawLast4 : null;
 
   return {
     vendor: String(parsed.vendor || parsed.storeName || 'Unknown Vendor').trim(),
@@ -293,6 +301,7 @@ function buildResult(
     confidence: (parsed.confidence as number) || 0.8,
     method,
     paymentMethod,
+    last4,
     usage,
   };
 }
@@ -375,5 +384,7 @@ function fallback(): ScannedReceiptData {
     suggestedCategory: 'Other',
     confidence: 0.1,
     method: 'failed',
+    paymentMethod: null,
+    last4: null,
   };
 }

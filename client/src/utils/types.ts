@@ -8,6 +8,14 @@ export interface TaxLine {
   amount: number;
 }
 
+export interface PaymentMethod {
+  id: string;           // crypto.randomUUID() — stable primary key
+  label: string;        // "TD Visa", "TD Debit" — user-chosen
+  last4: string | null; // "7729" or null for cards with no number
+  network: string | null; // "Visa", "Debit", etc — from OCR, display only
+  createdAt: string;
+}
+
 export interface Receipt {
   id: number;
   uuid: string;
@@ -24,7 +32,9 @@ export interface Receipt {
   imagePath: string | null;
   imageUrl: string | null;
   notes: string | null;
-  paymentMethod: string | null; // "Visa" | "Mastercard" | "Amex" | "Debit" | "Cash" | "Other" | null
+  paymentMethod: string | null; // user-assigned label, "Cash", "Other", or null
+  last4: string | null;         // raw 4 digits from OCR
+  paymentMethodSource: 'manual' | 'matched' | 'learned' | 'detected' | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -38,6 +48,7 @@ export interface ScannedReceiptData {
   confidence: number;
   method: string;
   paymentMethod: string | null;
+  last4: string | null;
 }
 
 // Built-in category default colors are drawn from the curated 12-hue palette

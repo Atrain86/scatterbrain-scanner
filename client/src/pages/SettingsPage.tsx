@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Tag, Plus, Trash2, Cloud, Info, Activity, ChevronDown, DownloadCloud, Download, Users, LogOut, Shield, Archive } from 'lucide-react';
+import { Tag, Plus, Trash2, Cloud, Info, Activity, ChevronDown, DownloadCloud, Download, Users, LogOut, Shield, Archive, CreditCard } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts, getDb, addDeletedCategory, addDeletedClient } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
@@ -9,9 +9,11 @@ import { loadClients, saveClients, addClient, removeClient } from '../utils/clie
 import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
 import { getAllCategories, saveUserCategories, ensureCategoryExists } from '../utils/types';
+import { getPaymentMethods, savePaymentMethods, saveDeletedPaymentMethods, getDeletedPaymentMethods } from '../lib/paymentStorage';
+import type { PaymentMethod } from '../utils/types';
 import React from 'react';
 
-export const APP_VERSION = '0.24.7';
+export const APP_VERSION = '0.25.0';
 
 interface CustomCategory {
   name: string;
@@ -174,6 +176,11 @@ export default function SettingsPage() {
   const [clients, setClients]         = useState<string[]>(() => loadClients(userId));
   const [newClientName, setNewClientName] = useState('');
   const [clientError, setClientError] = useState('');
+
+  // Payment methods
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(() => getPaymentMethods(userId));
+  const [editingCardId, setEditingCardId] = useState<string | null>(null);
+  const [editingCardLabel, setEditingCardLabel] = useState('');
 
 
   function saveCustomCategories(cats: CustomCategory[]) {
@@ -563,6 +570,76 @@ export default function SettingsPage() {
               <Plus size={15} /> Add Client
             </button>
           </div>
+        </Section>
+
+        {/* Payment Methods */}
+        <Section icon={<CreditCard size={16} />} title="Payment Methods" defaultOpen={false}>
+          {paymentMethods.length === 0 ? (
+            <p className="text-xs text-sb-muted italic mb-4">
+              No named cards yet. Cards are added automatically when you scan a receipt with a card number.
+            </p>
+          ) : (
+            <div className="space-y-1.5 mb-4">
+              {paymentMethods.map(card => (
+                <div key={card.id} className="flex items-center justify-between bg-sb-card2 border border-sb-border rounded-xl px-3 py-2 gap-2">
+                  <div className="flex-1 min-w-0">
+                    {editingCardId === card.id ? (
+                      <input
+                        autoFocus
+                        value={editingCardLabel}
+                        onChange={e => setEditingCardLabel(e.target.value)}
+                        onBlur={() => {
+                          const trimmed = editingCardLabel.trim();
+                          if (trimmed && trimmed !== card.label) {
+                            const updated = paymentMethods.map(m =>
+                              m.id === card.id ? { ...m, label: trimmed } : m
+                            );
+                            savePaymentMethods(userId, updated);
+                            setPaymentMethods(updated);
+                          }
+                          setEditingCardId(null);
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                          if (e.key === 'Escape') setEditingCardId(null);
+                        }}
+                        className="bg-transparent border-b border-sb-green text-white text-sm focus:outline-none w-full"
+                      />
+                    ) : (
+                      <button
+                        className="text-white text-sm text-left w-full hover:text-sb-green transition"
+                        onClick={() => { setEditingCardId(card.id); setEditingCardLabel(card.label); }}
+                      >
+                        {card.label}
+                      </button>
+                    )}
+                    <p className="text-[10px] text-white/40 mt-0.5">
+                      {card.last4 ? `•••${card.last4}` : 'no card number'}
+                      {card.network ? ` · ${card.network}` : ''}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!window.confirm(`Remove "${card.label}"? This won't change existing receipts.`)) return;
+                      const updated = paymentMethods.filter(m => m.id !== card.id);
+                      savePaymentMethods(userId, updated);
+                      const tombstones = getDeletedPaymentMethods(userId);
+                      if (!tombstones.includes(card.id)) {
+                        saveDeletedPaymentMethods(userId, [...tombstones, card.id]);
+                      }
+                      setPaymentMethods(updated);
+                    }}
+                    className="text-sb-muted hover:text-red-400 transition p-1 flex-shrink-0"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[11px] text-sb-muted/70">
+            Tap a card name to rename it. Cards are named automatically when you scan a receipt with a recognizable card number (•••XXXX).
+          </p>
         </Section>
 
         {/* Cloud backup */}

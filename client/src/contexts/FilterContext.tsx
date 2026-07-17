@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState } from 'react';
 
-export type PaymentFilter = 'All' | 'Debit' | 'Visa' | 'Mastercard' | 'Amex' | 'Cash' | 'Other';
+// PaymentFilter is now an open string — 'All' or any user-created card label or
+// built-in ('Cash', 'Other'). The old enum was closed to the 7 hardcoded networks;
+// with named cards this must accommodate arbitrary user-chosen labels.
+export type PaymentFilter = string;
 
 interface FilterState {
   search: string;
@@ -17,7 +20,7 @@ const FilterContext = createContext<FilterState | null>(null);
 export function FilterProvider({ children }: { children: React.ReactNode }) {
   const [search,         setSearch]         = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
-  const [paymentFilter,  setPaymentFilter]  = useState<PaymentFilter>('All');
+  const [paymentFilter,  setPaymentFilter]  = useState<PaymentFilter>('All' as PaymentFilter);
 
   function clearAll() {
     setSearch('');

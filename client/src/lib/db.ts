@@ -29,6 +29,11 @@ class ScatterbrainDB extends Dexie {
     this.version(3).stores({
       receipts: '++id, uuid, receiptDate, category, storeName, clientName, paymentMethod',
     });
+    // v4: index last4 so backfillByLast4 can query all receipts for a given card
+    // without a full table scan. Existing rows have last4 undefined — no backfill needed.
+    this.version(4).stores({
+      receipts: '++id, uuid, receiptDate, category, storeName, clientName, paymentMethod, last4',
+    });
   }
 }
 

@@ -8,6 +8,8 @@ import { useAuth } from '../contexts/AuthContext';
 import ShareModal from './ShareModal';
 import { addReceipt } from '../lib/db';
 import { pushReceiptNow } from '../lib/cloudSync';
+import { getPaymentMethods, getStoreDefaults, saveStoreDefaults, normalizeStoreName } from '../lib/paymentStorage';
+import CardNameSheet from './CardNameSheet';
 
 interface ReEditUpdates {
   storeName: string;
@@ -25,7 +27,7 @@ interface Props {
   receipt: Receipt;
   onDelete: (id: number) => void;
   onUpdateCategory: (id: number, category: string) => void;
-  onUpdatePayment?: (id: number, paymentMethod: string | null) => void;
+  onUpdatePayment?: (id: number, paymentMethod: string | null, source: 'manual' | null) => void;
   onReEdit: (id: number, updates: ReEditUpdates) => void;
   onNewReceipt?: (r: Receipt) => void;
   selectMode?: boolean;
@@ -201,6 +203,12 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
   const [showCatPicker,     setShowCatPicker]     = useState(false);
   const [showClientPicker,  setShowClientPicker]  = useState(false);
   const [showPaymentPicker, setShowPaymentPicker] = useState(false);
+  const [showCardSheet,     setShowCardSheet]     = useState(false);
+  // Context for the card sheet: whether to pre-fill with receipt.last4
+  const [cardSheetLast4,    setCardSheetLast4]    = useState<string | null>(null);
+  const [cardSheetNetwork,  setCardSheetNetwork]  = useState<string | null>(null);
+  // Store default checkbox — only show when source is null (no last4 from OCR)
+  const [storeDefaultLabel, setStoreDefaultLabel] = useState<string | null>(null);
   const [clients,          setClients]          = useState<string[]>(() => loadClients(userId));
   const [newClientInput,   setNewClientInput]   = useState('');
   const [newCatInput,      setNewCatInput]      = useState('');
@@ -423,10 +431,12 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
       total: splitTotals.total,
       clientName: newClient || null,
       category: newCat,
-      imagePath: receipt.imagePath ?? null,
-      imageUrl:      receipt.imageUrl ?? null,
-      notes:         receipt.notes ?? null,
-      paymentMethod: receipt.paymentMethod ?? null,
+      imagePath:           receipt.imagePath ?? null,
+      imageUrl:            receipt.imageUrl ?? null,
+      notes:               receipt.notes ?? null,
+      paymentMethod:       receipt.paymentMethod ?? null,
+      last4:               receipt.last4 ?? null,
+      paymentMethodSource: receipt.paymentMethodSource ?? null,
       uuid:          crypto.randomUUID(),
       updatedAt:     new Date().toISOString(),
       createdAt:     new Date().toISOString(),
@@ -497,12 +507,9 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                     style={{
                       width: 11, height: 11,
                       backgroundColor:
-                        receipt.paymentMethod === 'Debit'      ? '#6ea882' :
-                        receipt.paymentMethod === 'Visa'       ? '#5a7fc4' :
-                        receipt.paymentMethod === 'Mastercard' ? '#d97c4a' :
-                        receipt.paymentMethod === 'Amex'       ? '#8b83d9' :
-                        receipt.paymentMethod === 'Cash'       ? '#6bc48a' :
-                        '#71717a', // Other
+                        receipt.paymentMethod === 'Cash'  ? '#6bc48a' :
+                        receipt.paymentMethod === 'Other' ? '#71717a' :
+                        '#a855f7', // named card — purple
                     }}
                   />
                 )}
@@ -579,36 +586,148 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                 </div>
 
                 {/* Payment method badge */}
-                <div className="relative flex-shrink-0">
-                  <button
-                    onClick={e => { e.stopPropagation(); setShowPaymentPicker(p => !p); }}
-                    className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
-                    style={receipt.paymentMethod === 'Debit' ? { backgroundColor: 'rgba(110,168,130,0.25)', color: '#ffffff', border: '1px solid rgba(110,168,130,0.55)' }
-                      : receipt.paymentMethod === 'Visa'       ? { backgroundColor: 'rgba(90,127,196,0.25)',  color: '#ffffff', border: '1px solid rgba(90,127,196,0.55)' }
-                      : receipt.paymentMethod === 'Mastercard' ? { backgroundColor: 'rgba(217,124,74,0.25)', color: '#ffffff', border: '1px solid rgba(217,124,74,0.55)' }
-                      : receipt.paymentMethod === 'Amex'       ? { backgroundColor: 'rgba(139,131,217,0.25)',color: '#ffffff', border: '1px solid rgba(139,131,217,0.55)' }
-                      : receipt.paymentMethod === 'Cash'       ? { backgroundColor: 'rgba(107,196,138,0.25)',color: '#ffffff', border: '1px solid rgba(107,196,138,0.55)' }
-                      : receipt.paymentMethod === 'Other'      ? { backgroundColor: 'rgba(113,113,122,0.25)',color: '#ffffff', border: '1px solid rgba(113,113,122,0.55)' }
-                      : { backgroundColor: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.1)' }
-                    }
-                  >
-                    {receipt.paymentMethod ?? '+ pay'}<ChevronDown size={8} />
-                  </button>
-                  {showPaymentPicker && (
-                    <div className="absolute top-full left-0 mt-1 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl" style={{ minWidth: 130 }} onClick={e => e.stopPropagation()}>
-                      {([null, 'Debit', 'Visa', 'Mastercard', 'Amex', 'Cash', 'Other'] as (string | null)[]).map(opt => (
-                        <button
-                          key={opt ?? 'none'}
-                          onClick={() => { onUpdatePayment?.(receipt.id, opt); setShowPaymentPicker(false); }}
-                          className={`w-full px-3 py-2 text-xs text-left hover:bg-white/5 flex items-center gap-2 transition ${receipt.paymentMethod === opt ? 'text-sb-green' : 'text-white'}`}
+                {(() => {
+                  const cards = getPaymentMethods(userId);
+                  // Check if receipt.last4 has an unrecognised card (for "Name card" option)
+                  const unknownLast4 =
+                    receipt.last4 &&
+                    !cards.some(c => c.last4 === receipt.last4);
+
+                  // Store default checkbox logic: show when source is null AND a method selected
+                  const showStoreDefault =
+                    !receipt.last4 &&
+                    (receipt.paymentMethodSource == null || receipt.paymentMethodSource !== 'manual') &&
+                    !!storeDefaultLabel;
+
+                  return (
+                    <div className="relative flex-shrink-0">
+                      <button
+                        onClick={e => { e.stopPropagation(); setShowPaymentPicker(p => !p); setStoreDefaultLabel(receipt.paymentMethod); }}
+                        className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
+                        style={receipt.paymentMethod
+                          ? { backgroundColor: 'rgba(168,85,247,0.18)', color: '#ffffff', border: '1px solid rgba(168,85,247,0.45)' }
+                          : { backgroundColor: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.1)' }
+                        }
+                      >
+                        {receipt.paymentMethod ?? '+ pay'}<ChevronDown size={8} />
+                      </button>
+
+                      {showPaymentPicker && (
+                        <div
+                          className="absolute top-full left-0 mt-1 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl"
+                          style={{ minWidth: 160, maxHeight: '55vh', overflowY: 'auto' }}
+                          onClick={e => e.stopPropagation()}
                         >
-                          {opt === null ? <span className="text-white/40">None</span> : opt}
-                          {receipt.paymentMethod === opt && <Check size={10} className="text-sb-green ml-auto" />}
-                        </button>
-                      ))}
+                          {/* None */}
+                          <button
+                            onClick={() => { onUpdatePayment?.(receipt.id, null, null); setShowPaymentPicker(false); setStoreDefaultLabel(null); }}
+                            className={`w-full px-3 py-2 text-xs text-left hover:bg-white/5 flex items-center gap-2 transition ${receipt.paymentMethod === null ? 'text-sb-green' : 'text-white/50'}`}
+                          >
+                            None
+                            {receipt.paymentMethod === null && <Check size={10} className="text-sb-green ml-auto" />}
+                          </button>
+
+                          {/* Named cards */}
+                          {cards.map(card => (
+                            <button
+                              key={card.id}
+                              onClick={() => {
+                                onUpdatePayment?.(receipt.id, card.label, 'manual');
+                                setStoreDefaultLabel(card.label);
+                                setShowPaymentPicker(false);
+                              }}
+                              className={`w-full px-3 py-2 text-xs text-left hover:bg-white/5 flex items-center gap-2 transition ${receipt.paymentMethod === card.label ? 'text-sb-green' : 'text-white'}`}
+                            >
+                              <span className="flex-1">{card.label}</span>
+                              {card.last4 && <span className="text-white/35 text-[10px]">•••{card.last4}</span>}
+                              {receipt.paymentMethod === card.label && <Check size={10} className="text-sb-green" />}
+                            </button>
+                          ))}
+
+                          {/* Cash */}
+                          <button
+                            onClick={() => { onUpdatePayment?.(receipt.id, 'Cash', 'manual'); setStoreDefaultLabel('Cash'); setShowPaymentPicker(false); }}
+                            className={`w-full px-3 py-2 text-xs text-left hover:bg-white/5 flex items-center gap-2 transition ${receipt.paymentMethod === 'Cash' ? 'text-sb-green' : 'text-white'}`}
+                          >
+                            Cash
+                            {receipt.paymentMethod === 'Cash' && <Check size={10} className="text-sb-green ml-auto" />}
+                          </button>
+
+                          {/* Other */}
+                          <button
+                            onClick={() => { onUpdatePayment?.(receipt.id, 'Other', 'manual'); setStoreDefaultLabel('Other'); setShowPaymentPicker(false); }}
+                            className={`w-full px-3 py-2 text-xs text-left hover:bg-white/5 flex items-center gap-2 transition ${receipt.paymentMethod === 'Other' ? 'text-sb-green' : 'text-white'}`}
+                          >
+                            Other
+                            {receipt.paymentMethod === 'Other' && <Check size={10} className="text-sb-green ml-auto" />}
+                          </button>
+
+                          {/* Name card •••XXXX — if receipt has unknown last4 */}
+                          {unknownLast4 && (
+                            <>
+                              <div className="border-t border-sb-border/50" />
+                              <button
+                                onClick={() => {
+                                  setCardSheetLast4(receipt.last4 ?? null);
+                                  setCardSheetNetwork(receipt.paymentMethod);
+                                  setShowPaymentPicker(false);
+                                  setShowCardSheet(true);
+                                }}
+                                className="w-full px-3 py-2 text-xs text-left hover:bg-white/5 flex items-center gap-2 transition text-sb-purple"
+                              >
+                                + Name card •••{receipt.last4}
+                              </button>
+                            </>
+                          )}
+
+                          {/* + New card… */}
+                          <div className="border-t border-sb-border/50" />
+                          <button
+                            onClick={() => {
+                              setCardSheetLast4(unknownLast4 ? (receipt.last4 ?? null) : null);
+                              setCardSheetNetwork(unknownLast4 ? receipt.paymentMethod : null);
+                              setShowPaymentPicker(false);
+                              setShowCardSheet(true);
+                            }}
+                            className="w-full px-3 py-2 text-xs text-left hover:bg-white/5 flex items-center gap-2 transition text-sb-green"
+                          >
+                            ＋ New card…
+                          </button>
+
+                          {/* Store default checkbox — only when no last4 on receipt */}
+                          {showStoreDefault && receipt.storeName && (
+                            <div
+                              className="border-t border-sb-border/50 px-3 py-2 flex items-center gap-2 cursor-pointer hover:bg-white/5"
+                              onClick={() => {
+                                const defaults = getStoreDefaults(userId);
+                                const storeKey = normalizeStoreName(receipt.storeName);
+                                const matchedCard = cards.find(c => c.label === storeDefaultLabel);
+                                if (matchedCard) {
+                                  saveStoreDefaults(userId, { ...defaults, [storeKey]: matchedCard.id });
+                                }
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                readOnly
+                                checked={(() => {
+                                  const defaults = getStoreDefaults(userId);
+                                  const storeKey = normalizeStoreName(receipt.storeName);
+                                  const cardId = defaults[storeKey];
+                                  return !!cardId && cards.some(c => c.id === cardId && c.label === storeDefaultLabel);
+                                })()}
+                                className="w-3 h-3 accent-sb-purple flex-shrink-0"
+                              />
+                              <span className="text-[10px] text-white/55 leading-tight">
+                                Always use {storeDefaultLabel} for {receipt.storeName}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
 
                 {/* Client badge */}
                 <div className="relative flex-shrink-0" ref={clientPickerRef}>
@@ -915,6 +1034,18 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
       {shareOpen && <ShareModal receipt={receipt} onClose={() => setShareOpen(false)} />}
       {imgFullscreen && receipt.imageUrl && (
         <ZoomableImage src={receipt.imageUrl} onClose={() => setImgFullscreen(false)} />
+      )}
+      {showCardSheet && (
+        <CardNameSheet
+          last4={cardSheetLast4}
+          network={cardSheetNetwork}
+          onSave={method => {
+            // Update this receipt to use the new card label
+            onUpdatePayment?.(receipt.id, method.label, 'manual');
+            setShowCardSheet(false);
+          }}
+          onClose={() => setShowCardSheet(false)}
+        />
       )}
     </>
   );

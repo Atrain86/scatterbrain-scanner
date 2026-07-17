@@ -2,10 +2,12 @@ import { useState, useRef, useEffect } from 'react';
 import { X, Camera, Image as ImageIcon, Clipboard } from 'lucide-react';
 import { compressReceiptImage, compressForStorage } from '../lib/imageCompression';
 import { pushReceiptNow } from '../lib/cloudSync';
-import { addReceipt } from '../lib/db';
+import { addReceipt, updateReceipt, getDb } from '../lib/db';
 import { useAuth } from '../contexts/AuthContext';
 import LineItemSelector from './LineItemSelector';
-import type { ScannedReceiptData } from '../utils/types';
+import type { ScannedReceiptData, Receipt } from '../utils/types';
+import { getPaymentMethods, getStoreDefaults, normalizeStoreName } from '../lib/paymentStorage';
+import CardNameSheet from './CardNameSheet';
 
 interface Props {
   onClose: () => void;
@@ -26,11 +28,17 @@ export default function ScanModal({ onClose, onSaved }: Props) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const pasteZoneRef   = useRef<HTMLDivElement>(null);
 
-  const [step,           setStep]           = useState<Step>('pick');
-  const [scanned,        setScanned]        = useState<ScannedReceiptData | null>(null);
-  const [imageFile,      setImageFile]      = useState<File | null>(null);
-  const [error,          setError]          = useState('');
-  const [pasteHighlight, setPasteHighlight] = useState(false);
+  const [step,             setStep]             = useState<Step>('pick');
+  const [scanned,          setScanned]          = useState<ScannedReceiptData | null>(null);
+  const [imageFile,        setImageFile]        = useState<File | null>(null);
+  const [error,            setError]            = useState('');
+  const [pasteHighlight,   setPasteHighlight]   = useState(false);
+  // CardNameSheet state: shown after save when OCR returned an unknown last4
+  const [showCardSheet,    setShowCardSheet]    = useState(false);
+  const [pendingLast4,     setPendingLast4]     = useState<string | null>(null);
+  const [pendingNetwork,   setPendingNetwork]   = useState<string | null>(null);
+  // The saved receipt id — used to update paymentMethod after card naming
+  const savedReceiptRef = useRef<Receipt | null>(null);
 
   useEffect(() => {
     if (step !== 'pick') return;
@@ -131,38 +139,94 @@ export default function ScanModal({ onClose, onSaved }: Props) {
       }
     }
 
+    // ── Payment precedence resolution ──────────────────────────────────────
+    // scanned.last4 comes from OCR; payload.paymentMethod is the OCR network.
+    // We resolve to a named card label (or built-in) here before writing.
+    const last4 = scanned?.last4 ?? null;
+    const ocrNetwork = payload.paymentMethod; // e.g. "Visa", "Debit", null
+
+    let resolvedPayment: string | null = null;
+    let resolvedSource: 'manual' | 'matched' | 'learned' | 'detected' | null = null;
+
+    if (ocrNetwork?.toLowerCase() === 'cash') {
+      // Rule 2: OCR detected Cash
+      resolvedPayment = 'Cash';
+      resolvedSource = 'detected';
+    } else {
+      const cards = getPaymentMethods(userId);
+      if (last4) {
+        const matchedCard = cards.find(c => c.last4 === last4);
+        if (matchedCard) {
+          // Rule 3: last4 matches a known card
+          resolvedPayment = matchedCard.label;
+          resolvedSource = 'matched';
+        }
+      }
+      if (!resolvedPayment) {
+        // Rule 4: store default
+        const defaults = getStoreDefaults(userId);
+        const storeKey = normalizeStoreName(payload.storeName);
+        const defaultCardId = defaults[storeKey];
+        if (defaultCardId) {
+          const defaultCard = cards.find(c => c.id === defaultCardId);
+          if (defaultCard) {
+            resolvedPayment = defaultCard.label;
+            resolvedSource = 'learned';
+          }
+        }
+      }
+    }
+    // Rule 5: nothing — leave null
+
     const now = new Date().toISOString();
     console.log('[Save] step 3: writing to IndexedDB, userId:', userId);
 
     try {
       const receipt = await addReceipt(userId, {
-        uuid:          crypto.randomUUID(),
-        storeName:     payload.storeName,
-        receiptDate:   payload.receiptDate,
-        subtotal:      payload.subtotal,
-        taxAmount:     payload.taxAmount,
-        total:         payload.total,
-        category:      payload.category,
-        clientName:    payload.clientName || null,
-        lineItems:     payload.lineItems,
-        rawLineItems:  payload.rawLineItems,
-        taxLines:      payload.taxLines,
-        paymentMethod: payload.paymentMethod,
-        imagePath:     null,
+        uuid:                 crypto.randomUUID(),
+        storeName:            payload.storeName,
+        receiptDate:          payload.receiptDate,
+        subtotal:             payload.subtotal,
+        taxAmount:            payload.taxAmount,
+        total:                payload.total,
+        category:             payload.category,
+        clientName:           payload.clientName || null,
+        lineItems:            payload.lineItems,
+        rawLineItems:         payload.rawLineItems,
+        taxLines:             payload.taxLines,
+        paymentMethod:        resolvedPayment,
+        last4,
+        paymentMethodSource:  resolvedSource,
+        imagePath:            null,
         imageUrl,
-        notes:         null,
-        createdAt:     now,
-        updatedAt:     now,
+        notes:                null,
+        createdAt:            now,
+        updatedAt:            now,
       });
 
       // Push to Drive immediately — fire and forget, don't block the UI.
-      // Failure is recorded to sync_status by pushReceiptNow itself; catch here
-      // prevents unhandled promise rejection.
       pushReceiptNow(receipt, userId).catch(err => {
         console.error('[Drive push] failed after save:', err);
       });
 
-      onSaved(receipt);
+      // ── CardNameSheet trigger ──────────────────────────────────────────
+      // If OCR returned a last4 we haven't seen before AND we didn't already
+      // match it (resolvedSource !== 'matched'), prompt the user to name the card.
+      if (
+        last4 &&
+        resolvedSource !== 'matched' &&
+        ocrNetwork?.toLowerCase() !== 'cash'
+      ) {
+        savedReceiptRef.current = receipt;
+        setPendingLast4(last4);
+        setPendingNetwork(ocrNetwork);
+        setShowCardSheet(true);
+        // onSaved is called after card sheet is dismissed (or immediately if
+        // user already had the card named — see above branch)
+        onSaved(receipt);
+      } else {
+        onSaved(receipt);
+      }
     } catch (err) {
       const msg = (err as Error).message || 'Could not save receipt.';
       console.error('[Save] FAILED at IndexedDB write:', err);
@@ -170,6 +234,47 @@ export default function ScanModal({ onClose, onSaved }: Props) {
       setStep('select');
     }
   }
+
+  // When user names a card from the post-save CardNameSheet, update the just-
+  // saved receipt so it reflects the new card label immediately.
+  async function handleCardNamed(method: import('../utils/types').PaymentMethod) {
+    const saved = savedReceiptRef.current;
+    if (saved?.id) {
+      try {
+        await updateReceipt(userId, saved.id, {
+          paymentMethod: method.label,
+          paymentMethodSource: 'matched',
+        });
+        // Also backfill other receipts sharing this last4 (already done inside
+        // CardNameSheet.handleSave, but we still need to update local state)
+        window.dispatchEvent(new CustomEvent('receipts-updated'));
+      } catch { /* non-fatal */ }
+    }
+    setShowCardSheet(false);
+  }
+
+  // Backfill utility (standalone) — exposed for use in SettingsPage later.
+  // Queries all receipts where last4 === given value and source !== 'manual',
+  // then updates their paymentMethod + source.
+  async function _backfillByLast4(cardId: string, last4: string, label: string) {
+    const db = getDb(userId);
+    const matches = await db.receipts.where('last4').equals(last4).toArray();
+    const now = new Date().toISOString();
+    for (const r of matches) {
+      if ((r as { paymentMethodSource?: string }).paymentMethodSource === 'manual') continue;
+      if (r.id !== undefined) {
+        await db.receipts.update(r.id, {
+          paymentMethod: label,
+          paymentMethodSource: 'matched',
+          updatedAt: now,
+        });
+      }
+    }
+    void cardId; // suppress lint warning — caller may use for store default lookup
+    if (matches.length > 0) window.dispatchEvent(new CustomEvent('receipts-updated'));
+  }
+  // Expose for callers that may need to trigger it programmatically
+  void _backfillByLast4;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-sb-bg">
@@ -277,6 +382,15 @@ export default function ScanModal({ onClose, onSaved }: Props) {
           onSave={handleSave}
           onBack={() => setStep('pick')}
           error={error}
+        />
+      )}
+
+      {showCardSheet && pendingLast4 && (
+        <CardNameSheet
+          last4={pendingLast4}
+          network={pendingNetwork}
+          onSave={handleCardNamed}
+          onClose={() => setShowCardSheet(false)}
         />
       )}
     </div>
