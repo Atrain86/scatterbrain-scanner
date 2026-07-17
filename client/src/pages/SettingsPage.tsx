@@ -8,9 +8,10 @@ import { loadSyncStatus } from '../lib/syncStatus';
 import { loadClients, addClient, removeClient } from '../utils/clients';
 import { useAuth } from '../contexts/AuthContext';
 import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from '../utils/palette';
+import { ensureCategoryExists } from '../utils/types';
 import React from 'react';
 
-export const APP_VERSION = '0.22.9-json-import';
+export const APP_VERSION = '0.22.10-import-categories';
 
 interface CustomCategory {
   name: string;
@@ -323,6 +324,17 @@ export default function SettingsPage() {
           imported += toWrite.length;
         }
       }
+
+      // Seed category colours for every category name in the imported receipts.
+      // Receipts carry the category name as a string but not a colour — without
+      // this pass the dots would be grey/missing because the name has no entry
+      // in the user's localStorage category list.
+      const importedCategories = new Set(
+        valid
+          .map(r => (r as Record<string, unknown>).category)
+          .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+      );
+      importedCategories.forEach(name => ensureCategoryExists(userId, name));
 
       setImportResult({ imported, skipped, malformed });
     } catch (err) {
