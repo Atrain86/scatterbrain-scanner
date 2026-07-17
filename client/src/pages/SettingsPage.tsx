@@ -105,6 +105,8 @@ export default function SettingsPage() {
   const [importError,  setImportError]  = useState<string | null>(null);
   const [isBackfilling,   setIsBackfilling]   = useState(false);
   const [backfillResult,  setBackfillResult]  = useState<{ updated: number } | null>(null);
+  const [isTaggingDebit,  setIsTaggingDebit]  = useState(false);
+  const [tagDebitResult,  setTagDebitResult]  = useState<{ updated: number } | null>(null);
   const importFileRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -266,6 +268,28 @@ export default function SettingsPage() {
   // to reduce peak memory on mobile (avoids holding the full parsed array +
   // the full Dexie write buffer simultaneously). Idempotent: re-running after
   // a partial failure (e.g. tab kill) skips already-written UUIDs.
+  async function handleTagAllDebit() {
+    if (!userId) return;
+    setIsTaggingDebit(true);
+    setTagDebitResult(null);
+    try {
+      const db = getDb(userId);
+      const all = await db.receipts.toArray();
+      let updated = 0;
+      for (const r of all) {
+        if (r.paymentMethod) continue; // already tagged, don't overwrite
+        await db.receipts.update(r.id!, { paymentMethod: 'Debit' });
+        updated++;
+      }
+      setTagDebitResult({ updated });
+      window.dispatchEvent(new CustomEvent('receipts-updated'));
+    } catch (err) {
+      console.error('Tag all debit failed:', err);
+    } finally {
+      setIsTaggingDebit(false);
+    }
+  }
+
   async function handleBackfillPayment() {
     if (!userId) return;
     setIsBackfilling(true);
@@ -781,6 +805,21 @@ export default function SettingsPage() {
             {importError && (
               <p className="text-red-400 text-xs">{importError}</p>
             )}
+
+            <div className="border-t border-sb-border pt-3 mt-1">
+              <p className="text-xs text-white/50 mb-2">Tag all untagged receipts as Debit. Use this once to backfill your existing receipt history.</p>
+              <button
+                onClick={handleTagAllDebit}
+                disabled={isTaggingDebit}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm disabled:opacity-40 transition"
+                style={{ borderColor: '#6ea882', color: '#6ea882' }}
+              >
+                {isTaggingDebit ? 'Tagging…' : 'Tag All Receipts as Debit'}
+              </button>
+              {tagDebitResult && (
+                <p className="text-sb-green text-xs mt-1">{tagDebitResult.updated} receipt{tagDebitResult.updated !== 1 ? 's' : ''} tagged as Debit.</p>
+              )}
+            </div>
 
             <div className="border-t border-sb-border pt-3 mt-1">
               <p className="text-xs text-white/50 mb-2">Detect payment method (Visa / Debit / etc.) from existing receipts. Only fills receipts that don't already have a payment method set.</p>

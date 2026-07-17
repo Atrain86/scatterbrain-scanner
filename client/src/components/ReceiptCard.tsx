@@ -646,35 +646,6 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                   )}
                 </div>
 
-                {/* Payment method pill */}
-                <div className="relative flex-shrink-0">
-                  <button
-                    onClick={e => { e.stopPropagation(); setShowPaymentPicker(p => !p); }}
-                    className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
-                    style={{
-                      backgroundColor: receipt.paymentMethod ? '#ffffff11' : 'transparent',
-                      color: receipt.paymentMethod === 'Debit' ? '#6ea882' : receipt.paymentMethod === 'Visa' ? '#5a7fc4' : receipt.paymentMethod === 'Mastercard' ? '#d97c4a' : receipt.paymentMethod === 'Amex' ? '#8b83d9' : receipt.paymentMethod === 'Cash' ? '#6bc48a' : '#71717a',
-                      border: `1px solid ${receipt.paymentMethod ? '#ffffff22' : '#ffffff18'}`,
-                    }}
-                  >
-                    {receipt.paymentMethod ?? '+ pay'}<ChevronDown size={8} />
-                  </button>
-                  {showPaymentPicker && (
-                    <div className="absolute top-full left-0 mt-1 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl" style={{ minWidth: 130 }} onClick={e => e.stopPropagation()}>
-                      {[null, 'Debit', 'Visa', 'Mastercard', 'Amex', 'Cash', 'Other'].map(opt => (
-                        <button
-                          key={opt ?? 'none'}
-                          onClick={() => { onUpdatePayment?.(receipt.id, opt); setShowPaymentPicker(false); }}
-                          className={`w-full px-3 py-2 text-xs text-left hover:bg-white/5 flex items-center gap-2 transition ${receipt.paymentMethod === opt ? 'text-sb-green' : 'text-white'}`}
-                        >
-                          {opt === null ? <span className="text-white/40">None</span> : opt}
-                          {receipt.paymentMethod === opt && <Check size={10} className="text-sb-green ml-auto" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
                 {/* Trash */}
                 <button
                   onClick={() => confirmDelete ? (onDelete(receipt.id), setConfirmDelete(false)) : setConfirmDelete(true)}
