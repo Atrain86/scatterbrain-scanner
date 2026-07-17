@@ -13,6 +13,7 @@ export interface ScannedReceiptData {
   suggestedCategory: string;
   confidence: number;
   method: string;
+  paymentMethod: string | null;
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
 }
 
@@ -92,10 +93,11 @@ OTHER RULES:
    - Line 2: description (MEN-S/S CASUAL) followed by "Net Price: $X.XX"
    Every "Net Price:" line = one item.
 4. Include GST, PST, HST, QST as separate line items with isTax: true.
-5. Skip: Subtotal, Total, Grand Total, payment method lines, store address, phone numbers, transaction IDs.
+5. Skip: Subtotal, Total, Grand Total, store address, phone numbers, transaction IDs.
 6. totalAmount = the final printed Total after all taxes (e.g. if Total: $42.07, use 42.07).
 7. date: YYYY-MM-DD format. Default to 2026 if year is ambiguous.
 8. suggestedCategory: pick one from: ${CATEGORY_LIST.join(', ')}. Value Village/thrift → Supplies & Hardware. Restaurants → Meals. Gas → Travel.
+9. paymentMethod: look for "DEBIT SALE", "Interac", "VISA", "MASTERCARD", "AMEX", "CASH" or similar on the receipt. Normalize to exactly one of: "Visa", "Mastercard", "Amex", "Debit", "Cash", "Other". If nothing is found, return null — never guess.
 
 Return ONLY valid JSON, no markdown, no explanation:
 {
@@ -107,6 +109,7 @@ Return ONLY valid JSON, no markdown, no explanation:
   ],
   "totalAmount": 95.23,
   "suggestedCategory": "Supplies & Hardware",
+  "paymentMethod": "Visa",
   "confidence": 0.95
 }
 
@@ -181,6 +184,7 @@ Return ONLY valid JSON:
   ],
   "totalAmount": 13.64,
   "suggestedCategory": "one of: ${CATEGORY_LIST.join(', ')}",
+  "paymentMethod": "Visa",
   "confidence": 0.9
 }
 
@@ -195,7 +199,8 @@ Rules:
 - Include GST/PST/HST as separate items with isTax: true.
 - totalAmount = the final printed total after all taxes.
 - date: YYYY-MM-DD, default to 2026 if ambiguous.
-- vendor: Use the shortest recognizable name, 1-3 words max. Drop location numbers, city names, legal suffixes. Examples: "Starbucks Coffee Canada" → "Starbucks", "Mobil 1724 Gas Bar" → "Mobil Gas", "Gorge Harbour Marina & Resort" → "Gorge Harbour", "Canadian Tire #142" → "Canadian Tire".`;
+- vendor: Use the shortest recognizable name, 1-3 words max. Drop location numbers, city names, legal suffixes. Examples: "Starbucks Coffee Canada" → "Starbucks", "Mobil 1724 Gas Bar" → "Mobil Gas", "Gorge Harbour Marina & Resort" → "Gorge Harbour", "Canadian Tire #142" → "Canadian Tire".
+- paymentMethod: look for "DEBIT SALE", "Interac", "VISA", "MASTERCARD", "AMEX", "CASH" on the receipt. Normalize to one of: "Visa", "Mastercard", "Amex", "Debit", "Cash", "Other". Return null if not found — never guess.`;
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -275,6 +280,10 @@ function buildResult(
     ? (parsed.suggestedCategory as string)
     : 'Other';
 
+  const VALID_PAYMENT_METHODS = ['Visa', 'Mastercard', 'Amex', 'Debit', 'Cash', 'Other'];
+  const rawPayment = parsed.paymentMethod as string | null | undefined;
+  const paymentMethod = rawPayment && VALID_PAYMENT_METHODS.includes(rawPayment) ? rawPayment : null;
+
   return {
     vendor: String(parsed.vendor || parsed.storeName || 'Unknown Vendor').trim(),
     date: (parsed.date as string | null) || null,
@@ -283,6 +292,7 @@ function buildResult(
     suggestedCategory,
     confidence: (parsed.confidence as number) || 0.8,
     method,
+    paymentMethod,
     usage,
   };
 }

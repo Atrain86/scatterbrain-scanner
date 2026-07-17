@@ -11,7 +11,7 @@ import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from 
 import { getAllCategories, saveUserCategories, ensureCategoryExists } from '../utils/types';
 import React from 'react';
 
-export const APP_VERSION = '0.23.3-landing-carousel';
+export const APP_VERSION = '0.24.1';
 
 interface CustomCategory {
   name: string;
@@ -103,6 +103,8 @@ export default function SettingsPage() {
   const [isImporting,  setIsImporting]  = useState(false);
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number; malformed: number } | null>(null);
   const [importError,  setImportError]  = useState<string | null>(null);
+  const [isBackfilling,   setIsBackfilling]   = useState(false);
+  const [backfillResult,  setBackfillResult]  = useState<{ updated: number } | null>(null);
   const importFileRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -264,6 +266,50 @@ export default function SettingsPage() {
   // to reduce peak memory on mobile (avoids holding the full parsed array +
   // the full Dexie write buffer simultaneously). Idempotent: re-running after
   // a partial failure (e.g. tab kill) skips already-written UUIDs.
+  async function handleBackfillPayment() {
+    if (!userId) return;
+    setIsBackfilling(true);
+    setBackfillResult(null);
+    try {
+      const db = getDb(userId);
+      const all = await db.receipts.toArray();
+      let updated = 0;
+      const KEYWORDS: [RegExp, string][] = [
+        [/\b(debit sale|interac|interac debit)\b/i, 'Debit'],
+        [/\bvisa\b/i,       'Visa'],
+        [/\bmastercard\b/i, 'Mastercard'],
+        [/\bamex\b|\bamerican express\b/i, 'Amex'],
+        [/\bcash\b/i,       'Cash'],
+      ];
+      for (const r of all) {
+        if (r.paymentMethod) continue; // already set, don't overwrite
+        // Combine all text fields to search
+        const haystack = [
+          r.storeName ?? '',
+          r.notes ?? '',
+          // rawLineItems descriptions
+          ...((() => { try { return (JSON.parse(r.rawLineItems ?? '[]') as { description?: string }[]).map(i => i.description ?? ''); } catch { return []; } })()),
+          // lineItems descriptions
+          ...((() => { try { return (JSON.parse(r.lineItems ?? '[]') as { description?: string }[]).map(i => i.description ?? ''); } catch { return []; } })()),
+        ].join(' ');
+        let detected: string | null = null;
+        for (const [re, method] of KEYWORDS) {
+          if (re.test(haystack)) { detected = method; break; }
+        }
+        if (detected) {
+          await db.receipts.update(r.id!, { paymentMethod: detected });
+          updated++;
+        }
+      }
+      setBackfillResult({ updated });
+      window.dispatchEvent(new CustomEvent('receipts-updated'));
+    } catch (err) {
+      console.error('Backfill failed:', err);
+    } finally {
+      setIsBackfilling(false);
+    }
+  }
+
   async function handleRestoreFromFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -735,6 +781,20 @@ export default function SettingsPage() {
             {importError && (
               <p className="text-red-400 text-xs">{importError}</p>
             )}
+
+            <div className="border-t border-sb-border pt-3 mt-1">
+              <p className="text-xs text-white/50 mb-2">Detect payment method (Visa / Debit / etc.) from existing receipts. Only fills receipts that don't already have a payment method set.</p>
+              <button
+                onClick={handleBackfillPayment}
+                disabled={isBackfilling}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-sb-border text-white text-sm hover:border-sb-muted disabled:opacity-40 transition"
+              >
+                {isBackfilling ? 'Detecting…' : 'Detect Payment Methods'}
+              </button>
+              {backfillResult && (
+                <p className="text-sb-green text-xs mt-1">{backfillResult.updated} receipt{backfillResult.updated !== 1 ? 's' : ''} updated.</p>
+              )}
+            </div>
           </div>
         </Section>
 

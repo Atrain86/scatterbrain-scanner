@@ -24,6 +24,7 @@ export interface Receipt {
   imagePath: string | null;
   imageUrl: string | null;
   notes: string | null;
+  paymentMethod: string | null; // "Visa" | "Mastercard" | "Amex" | "Debit" | "Cash" | "Other" | null
   createdAt: string;
   updatedAt: string;
 }
@@ -36,6 +37,7 @@ export interface ScannedReceiptData {
   suggestedCategory: string;
   confidence: number;
   method: string;
+  paymentMethod: string | null;
 }
 
 // Built-in category default colors are drawn from the curated 12-hue palette
