@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
-    <meta name="description" content="Scan receipts. Split items. Export for taxes." />
+    <meta name="description" content="Scatterbrain Scanner is a receipt scanning app for freelancers and self-employed people. Snap a photo of a receipt and it automatically extracts the details, categorizes it, and files it. At tax time, export everything as a clean spreadsheet for your accountant. Your receipts are stored on your own device. You can optionally back them up to your own Google Drive — Scatterbrain Scanner only accesses files it creates in your Drive, never anything else." />
 
     <!-- PWA / iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -21,6 +21,18 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Static content for crawlers/bots that don't execute JavaScript.
+         Google OAuth verification requires the homepage to describe the app
+         and explain the Drive scope without JS rendering. Hidden from users. -->
+    <noscript>
+      <h1>Scatterbrain Scanner</h1>
+      <p>Scatterbrain Scanner is a receipt scanning app for freelancers and self-employed people.
+      Snap a photo of a receipt and it automatically extracts the details, categorizes it, and files it.
+      At tax time, export everything as a clean spreadsheet for your accountant.</p>
+      <p>Your receipts are stored on your own device. You can optionally back them up to your own
+      Google Drive — Scatterbrain Scanner only accesses files it creates in your Drive, never anything else.</p>
+      <p><a href="/privacy">Privacy Policy</a> | <a href="/terms">Terms of Service</a></p>
+    </noscript>
     <!--
       OAuth callback: pre-React tokens-to-localStorage intercept has been REMOVED.
       Previously this inline script wrote OAuth tokens to the un-namespaced
