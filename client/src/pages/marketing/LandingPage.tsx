@@ -1,20 +1,4 @@
-// Marketing landing page — the public front door for Scatterbrain Scanner.
-// Requirements pulled from Alan's spec:
-//   - Structure-first; copy is placeholder-and-tweak.
-//   - Mobile-first responsive, dark aesthetic, Poppins headers.
-//   - No dependency on any parent-brand (werkit/PaintBrain). Modular so it can
-//     nest later.
-//   - Prerequisite for Google OAuth verification (real homepage + privacy).
-//
-// Section stack (top → bottom):
-//   1. Hero — headline, subhead, primary CTA "Try it now — no signup"
-//   2. Interactive demo placeholder (phone mockup for v1; live demo later)
-//   3. Pain contrast — old-way vs Scatterbrain
-//   4. Features (5 cards)
-//   5. Pricing (Free · Peace of Mind $4.99/mo — free during beta)
-//   6. Founder note
-//   7. Footer with privacy / terms links + support email
-
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Zap,
@@ -25,11 +9,15 @@ import {
   ArrowRight,
   Camera,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+
+const poppins = { fontFamily: "'Poppins', sans-serif" };
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-sb-bg text-white">
+    <div className="min-h-screen bg-black text-white" style={poppins}>
       <TopNav />
       <Hero />
       <DemoSection />
@@ -46,14 +34,8 @@ export default function LandingPage() {
 
 function TopNav() {
   return (
-    <nav className="sticky top-0 z-40 bg-sb-bg/85 backdrop-blur-md border-b border-white/5">
-      <div className="max-w-6xl mx-auto px-5 py-3 flex items-center justify-between">
-        <Link to="/landing" className="flex items-center gap-2.5">
-          <img src="/sb-icon.png" alt="" className="w-8 h-8 rounded-lg" />
-          <span className="text-white font-bold text-[15px] tracking-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
-            Scatterbrain Scanner
-          </span>
-        </Link>
+    <nav className="sticky top-0 z-40 bg-black/85 backdrop-blur-md border-b border-white/5">
+      <div className="max-w-6xl mx-auto px-5 py-3 flex items-center justify-end">
         <div className="flex items-center gap-4">
           <Link to="/login" className="text-white/70 hover:text-white transition text-sm">
             Sign in
@@ -75,34 +57,25 @@ function TopNav() {
 
 function Hero() {
   return (
-    <section className="relative overflow-hidden">
-      {/* Ambient green glow behind hero */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-x-0 top-0 h-[600px] pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(ellipse at 50% -10%, rgba(74,222,128,0.18), rgba(74,222,128,0) 60%)',
-        }}
-      />
-      <div className="relative max-w-5xl mx-auto px-5 pt-16 pb-16 sm:pt-24 sm:pb-24 text-center">
+    <section className="relative overflow-hidden bg-black">
+      <div className="relative max-w-5xl mx-auto px-5 pt-14 pb-14 sm:pt-20 sm:pb-20 text-center">
         <img
-          src="/sb-icon.png"
+          src="/sb-logo-dark.jpg"
           alt="Scatterbrain Scanner"
-          className="w-24 h-24 sm:w-28 sm:h-28 mx-auto mb-8 rounded-2xl shadow-2xl shadow-sb-green/10"
+          className="w-28 h-28 sm:w-36 sm:h-36 mx-auto mb-5 rounded-3xl"
         />
-        <h1
-          className="text-white text-4xl sm:text-6xl font-bold tracking-tight leading-[1.05]"
-          style={{ fontFamily: "'Poppins', sans-serif" }}
-        >
-          Snap it and forget it.
+        <h1 className="text-white text-4xl sm:text-6xl font-bold tracking-tight leading-[1.05]">
+          Scatterbrain Scanner
         </h1>
-        <p className="mt-6 text-white/70 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed">
-          Scatterbrain Scanner is a receipt scanning app for freelancers and self-employed people.
-          Snap a photo of a receipt and it automatically extracts the details, categorizes it, and
-          files it. At tax time, export everything as a clean spreadsheet for your accountant.
+        <p className="mt-2 text-white/50 text-base sm:text-lg tracking-wide">
+          Snap it and forget it.
         </p>
-        <p className="mt-4 text-white/50 text-sm max-w-xl mx-auto leading-relaxed">
+        <p className="mt-6 text-white/70 text-base sm:text-lg max-w-2xl mx-auto leading-relaxed">
+          A receipt scanning app for freelancers and self-employed people. Snap a photo and it
+          automatically extracts the details, categorizes it, and files it. At tax time, export
+          everything as a clean spreadsheet for your accountant.
+        </p>
+        <p className="mt-3 text-white/40 text-sm max-w-xl mx-auto leading-relaxed">
           Your receipts are stored on your own device. You can optionally back them up to your own
           Google Drive — Scatterbrain Scanner only accesses files it creates in your Drive, never
           anything else.
@@ -123,7 +96,7 @@ function Hero() {
             <ChevronDown size={14} />
           </a>
         </div>
-        <p className="mt-5 text-white/40 text-xs">
+        <p className="mt-5 text-white/30 text-xs">
           Free · Works on your phone · Backup free during beta
         </p>
       </div>
@@ -131,20 +104,57 @@ function Hero() {
   );
 }
 
-// ── App screenshots ────────────────────────────────────────────────────────
+// ── Screenshot carousel ────────────────────────────────────────────────────
+
+const SLIDES: { src: string; alt: string; label: string; caption: string }[] = [
+  {
+    src: '/screenshot-library.jpg',
+    alt: 'Receipt library',
+    label: 'Every receipt, in one place',
+    caption: 'Auto-filed by store, category, and date. Search or filter any time.',
+  },
+  {
+    src: '/screenshot-dashboard.jpg',
+    alt: 'Dashboard',
+    label: 'Spending at a glance',
+    caption: 'Totals by category, any date range. Filter to exactly what your accountant needs.',
+  },
+  {
+    src: '/screenshot-lineitems.jpg',
+    alt: 'Line item selector',
+    label: 'Pick exactly what you claim',
+    caption: 'Select individual line items and deselect anything personal — tax stays proportional.',
+  },
+  {
+    src: '/screenshot-split.jpg',
+    alt: 'Split receipt',
+    label: 'Split receipts in seconds',
+    caption: 'Choose items for a split, assign a client, save as a separate receipt automatically.',
+  },
+  {
+    src: '/screenshot-categories.jpg',
+    alt: 'Categories',
+    label: 'Your categories, your colours',
+    caption: 'Build the category list that matches how you work. Each gets its own colour.',
+  },
+];
+
+// Show 2 per page on sm+, 1 on mobile
+const PER_PAGE = 2;
 
 function DemoSection() {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.ceil(SLIDES.length / PER_PAGE);
+  const visibleSlides = SLIDES.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+
   return (
-    <section id="how-it-works" className="border-t border-white/5">
+    <section id="how-it-works" className="border-t border-white/5 bg-black">
       <div className="max-w-5xl mx-auto px-5 py-16 sm:py-24">
         <div className="text-center mb-12">
           <p className="text-sb-green text-xs font-semibold uppercase tracking-wider mb-3">
             See it in action
           </p>
-          <h2
-            className="text-white text-3xl sm:text-4xl font-bold tracking-tight"
-            style={{ fontFamily: "'Poppins', sans-serif" }}
-          >
+          <h2 className="text-white text-3xl sm:text-4xl font-bold tracking-tight">
             Everything filed. Nothing lost.
           </h2>
           <p className="mt-3 text-white/60 text-base max-w-xl mx-auto">
@@ -152,44 +162,54 @@ function DemoSection() {
           </p>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-6 sm:gap-10 items-start max-w-3xl mx-auto">
-          {/* Screenshot 1 — Receipt library */}
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-full rounded-[28px] overflow-hidden border border-white/10 shadow-2xl shadow-black">
-              <img
-                src="/screenshot-library.jpg"
-                alt="Receipt library — every receipt filed by date and category"
-                className="w-full block"
-              />
-            </div>
-            <div className="text-center px-2">
-              <p className="text-white text-sm font-semibold mb-1" style={{ fontFamily: "'Poppins', sans-serif" }}>
-                Every receipt, in one place
-              </p>
-              <p className="text-white/50 text-[13px] leading-relaxed">
-                Auto-filed by store, category, and date. Search or filter any time.
-              </p>
-            </div>
+        {/* Carousel */}
+        <div className="relative">
+          {/* Slides */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-10 items-start max-w-3xl mx-auto">
+            {visibleSlides.map((slide) => (
+              <div key={slide.src} className="flex flex-col items-center gap-4">
+                <div className="w-full rounded-[28px] overflow-hidden border border-white/10 shadow-2xl shadow-black">
+                  <img src={slide.src} alt={slide.alt} className="w-full block" />
+                </div>
+                <div className="text-center px-2">
+                  <p className="text-white text-sm font-semibold mb-1">{slide.label}</p>
+                  <p className="text-white/50 text-[13px] leading-relaxed">{slide.caption}</p>
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* Screenshot 2 — Dashboard */}
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-full rounded-[28px] overflow-hidden border border-white/10 shadow-2xl shadow-black">
-              <img
-                src="/screenshot-dashboard.jpg"
-                alt="Dashboard — spending by category with date range slider"
-                className="w-full block"
-              />
-            </div>
-            <div className="text-center px-2">
-              <p className="text-white text-sm font-semibold mb-1" style={{ fontFamily: "'Poppins', sans-serif" }}>
-                Spending at a glance
-              </p>
-              <p className="text-white/50 text-[13px] leading-relaxed">
-                Totals by category, any date range. Filter to exactly what your accountant needs.
-              </p>
-            </div>
-          </div>
+          {/* Chevron buttons */}
+          <button
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+            disabled={page === 0}
+            aria-label="Previous"
+            className="absolute left-0 top-1/3 -translate-x-4 sm:-translate-x-8 -translate-y-1/2 w-10 h-10 rounded-full border border-white/15 bg-black flex items-center justify-center text-white/60 hover:text-white hover:border-white/40 disabled:opacity-20 disabled:cursor-not-allowed transition"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <button
+            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+            disabled={page === totalPages - 1}
+            aria-label="Next"
+            className="absolute right-0 top-1/3 translate-x-4 sm:translate-x-8 -translate-y-1/2 w-10 h-10 rounded-full border border-white/15 bg-black flex items-center justify-center text-white/60 hover:text-white hover:border-white/40 disabled:opacity-20 disabled:cursor-not-allowed transition"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
+
+        {/* Dot indicators */}
+        <div className="flex justify-center gap-2 mt-8">
+          {Array.from({ length: totalPages }).map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setPage(i)}
+              aria-label={`Page ${i + 1}`}
+              className={`w-2 h-2 rounded-full transition-all ${
+                i === page ? 'bg-sb-green w-5' : 'bg-white/25 hover:bg-white/50'
+              }`}
+            />
+          ))}
         </div>
 
         <div className="text-center mt-10">
@@ -206,17 +226,14 @@ function DemoSection() {
   );
 }
 
-// ── Pain contrast ──────────────────────────────────────────────────────────
+// ── Pain contrast (hidden) ─────────────────────────────────────────────────
 
 function PainContrast() {
   return (
-    <section className="border-t border-white/5 bg-white/[0.015]">
+    <section className="border-t border-white/5 bg-black">
       <div className="max-w-5xl mx-auto px-5 py-16 sm:py-24">
         <div className="text-center mb-12">
-          <h2
-            className="text-white text-3xl sm:text-4xl font-bold tracking-tight"
-            style={{ fontFamily: "'Poppins', sans-serif" }}
-          >
+          <h2 className="text-white text-3xl sm:text-4xl font-bold tracking-tight">
             The old way is exhausting.
           </h2>
           <p className="mt-3 text-white/60 text-base max-w-2xl mx-auto">
@@ -224,85 +241,8 @@ function PainContrast() {
             for one. Terrible for a hundred.
           </p>
         </div>
-
-        <div className="grid sm:grid-cols-2 gap-4">
-          <ContrastCard
-            variant="bad"
-            label="Old scanner apps"
-            steps={[
-              'Open the app',
-              'Tap camera',
-              'Snap the receipt',
-              'Wait for OCR',
-              'Pick a folder',
-              'Type the name',
-              'Save',
-              'Tap back',
-              'Tap camera again…',
-            ]}
-            footer="6-7 taps per receipt. Then do it 99 more times."
-          />
-          <ContrastCard
-            variant="good"
-            label="Scatterbrain"
-            steps={[
-              'Open the app',
-              'Tap Scan',
-              'Snap the receipt',
-              'Confirm the details',
-              'Done',
-            ]}
-            footer="Auto-extracted. Auto-categorized. Filed. Get back to your life."
-          />
-        </div>
       </div>
     </section>
-  );
-}
-
-function ContrastCard({
-  variant,
-  label,
-  steps,
-  footer,
-}: {
-  variant: 'bad' | 'good';
-  label: string;
-  steps: string[];
-  footer: string;
-}) {
-  const accent = variant === 'good' ? '#4ade80' : '#71717a';
-  return (
-    <div
-      className="rounded-2xl border p-5 sm:p-6"
-      style={{
-        borderColor: variant === 'good' ? 'rgba(74,222,128,0.3)' : 'rgba(255,255,255,0.08)',
-        background: variant === 'good' ? 'rgba(74,222,128,0.04)' : 'rgba(255,255,255,0.015)',
-      }}
-    >
-      <p
-        className="text-xs font-semibold uppercase tracking-wider mb-4"
-        style={{ color: accent }}
-      >
-        {label}
-      </p>
-      <ol className="space-y-2">
-        {steps.map((step, i) => (
-          <li key={i} className="flex items-baseline gap-3 text-sm">
-            <span
-              className="text-[10px] font-mono w-5 shrink-0"
-              style={{ color: accent, opacity: 0.5 }}
-            >
-              {String(i + 1).padStart(2, '0')}
-            </span>
-            <span className="text-white/80">{step}</span>
-          </li>
-        ))}
-      </ol>
-      <p className={`mt-5 pt-4 border-t text-[13px] ${variant === 'good' ? 'text-sb-green border-sb-green/20' : 'text-white/50 border-white/10'}`}>
-        {footer}
-      </p>
-    </div>
   );
 }
 
@@ -343,13 +283,10 @@ function Features() {
   ];
 
   return (
-    <section className="border-t border-white/5">
+    <section className="border-t border-white/5 bg-black">
       <div className="max-w-6xl mx-auto px-5 py-16 sm:py-24">
         <div className="text-center mb-12">
-          <h2
-            className="text-white text-3xl sm:text-4xl font-bold tracking-tight"
-            style={{ fontFamily: "'Poppins', sans-serif" }}
-          >
+          <h2 className="text-white text-3xl sm:text-4xl font-bold tracking-tight">
             Built for the way you actually work.
           </h2>
         </div>
@@ -365,12 +302,7 @@ function Features() {
               >
                 {f.icon}
               </div>
-              <h3
-                className="text-white text-base font-semibold mb-1.5"
-                style={{ fontFamily: "'Poppins', sans-serif" }}
-              >
-                {f.title}
-              </h3>
+              <h3 className="text-white text-base font-semibold mb-1.5">{f.title}</h3>
               <p className="text-white/60 text-sm leading-relaxed">{f.body}</p>
             </div>
           ))}
@@ -384,13 +316,10 @@ function Features() {
 
 function Pricing() {
   return (
-    <section id="pricing" className="border-t border-white/5 bg-white/[0.015]">
+    <section id="pricing" className="border-t border-white/5 bg-black">
       <div className="max-w-4xl mx-auto px-5 py-16 sm:py-24">
         <div className="text-center mb-12">
-          <h2
-            className="text-white text-3xl sm:text-4xl font-bold tracking-tight"
-            style={{ fontFamily: "'Poppins', sans-serif" }}
-          >
+          <h2 className="text-white text-3xl sm:text-4xl font-bold tracking-tight">
             Honest pricing.
           </h2>
           <p className="mt-3 text-white/60 text-base">
@@ -429,10 +358,6 @@ function Pricing() {
             cta={{ label: 'Get peace of mind', to: '/receipts' }}
           />
         </div>
-        {/* Placeholder for founding-member offer element (leave until offer is defined) */}
-        {/* <p className="text-center mt-8 text-white/40 text-xs">
-          Founding members get an extended free period. (offer details TBD)
-        </p> */}
       </div>
     </section>
   );
@@ -464,12 +389,7 @@ function PricingCard({
       }`}
     >
       <div className="flex items-baseline justify-between mb-1">
-        <p
-          className="text-white text-lg font-bold"
-          style={{ fontFamily: "'Poppins', sans-serif" }}
-        >
-          {tier}
-        </p>
+        <p className="text-white text-lg font-bold">{tier}</p>
         {badge && (
           <span className="text-[10px] uppercase tracking-wider font-semibold text-sb-green bg-sb-green/10 border border-sb-green/25 rounded-full px-2 py-0.5">
             {badge}
@@ -477,9 +397,7 @@ function PricingCard({
         )}
       </div>
       <p className="mt-2 mb-6">
-        <span className="text-white text-4xl font-bold" style={{ fontFamily: "'Poppins', sans-serif" }}>
-          {price}
-        </span>
+        <span className="text-white text-4xl font-bold">{price}</span>
         <span className="text-white/50 text-sm ml-1.5">{period}</span>
       </p>
       <ul className="space-y-2.5 mb-8 flex-1">
@@ -509,7 +427,7 @@ function PricingCard({
 
 function FounderNote() {
   return (
-    <section className="border-t border-white/5">
+    <section className="border-t border-white/5 bg-black">
       <div className="max-w-3xl mx-auto px-5 py-16 sm:py-20 text-center">
         <p className="text-sb-green text-xs font-semibold uppercase tracking-wider mb-4">
           Built by a scatterbrain, for scatterbrains
@@ -532,7 +450,7 @@ function Footer() {
     <footer className="border-t border-white/5 bg-black">
       <div className="max-w-6xl mx-auto px-5 py-10 flex flex-col sm:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-2.5">
-          <img src="/sb-icon.png" alt="" className="w-6 h-6 rounded-md opacity-80" />
+          <img src="/sb-logo-dark.jpg" alt="" className="w-6 h-6 rounded-md opacity-80" />
           <span className="text-white/60 text-sm">
             © {new Date().getFullYear()} Scatterbrain Scanner
           </span>
