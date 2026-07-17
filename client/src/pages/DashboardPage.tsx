@@ -76,8 +76,8 @@ export default function DashboardPage() {
 
     // Stage 2: search text + payment filter — applies everywhere (chart, list, total)
     const matchesSearch = (r: Receipt) => {
-      if (paymentFilter === 'Debit' && r.paymentMethod !== 'Debit') return false;
-      if (paymentFilter === 'Visa'  && r.paymentMethod !== 'Visa')  return false;
+      if (paymentFilter === 'Debit' && r.paymentMethod != null && r.paymentMethod !== 'Debit') return false;
+      if (paymentFilter === 'Visa'  && r.paymentMethod != null && r.paymentMethod !== 'Visa')  return false;
       if (!q) return true;
       if ((r.storeName  || '').toLowerCase().includes(q)) return true;
       if ((r.clientName || '').toLowerCase().includes(q)) return true;

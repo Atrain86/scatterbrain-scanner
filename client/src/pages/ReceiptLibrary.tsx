@@ -96,10 +96,11 @@ export default function ReceiptLibrary() {
       // Category filter
       if (categoryFilter && (r.category || '') !== categoryFilter) return false;
 
-      // Payment filter — Debit matches "Debit", Visa matches "Visa" only.
-      // Mastercard/Amex/Cash/Other appear under All.
-      if (paymentFilter === 'Debit' && r.paymentMethod !== 'Debit') return false;
-      if (paymentFilter === 'Visa'  && r.paymentMethod !== 'Visa')  return false;
+      // Payment filter — show receipts tagged with that method OR untagged (null/undefined).
+      // Untagged receipts show in every filter bucket so the user can open and tag them.
+      // Only receipts explicitly tagged with a *different* method are excluded.
+      if (paymentFilter === 'Debit' && r.paymentMethod != null && r.paymentMethod !== 'Debit') return false;
+      if (paymentFilter === 'Visa'  && r.paymentMethod != null && r.paymentMethod !== 'Visa')  return false;
 
       if (!q) return true;
 
