@@ -95,6 +95,10 @@ export function getAllCategories(userId: string): { name: string; color: string 
   }
 }
 
+export function saveUserCategories(userId: string, cats: { name: string; color: string }[]): void {
+  localStorage.setItem(`sb_u${userId}_custom_categories`, JSON.stringify(cats));
+}
+
 // Auto-add a category to the user's custom list if it isn't already there.
 // Called at receipt-save time (LineItemSelector.handleSave) so the user's
 // category list grows organically from real receipts, matching the

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Tag, Plus, Trash2, Cloud, Info, Activity, ChevronDown, DownloadCloud, Download, Users, LogOut, Shield, Archive } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getAllReceipts, getDb } from '../lib/db';
+import { getAllReceipts, getDb, addDeletedCategory, addDeletedClient } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
 import { backgroundSync, restoreFromGoogleDrive, cleanupDriveDuplicates, type RestoreResult, type SyncResult, type CleanupResult } from '../lib/cloudSync';
 import { loadSyncStatus } from '../lib/syncStatus';
@@ -11,7 +11,7 @@ import { previewPaletteMigration, applyPaletteMigration, CURATED_PALETTE } from 
 import { ensureCategoryExists } from '../utils/types';
 import React from 'react';
 
-export const APP_VERSION = '0.22.10-import-categories';
+export const APP_VERSION = '0.23.0-metadata-sync';
 
 interface CustomCategory {
   name: string;
@@ -191,7 +191,20 @@ export default function SettingsPage() {
     setNewCatName('');
   }
 
-  function removeCategory(name: string) {
+  async function removeCategory(name: string) {
+    const allReceipts = await getAllReceipts(userId);
+    const inUseCount = allReceipts.filter(r => r.category === name).length;
+    if (inUseCount > 0) {
+      // Warn before deleting — category will be resurrected by sync/import
+      // as long as receipts reference it, so a silent delete would be a lie.
+      const proceed = window.confirm(
+        `${inUseCount} receipt${inUseCount !== 1 ? 's' : ''} use "${name}". ` +
+        `Removing it here won't change those receipts — the category will reappear ` +
+        `on the next sync while they still reference it.\n\nRemove anyway?`
+      );
+      if (!proceed) return;
+    }
+    addDeletedCategory(userId, name);
     saveCustomCategories(customCategories.filter(c => c.name !== name));
   }
 
@@ -207,23 +220,27 @@ export default function SettingsPage() {
   }
 
   function handleRemoveClient(name: string) {
+    addDeletedClient(userId, name);
     setClients(removeClient(userId, name));
   }
 
-  // Complete Backup — full IndexedDB dump (data + photos) as a single JSON
-  // file. Safety net for "phone is no longer a single point of failure" — use
-  // before signing out or clearing browser data. Reads on-demand so file is
-  // always fresh (not tied to the mounted receipt list state).
+  // Complete Backup — full snapshot: receipts (data + photos) + categories +
+  // clients. Use the share sheet to save to iCloud, email, Dropbox, or a
+  // computer. Restore it via "Restore from Backup File" on any device.
   async function handleFullBackup() {
     setBackupError(null);
     setIsBackingUp(true);
     try {
       const rows = await getAllReceipts(userId);
+      const categories = loadCustomCategories(userId);
+      const clientList = loadClients(userId);
       const payload = {
-        exportVersion: 1,
+        exportVersion: 2,
         exportedAt: new Date().toISOString(),
         totalReceipts: rows.length,
         receipts: rows,
+        categories,
+        clients: clientList,
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -630,12 +647,13 @@ export default function SettingsPage() {
           </div>
         </Section>
 
-        {/* Complete Backup — full JSON dump of data + photos + restore from file. */}
+        {/* Complete Backup — full snapshot: receipts + categories + clients. */}
         <Section icon={<Archive size={16} />} title="Complete Backup" defaultOpen={false}>
           <div className="space-y-4">
             <p className="text-white text-sm">
-              Export every receipt — data and photos — as a single JSON file. Restore it here
-              on any device or origin.
+              Export receipts, categories, and clients as a single JSON file. Use your share
+              sheet to save it to iCloud, email it, or copy it to a computer. Restore it
+              here on any device.
             </p>
             <p className="text-sb-muted text-xs leading-snug">
               The file will be large (~1&nbsp;MB per 10&nbsp;receipts with photos). Restore

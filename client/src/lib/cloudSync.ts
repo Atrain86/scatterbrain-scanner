@@ -1,6 +1,8 @@
 import type { CloudProvider, CloudProviderState, CloudSettings, Receipt } from '../utils/types';
 import { loadCloudSettings, saveCloudSettings } from '../hooks/useCloudAuth';
-import { addReceipt, getAllReceipts, getReceiptByUuid, updateReceipt, getDeletedUuids, clearDeletedUuid } from './db';
+import { addReceipt, getAllReceipts, getReceiptByUuid, updateReceipt, getDeletedUuids, clearDeletedUuid, getDeletedCategories, getDeletedClients, clearDeletedCategory, clearDeletedClient } from './db';
+import { loadClients, saveClients } from '../utils/clients';
+import { getAllCategories, saveUserCategories, ensureCategoryExists } from '../utils/types';
 import { recordPushSuccess, recordBackgroundSyncSuccess, recordFailure } from './syncStatus';
 
 // ── Token management ──────────────────────────────────────────────────────────
@@ -383,6 +385,149 @@ async function pushReceiptToDrive(receipt: Receipt, accessToken: string, userId:
   }
 }
 
+// ── Metadata sync (_metadata.json) ───────────────────────────────────────────
+// Stores categories, clients, and tombstone lists alongside receipts in Drive.
+// One file per user folder — always PATCH (never accumulate duplicates).
+
+const METADATA_FILENAME = '_metadata.json';
+
+interface DriveMetadata {
+  metadataVersion: 1;
+  savedAt: string;
+  categories: { name: string; color: string }[];
+  clients: string[];
+  deletedCategories: string[]; // lowercase tombstones
+  deletedClients: string[];    // lowercase tombstones
+}
+
+async function pushMetadataToDrive(accessToken: string, userId: string, folderId: string): Promise<void> {
+  const categories = getAllCategories(userId);
+  const clients = loadClients(userId);
+  const deletedCategories = getDeletedCategories(userId);
+  const deletedClients = getDeletedClients(userId);
+
+  const payload: DriveMetadata = {
+    metadataVersion: 1,
+    savedAt: new Date().toISOString(),
+    categories,
+    clients,
+    deletedCategories,
+    deletedClients,
+  };
+
+  const existingId = await findDriveFileId(accessToken, METADATA_FILENAME, folderId);
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  await uploadFileToDrive(accessToken, blob, METADATA_FILENAME, folderId, existingId);
+}
+
+async function pullMetadataFromDrive(accessToken: string, userId: string, folderId: string): Promise<void> {
+  const fileId = await findDriveFileId(accessToken, METADATA_FILENAME, folderId);
+  if (!fileId) return; // no metadata yet — first sync from a fresh install
+
+  const text = await downloadDriveFile(accessToken, fileId);
+  const meta = JSON.parse(text) as Partial<DriveMetadata>;
+
+  const remoteTombstonedCats   = new Set((meta.deletedCategories ?? []).map(n => n.toLowerCase()));
+  const remoteTombstonedClients = new Set((meta.deletedClients    ?? []).map(n => n.toLowerCase()));
+
+  // ── Categories ──────────────────────────────────────────────────────────────
+  if (Array.isArray(meta.categories)) {
+    const localCats   = getAllCategories(userId);
+    const localByName = new Map(localCats.map(c => [c.name.toLowerCase(), c]));
+    const localTombstones = new Set(getDeletedCategories(userId));
+
+    for (const remote of meta.categories) {
+      if (typeof remote.name !== 'string' || typeof remote.color !== 'string') continue;
+      const lower = remote.name.toLowerCase();
+      // Skip if this device deleted it (local tombstone wins)
+      if (localTombstones.has(lower)) continue;
+      // Skip if remote tombstoned it
+      if (remoteTombstonedCats.has(lower)) continue;
+      if (!localByName.has(lower)) {
+        // New category from Drive — add with remote colour
+        localByName.set(lower, { name: remote.name, color: remote.color });
+      }
+      // If already exists locally, keep local (preserves user's colour choice)
+    }
+
+    // Honour remote tombstones: remove any local category the remote deleted,
+    // UNLESS local receipts still reference it (resurrection pass below).
+    const afterTombstone = [...localByName.values()].filter(
+      c => !remoteTombstonedCats.has(c.name.toLowerCase()) || localTombstones.has(c.name.toLowerCase())
+    );
+
+    // Resurrection pass: if a local receipt references a name not in the
+    // resulting list, add it back (Option A — can't truly delete in-use cats).
+    const resultNames = new Set(afterTombstone.map(c => c.name.toLowerCase()));
+    // We only check local receipts for resurrection — sync handles receipts separately
+    saveUserCategories(userId, afterTombstone);
+    // ensureCategoryExists will be called post-pull for any receipt categories
+    // that aren't in the list (same path as the import flow)
+
+    // Propagate remote tombstones to local tombstone list so this device
+    // doesn't re-upload deleted categories on the next push
+    for (const name of remoteTombstonedCats) {
+      if (!localTombstones.has(name)) {
+        // Only add if not already locally deleted (avoid double-writing)
+        const existing = getDeletedCategories(userId);
+        if (!existing.includes(name)) {
+          localStorage.setItem(
+            `sb_u${userId}_deleted_categories`,
+            JSON.stringify([...existing, name])
+          );
+        }
+      }
+    }
+
+    void resultNames; // suppress unused warning
+  }
+
+  // ── Clients ─────────────────────────────────────────────────────────────────
+  if (Array.isArray(meta.clients)) {
+    const localClients = loadClients(userId);
+    const localSet = new Set(localClients.map(c => c.toLowerCase()));
+    const localTombstones = new Set(getDeletedClients(userId));
+
+    const toAdd: string[] = [];
+    for (const remote of meta.clients) {
+      if (typeof remote !== 'string') continue;
+      const lower = remote.toLowerCase();
+      if (localTombstones.has(lower)) continue;       // local delete wins
+      if (remoteTombstonedClients.has(lower)) continue; // remote delete wins
+      if (!localSet.has(lower)) {
+        toAdd.push(remote);
+        localSet.add(lower);
+      }
+    }
+
+    if (toAdd.length > 0) {
+      saveClients(userId, [...localClients, ...toAdd]);
+    }
+
+    // Propagate remote client tombstones locally
+    for (const name of remoteTombstonedClients) {
+      const existing = getDeletedClients(userId);
+      if (!existing.includes(name)) {
+        localStorage.setItem(
+          `sb_u${userId}_deleted_clients`,
+          JSON.stringify([...existing, name])
+        );
+      }
+    }
+
+    // Remove any local clients that the remote tombstoned (strict for clients)
+    const currentClients = loadClients(userId);
+    const filtered = currentClients.filter(c => !remoteTombstonedClients.has(c.toLowerCase()));
+    if (filtered.length !== currentClients.length) {
+      saveClients(userId, filtered);
+      // Clear local tombstones for clients we just removed (they're now gone)
+      for (const name of remoteTombstonedClients) {
+        clearDeletedClient(userId, name);
+      }
+    }
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export interface SyncResult {
@@ -415,6 +560,13 @@ async function backgroundSyncInternal(userId: string): Promise<SyncResult> {
 
   try {
     const folderId = await getReceiptsFolderId(accessToken, userId);
+
+    // Pull metadata first so categories/clients are current before receipt pull
+    try {
+      await pullMetadataFromDrive(accessToken, userId, folderId);
+    } catch (err) {
+      result.errors.push(`metadata pull: ${(err as Error).message}`);
+    }
 
     // ONE Drive list call — builds set of all UUIDs already on Drive
     const driveFiles = await listDriveJsonFiles(accessToken, folderId);
@@ -524,6 +676,14 @@ async function backgroundSyncInternal(userId: string): Promise<SyncResult> {
 
     if (result.pulled > 0 || updated > 0) {
       window.dispatchEvent(new CustomEvent('receipts-updated'));
+    }
+
+    // Push metadata after receipts so categories seeded by pulled receipts
+    // (via ensureCategoryExists) are included in the snapshot
+    try {
+      await pushMetadataToDrive(accessToken, userId, folderId);
+    } catch (err) {
+      result.errors.push(`metadata push: ${(err as Error).message}`);
     }
   } catch (err) {
     result.errors.push((err as Error).message);

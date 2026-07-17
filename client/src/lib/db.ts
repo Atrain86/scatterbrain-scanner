@@ -137,6 +137,50 @@ export function clearDeletedUuid(userId: string, uuid: string): void {
   localStorage.setItem(key, JSON.stringify(existing.filter(u => u !== uuid)));
 }
 
+// ── Category tombstones ───────────────────────────────────────────────────────
+// Tracks category names deleted by the user so metadata sync doesn't resurrect
+// them. Names are lowercased for case-insensitive matching.
+
+const catTombstoneKey = (userId: string) => `sb_u${userId}_deleted_categories`;
+
+export function getDeletedCategories(userId: string): string[] {
+  try { return JSON.parse(localStorage.getItem(catTombstoneKey(userId)) || '[]'); } catch { return []; }
+}
+
+export function addDeletedCategory(userId: string, name: string): void {
+  const existing = getDeletedCategories(userId);
+  const lower = name.toLowerCase();
+  if (!existing.includes(lower)) {
+    localStorage.setItem(catTombstoneKey(userId), JSON.stringify([...existing, lower]));
+  }
+}
+
+export function clearDeletedCategory(userId: string, name: string): void {
+  const existing = getDeletedCategories(userId);
+  localStorage.setItem(catTombstoneKey(userId), JSON.stringify(existing.filter(n => n !== name.toLowerCase())));
+}
+
+// ── Client tombstones ─────────────────────────────────────────────────────────
+
+const clientTombstoneKey = (userId: string) => `sb_u${userId}_deleted_clients`;
+
+export function getDeletedClients(userId: string): string[] {
+  try { return JSON.parse(localStorage.getItem(clientTombstoneKey(userId)) || '[]'); } catch { return []; }
+}
+
+export function addDeletedClient(userId: string, name: string): void {
+  const existing = getDeletedClients(userId);
+  const lower = name.toLowerCase();
+  if (!existing.includes(lower)) {
+    localStorage.setItem(clientTombstoneKey(userId), JSON.stringify([...existing, lower]));
+  }
+}
+
+export function clearDeletedClient(userId: string, name: string): void {
+  const existing = getDeletedClients(userId);
+  localStorage.setItem(clientTombstoneKey(userId), JSON.stringify(existing.filter(n => n !== name.toLowerCase())));
+}
+
 export async function getReceiptsByYear(userId: string, year: number): Promise<Receipt[]> {
   const prefix = String(year);
   const rows = await getDb(userId).receipts
