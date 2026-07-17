@@ -200,6 +200,18 @@ export default function DashboardPage() {
                 </span>
               </div>
 
+              {/* ── Range readout + count — sits between header and chart ── */}
+              <div className="text-center leading-none mb-1">
+                {!isFullYear && (
+                  <p className="text-white text-[13px] font-bold" style={{ fontFamily: "'Poppins', sans-serif" }}>
+                    {rangeReadout}
+                  </p>
+                )}
+                <p className="text-[10px]" style={{ color: '#b0aabf', marginTop: 2 }}>
+                  {stats.count} receipt{stats.count !== 1 ? 's' : ''}{!isFullYear ? ' · scoped' : ''}
+                </p>
+              </div>
+
               {/* Fixed-height chart area */}
               <div style={{ height: 240 }} className="flex items-center justify-center">
                 {stats.categoryData.length === 0 ? (
@@ -259,18 +271,6 @@ export default function DashboardPage() {
                     </BarChart>
                   </ResponsiveContainer>
                 )}
-              </div>
-
-              {/* ── Range readout + count — compressed, above slider ── */}
-              <div className="mt-2 text-center leading-none">
-                {!isFullYear && (
-                  <p className="text-white text-[13px] font-bold" style={{ fontFamily: "'Poppins', sans-serif" }}>
-                    {rangeReadout}
-                  </p>
-                )}
-                <p className="text-[10px]" style={{ color: '#b0aabf', marginTop: 2 }}>
-                  {stats.count} receipt{stats.count !== 1 ? 's' : ''}{!isFullYear ? ' · scoped' : ''}
-                </p>
               </div>
 
               {/* ── Month range slider ── */}

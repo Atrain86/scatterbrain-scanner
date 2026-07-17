@@ -508,10 +508,10 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                 )}
                 {confirmDelete ? (
                   <button onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }} onBlur={() => setConfirmDelete(false)}
-                    className="text-red-400 bg-red-950/30 rounded p-0.5 transition"><Trash2 size={12} /></button>
+                    className="text-red-400 bg-red-950/30 rounded p-0.5 transition"><Trash2 size={16} /></button>
                 ) : (
                   <button onClick={e => { e.stopPropagation(); setConfirmDelete(true); }}
-                    className="text-white/25 hover:text-red-400 transition p-0.5"><Trash2 size={12} /></button>
+                    className="text-white hover:text-red-400 transition p-0.5"><Trash2 size={16} /></button>
                 )}
               </div>
             </div>
