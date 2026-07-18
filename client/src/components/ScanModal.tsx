@@ -88,8 +88,8 @@ export default function ScanModal({ onClose, onSaved }: Props) {
           setStep('crop-preview');
           return;
         }
-      } catch {
-        // autoCrop failed — proceed with original
+      } catch (cropErr) {
+        alert('autoCrop threw: ' + String(cropErr));
       }
     }
 
