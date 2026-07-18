@@ -191,6 +191,84 @@ export function clearDeletedClient(userId: string, name: string): void {
   localStorage.setItem(clientTombstoneKey(userId), JSON.stringify(existing.filter(n => n !== name.toLowerCase())));
 }
 
+// ── Bulk rename / clear / reassign ────────────────────────────────────────────
+// These operate directly via Dexie .modify() — they do NOT call updateReceipt()
+// and do NOT call pushReceiptNow. The caller is responsible for dispatching
+// window.dispatchEvent(new CustomEvent('receipts-updated')) after any bulk write.
+// Receipts are always updated FIRST; the caller must update the list entry LAST.
+
+export async function bulkRenameCategory(
+  userId: string,
+  oldName: string,
+  newName: string
+): Promise<number> {
+  const now = new Date().toISOString();
+  return getDb(userId).receipts
+    .where('category')
+    .equals(oldName)
+    .modify({ category: newName, updatedAt: now });
+}
+
+export async function bulkRenameClient(
+  userId: string,
+  oldName: string,
+  newName: string
+): Promise<number> {
+  const now = new Date().toISOString();
+  return getDb(userId).receipts
+    .where('clientName')
+    .equals(oldName)
+    .modify({ clientName: newName, updatedAt: now });
+}
+
+export async function bulkClearCategory(userId: string, name: string): Promise<number> {
+  const now = new Date().toISOString();
+  return getDb(userId).receipts
+    .where('category')
+    .equals(name)
+    .modify({ category: '', updatedAt: now });
+}
+
+export async function bulkReassignCategory(
+  userId: string,
+  fromName: string,
+  toName: string
+): Promise<number> {
+  const now = new Date().toISOString();
+  return getDb(userId).receipts
+    .where('category')
+    .equals(fromName)
+    .modify({ category: toName, updatedAt: now });
+}
+
+export async function bulkClearClient(userId: string, name: string): Promise<number> {
+  const now = new Date().toISOString();
+  return getDb(userId).receipts
+    .where('clientName')
+    .equals(name)
+    .modify({ clientName: null, updatedAt: now });
+}
+
+export async function bulkReassignClient(
+  userId: string,
+  fromName: string,
+  toName: string
+): Promise<number> {
+  const now = new Date().toISOString();
+  return getDb(userId).receipts
+    .where('clientName')
+    .equals(fromName)
+    .modify({ clientName: toName, updatedAt: now });
+}
+
+export async function countReceiptsByCategory(userId: string, name: string): Promise<number> {
+  return getDb(userId).receipts.where('category').equals(name).count();
+}
+
+export async function countReceiptsByClient(userId: string, name: string): Promise<number> {
+  return getDb(userId).receipts.where('clientName').equals(name).count();
+}
+
 export async function getReceiptsByYear(userId: string, year: number): Promise<Receipt[]> {
   const prefix = String(year);
   const rows = await getDb(userId).receipts

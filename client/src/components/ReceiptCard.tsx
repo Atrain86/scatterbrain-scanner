@@ -10,6 +10,12 @@ import { addReceipt } from '../lib/db';
 import { pushReceiptNow } from '../lib/cloudSync';
 import { getPaymentMethods, getStoreDefaults, saveStoreDefaults, normalizeStoreName } from '../lib/paymentStorage';
 import CardNameSheet from './CardNameSheet';
+import {
+  CategoryRenameSheet,
+  ClientRenameSheet,
+  CategoryDeleteSheet,
+  ClientDeleteSheet,
+} from './RenameDeleteSheets';
 
 interface ReEditUpdates {
   storeName: string;
@@ -212,6 +218,12 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
   const [clients,          setClients]          = useState<string[]>(() => loadClients(userId));
   const [newClientInput,   setNewClientInput]   = useState('');
   const [newCatInput,      setNewCatInput]      = useState('');
+
+  // Rename / delete sheet targets
+  const [clientRenameTarget, setClientRenameTarget] = useState<string | null>(null);
+  const [catRenameTarget,    setCatRenameTarget]    = useState<string | null>(null);
+  const [clientDeleteTarget, setClientDeleteTarget] = useState<string | null>(null);
+  const [catDeleteTarget,    setCatDeleteTarget]    = useState<string | null>(null);
 
   const allLineItems: { description: string; amount: number }[] = receipt.lineItems
     ? JSON.parse(receipt.lineItems) : [];
@@ -747,18 +759,36 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                       {clients.length > 0 && <div className="border-t border-sb-border" />}
                       <div className="max-h-36 overflow-y-auto">
                         {clients.map(c => (
-                          <button key={c} onClick={e => { e.stopPropagation(); pickClient(c); }}
-                            className={`w-full flex items-center justify-between px-3 py-2.5 text-xs text-left hover:bg-white/5 transition ${c === receipt.clientName ? 'bg-white/5' : ''}`}>
-                            <span className="text-white">{c}</span>
-                            {c === receipt.clientName && <Check size={10} className="text-sb-green" />}
-                          </button>
+                          <div key={c} className={`flex items-center transition ${c === receipt.clientName ? 'bg-white/5' : ''}`}>
+                            <button
+                              onClick={e => { e.stopPropagation(); pickClient(c); }}
+                              className="flex-1 px-3 py-2.5 text-xs text-left flex items-center gap-2"
+                            >
+                              <span className={c === receipt.clientName ? 'text-white font-medium' : 'text-white'}>{c}</span>
+                              {c === receipt.clientName && <Check size={10} className="text-sb-green" />}
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); setShowClientPicker(false); setClientRenameTarget(c); }}
+                              className="px-1.5 py-2.5 text-white/25 hover:text-white/70 transition flex-shrink-0"
+                              title="Rename"
+                            >
+                              <Pencil size={11} />
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); setShowClientPicker(false); setClientDeleteTarget(c); }}
+                              className="px-1.5 py-2.5 text-white/25 hover:text-red-400 transition flex-shrink-0"
+                              title="Delete"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
                         ))}
                       </div>
                       <div className="border-t border-sb-border px-2 py-1.5 flex gap-1" onClick={e => e.stopPropagation()}>
                         <input value={newClientInput} onChange={e => setNewClientInput(e.target.value)}
                           onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewClient(); }}
                           placeholder="+ new client"
-                          className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
+                          className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/70 focus:outline-none focus:border-sb-green py-0.5" />
                         <button onClick={() => addNewClient()}
                           className={`p-1 transition ${newClientInput.trim() ? 'text-sb-green' : 'text-white/20'}`}><Plus size={12} /></button>
                       </div>
@@ -777,19 +807,37 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                     <div className="absolute top-full left-0 mt-1 w-48 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl" onClick={e => e.stopPropagation()}>
                       <div className="max-h-48 overflow-y-auto">
                         {getAllCategories(userId).map(cat => (
-                          <button key={cat.name} onClick={e => { e.stopPropagation(); pickCategory(cat.name); }}
-                            className={`w-full flex items-center gap-2 px-3 py-2.5 text-xs text-left hover:bg-white/5 transition ${cat.name === receipt.category ? 'bg-white/5' : ''}`}>
-                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                            <span className="text-white flex-1">{cat.name}</span>
-                            {cat.name === receipt.category && <Check size={10} className="text-sb-green" />}
-                          </button>
+                          <div key={cat.name} className={`flex items-center transition ${cat.name === receipt.category ? 'bg-white/5' : ''}`}>
+                            <button
+                              onClick={e => { e.stopPropagation(); pickCategory(cat.name); }}
+                              className="flex-1 px-3 py-2.5 text-xs text-left flex items-center gap-2"
+                            >
+                              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                              <span className={cat.name === receipt.category ? 'text-white font-medium flex-1' : 'text-white flex-1'}>{cat.name}</span>
+                              {cat.name === receipt.category && <Check size={10} className="text-sb-green" />}
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); setShowCatPicker(false); setCatRenameTarget(cat.name); }}
+                              className="px-1.5 py-2.5 text-white/25 hover:text-white/70 transition flex-shrink-0"
+                              title="Rename"
+                            >
+                              <Pencil size={11} />
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); setShowCatPicker(false); setCatDeleteTarget(cat.name); }}
+                              className="px-1.5 py-2.5 text-white/25 hover:text-red-400 transition flex-shrink-0"
+                              title="Delete"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
                         ))}
                       </div>
                       <div className="border-t border-sb-border px-2 py-1.5 flex gap-1" onClick={e => e.stopPropagation()}>
                         <input value={newCatInput} onChange={e => setNewCatInput(e.target.value)}
                           onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewCategory(); }}
                           placeholder="+ new category"
-                          className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/30 focus:outline-none focus:border-sb-green py-0.5" />
+                          className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/70 focus:outline-none focus:border-sb-green py-0.5" />
                         <button onClick={() => addNewCategory()}
                           className={`p-1 transition ${newCatInput.trim() ? 'text-sb-green' : 'text-white/20'}`}><Plus size={12} /></button>
                       </div>
@@ -1045,6 +1093,56 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
             setShowCardSheet(false);
           }}
           onClose={() => setShowCardSheet(false)}
+        />
+      )}
+
+      {clientRenameTarget !== null && (
+        <ClientRenameSheet
+          userId={userId}
+          oldName={clientRenameTarget}
+          onClose={() => setClientRenameTarget(null)}
+          onDone={() => {
+            setClientRenameTarget(null);
+            setClients(loadClients(userId));
+            window.dispatchEvent(new CustomEvent('receipts-updated'));
+          }}
+        />
+      )}
+
+      {catRenameTarget !== null && (
+        <CategoryRenameSheet
+          userId={userId}
+          oldName={catRenameTarget}
+          onClose={() => setCatRenameTarget(null)}
+          onDone={() => {
+            setCatRenameTarget(null);
+            window.dispatchEvent(new CustomEvent('receipts-updated'));
+          }}
+        />
+      )}
+
+      {clientDeleteTarget !== null && (
+        <ClientDeleteSheet
+          userId={userId}
+          name={clientDeleteTarget}
+          onClose={() => setClientDeleteTarget(null)}
+          onDone={() => {
+            setClientDeleteTarget(null);
+            setClients(loadClients(userId));
+            window.dispatchEvent(new CustomEvent('receipts-updated'));
+          }}
+        />
+      )}
+
+      {catDeleteTarget !== null && (
+        <CategoryDeleteSheet
+          userId={userId}
+          name={catDeleteTarget}
+          onClose={() => setCatDeleteTarget(null)}
+          onDone={() => {
+            setCatDeleteTarget(null);
+            window.dispatchEvent(new CustomEvent('receipts-updated'));
+          }}
         />
       )}
     </>

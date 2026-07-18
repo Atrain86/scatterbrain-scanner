@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Tag, Plus, Trash2, Cloud, Info, Activity, ChevronDown, DownloadCloud, Download, Users, LogOut, Shield, Archive, CreditCard } from 'lucide-react';
+import { Tag, Plus, Trash2, Pencil, Cloud, Info, Activity, ChevronDown, DownloadCloud, Download, Users, LogOut, Shield, Archive, CreditCard } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAllReceipts, getDb, addDeletedCategory, addDeletedClient } from '../lib/db';
 import { useCloudAuth } from '../hooks/useCloudAuth';
@@ -12,8 +12,14 @@ import { getAllCategories, saveUserCategories, ensureCategoryExists } from '../u
 import { getPaymentMethods, savePaymentMethods, saveDeletedPaymentMethods, getDeletedPaymentMethods } from '../lib/paymentStorage';
 import type { PaymentMethod } from '../utils/types';
 import React from 'react';
+import {
+  CategoryRenameSheet,
+  ClientRenameSheet,
+  CategoryDeleteSheet,
+  ClientDeleteSheet,
+} from '../components/RenameDeleteSheets';
 
-export const APP_VERSION = '0.25.0';
+export const APP_VERSION = '0.25.1';
 
 interface CustomCategory {
   name: string;
@@ -172,6 +178,11 @@ export default function SettingsPage() {
   const [newCatName, setNewCatName]   = useState('');
   const [newCatColor, setNewCatColor] = useState(PALETTE_COLORS[0]);
   const [catError, setCatError]       = useState('');
+  // Rename / delete sheet targets for Settings list
+  const [settingsCatRenameTarget,   setSettingsCatRenameTarget]   = useState<string | null>(null);
+  const [settingsCatDeleteTarget,   setSettingsCatDeleteTarget]   = useState<string | null>(null);
+  const [settingsClientRenameTarget, setSettingsClientRenameTarget] = useState<string | null>(null);
+  const [settingsClientDeleteTarget, setSettingsClientDeleteTarget] = useState<string | null>(null);
 
   const [clients, setClients]         = useState<string[]>(() => loadClients(userId));
   const [newClientName, setNewClientName] = useState('');
@@ -200,21 +211,10 @@ export default function SettingsPage() {
     setNewCatName('');
   }
 
-  async function removeCategory(name: string) {
-    const allReceipts = await getAllReceipts(userId);
-    const inUseCount = allReceipts.filter(r => r.category === name).length;
-    if (inUseCount > 0) {
-      // Warn before deleting — category will be resurrected by sync/import
-      // as long as receipts reference it, so a silent delete would be a lie.
-      const proceed = window.confirm(
-        `${inUseCount} receipt${inUseCount !== 1 ? 's' : ''} use "${name}". ` +
-        `Removing it here won't change those receipts — the category will reappear ` +
-        `on the next sync while they still reference it.\n\nRemove anyway?`
-      );
-      if (!proceed) return;
-    }
-    addDeletedCategory(userId, name);
-    saveCustomCategories(customCategories.filter(c => c.name !== name));
+  // Category delete is now handled by CategoryDeleteSheet (opened from the UI).
+  // This stub is kept so nothing referencing it breaks during transition.
+  function removeCategory(_name: string) {
+    // no-op — delete is triggered via setSettingsCatDeleteTarget in the JSX
   }
 
   function handleAddClient() {
@@ -486,13 +486,18 @@ export default function SettingsPage() {
             ) : (
               customCategories.map(cat => (
                 <div key={cat.name} className="flex items-center justify-between bg-sb-card2 border border-sb-border rounded-xl px-3 py-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
                     <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                    <span className="text-white text-sm">{cat.name}</span>
+                    <span className="text-white text-sm truncate">{cat.name}</span>
                   </div>
-                  <button onClick={() => removeCategory(cat.name)} className="text-sb-muted hover:text-red-400 transition p-1">
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button onClick={() => setSettingsCatRenameTarget(cat.name)} className="text-white/30 hover:text-white/70 transition p-1" title="Rename">
+                      <Pencil size={14} />
+                    </button>
+                    <button onClick={() => setSettingsCatDeleteTarget(cat.name)} className="text-sb-muted hover:text-red-400 transition p-1" title="Delete">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -545,10 +550,15 @@ export default function SettingsPage() {
             ) : (
               clients.map(client => (
                 <div key={client} className="flex items-center justify-between bg-sb-card2 border border-sb-border rounded-xl px-3 py-2">
-                  <span className="text-white text-sm">{client}</span>
-                  <button onClick={() => handleRemoveClient(client)} className="text-sb-muted hover:text-red-400 transition p-1">
-                    <Trash2 size={14} />
-                  </button>
+                  <span className="text-white text-sm flex-1 truncate">{client}</span>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button onClick={() => setSettingsClientRenameTarget(client)} className="text-white/30 hover:text-white/70 transition p-1" title="Rename">
+                      <Pencil size={14} />
+                    </button>
+                    <button onClick={() => setSettingsClientDeleteTarget(client)} className="text-sb-muted hover:text-red-400 transition p-1" title="Delete">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -903,6 +913,56 @@ export default function SettingsPage() {
         </Section>
 
       </main>
+
+      {/* ── Settings rename / delete sheets ── */}
+      {settingsCatRenameTarget !== null && (
+        <CategoryRenameSheet
+          userId={userId}
+          oldName={settingsCatRenameTarget}
+          onClose={() => setSettingsCatRenameTarget(null)}
+          onDone={() => {
+            setSettingsCatRenameTarget(null);
+            setCustomCategories(loadCustomCategories(userId));
+            window.dispatchEvent(new CustomEvent('receipts-updated'));
+          }}
+        />
+      )}
+      {settingsCatDeleteTarget !== null && (
+        <CategoryDeleteSheet
+          userId={userId}
+          name={settingsCatDeleteTarget}
+          onClose={() => setSettingsCatDeleteTarget(null)}
+          onDone={() => {
+            setSettingsCatDeleteTarget(null);
+            setCustomCategories(loadCustomCategories(userId));
+            window.dispatchEvent(new CustomEvent('receipts-updated'));
+          }}
+        />
+      )}
+      {settingsClientRenameTarget !== null && (
+        <ClientRenameSheet
+          userId={userId}
+          oldName={settingsClientRenameTarget}
+          onClose={() => setSettingsClientRenameTarget(null)}
+          onDone={() => {
+            setSettingsClientRenameTarget(null);
+            setClients(loadClients(userId));
+            window.dispatchEvent(new CustomEvent('receipts-updated'));
+          }}
+        />
+      )}
+      {settingsClientDeleteTarget !== null && (
+        <ClientDeleteSheet
+          userId={userId}
+          name={settingsClientDeleteTarget}
+          onClose={() => setSettingsClientDeleteTarget(null)}
+          onDone={() => {
+            setSettingsClientDeleteTarget(null);
+            setClients(loadClients(userId));
+            window.dispatchEvent(new CustomEvent('receipts-updated'));
+          }}
+        />
+      )}
     </div>
   );
 }
