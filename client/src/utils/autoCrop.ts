@@ -33,16 +33,16 @@ export async function autoCrop(
   const fullData = ctx.getImageData(0, 0, width, height);
   const { data } = fullData;
 
-  // Diagnostic: sample center pixel and a few spots to check decode timing
+  // Diagnostic: surface pixel values on-screen so phone user can read without dev tools
   const cx = Math.floor(width / 2), cy = Math.floor(height / 2);
   const ci = (cy * width + cx) * 4;
-  const topLeftI = 0;
   const centerPixel = [data[ci], data[ci+1], data[ci+2], data[ci+3]];
-  const topLeftPixel = [data[topLeftI], data[topLeftI+1], data[topLeftI+2], data[topLeftI+3]];
-  console.log('[autoCrop] canvas size:', width, '×', height);
-  console.log('[autoCrop] top-left pixel RGBA:', topLeftPixel);
-  console.log('[autoCrop] center pixel RGBA:', centerPixel);
-  console.log('[autoCrop] data length:', data.length, 'expected:', width * height * 4);
+  const topLeftPixel = [data[0], data[1], data[2], data[3]];
+  alert(
+    `canvas: ${width}×${height}\n` +
+    `top-left RGBA: ${topLeftPixel}\n` +
+    `center RGBA: ${centerPixel}`
+  );
 
   // Sample background from a small average of the four corners to reduce noise
   function cornerPixel(x: number, y: number): [number, number, number] {
