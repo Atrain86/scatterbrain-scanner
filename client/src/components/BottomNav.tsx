@@ -206,21 +206,19 @@ export default function BottomNav() {
                 style={{
                   fontSize: 11,
                   fontWeight: 600,
-                  padding: '5px 10px',
+                  padding: '3px 8px',
                   borderRadius: 999,
                   lineHeight: 1,
                   whiteSpace: 'nowrap',
                   color: '#ffffff',
                   border: paymentActive ? '1.3px solid rgba(74,222,128,0.6)' : '1.3px solid rgba(74,222,128,0.35)',
-                  background: paymentActive ? 'rgba(74,222,128,0.1)' : 'transparent',
+                  background: 'rgba(74,222,128,0.08)',
                 }}
               >
-                <CreditCard size={17} strokeWidth={1.75} color="#ffffff" />
-                {paymentActive && (
-                  <span style={{ maxWidth: '10ch', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
-                    {paymentFilter}
-                  </span>
-                )}
+                <CreditCard size={13} strokeWidth={1.75} color="#ffffff" />
+                <span style={{ maxWidth: '10ch', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
+                  {paymentActive ? paymentFilter : 'All'}
+                </span>
                 <svg width="9" height="9" viewBox="0 0 10 10" fill="none" style={{ opacity: 0.5, flexShrink: 0 }}>
                   <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>

@@ -31,6 +31,7 @@ export interface Receipt {
   taxLines: string | null;     // JSON: [{label, amount}]
   imagePath: string | null;
   imageUrl: string | null;
+  originalImageUrl: string | null;  // stored when crop is applied; null otherwise
   notes: string | null;
   paymentMethod: string | null; // user-assigned label, "Cash", "Other", or null
   last4: string | null;         // raw 4 digits from OCR

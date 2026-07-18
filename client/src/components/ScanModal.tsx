@@ -8,13 +8,14 @@ import LineItemSelector from './LineItemSelector';
 import type { ScannedReceiptData, Receipt } from '../utils/types';
 import { getPaymentMethods, getStoreDefaults, normalizeStoreName } from '../lib/paymentStorage';
 import CardNameSheet from './CardNameSheet';
+import { autoCrop } from '../utils/autoCrop';
 
 interface Props {
   onClose: () => void;
   onSaved: (receipt: import('../utils/types').Receipt) => void;
 }
 
-type Step = 'pick' | 'scanning' | 'select' | 'saving';
+type Step = 'pick' | 'scanning' | 'crop-preview' | 'select' | 'saving';
 
 const isDesktop = !('ontouchstart' in window) && window.innerWidth > 768;
 
@@ -33,6 +34,14 @@ export default function ScanModal({ onClose, onSaved }: Props) {
   const [imageFile,        setImageFile]        = useState<File | null>(null);
   const [error,            setError]            = useState('');
   const [pasteHighlight,   setPasteHighlight]   = useState(false);
+  // Crop preview state — set when autoCrop produces a non-degenerate crop
+  const [cropPreview, setCropPreview] = useState<{
+    croppedDataUrl: string;
+    croppedBlob: Blob;
+    originalFile: File;
+  } | null>(null);
+  // Tracks whether the user kept the crop (for originalImageUrl storage)
+  const cropKeptRef = useRef<{ originalFile: File } | null>(null);
   // CardNameSheet state: shown after save when OCR returned an unknown last4
   const [showCardSheet,    setShowCardSheet]    = useState(false);
   const [pendingLast4,     setPendingLast4]     = useState<string | null>(null);
@@ -65,6 +74,29 @@ export default function ScanModal({ onClose, onSaved }: Props) {
 
   async function handleFile(file: File) {
     setError('');
+    setCropPreview(null);
+    cropKeptRef.current = null;
+    setStep('scanning');
+
+    // Attempt auto-crop before OCR (images only)
+    if (file.type.startsWith('image/')) {
+      try {
+        const { croppedDataUrl, croppedBlob, degenerate } = await autoCrop(file);
+        if (!degenerate) {
+          // Show preview — pause before OCR
+          setCropPreview({ croppedDataUrl, croppedBlob, originalFile: file });
+          setStep('crop-preview');
+          return;
+        }
+      } catch {
+        // autoCrop failed — proceed with original
+      }
+    }
+
+    await runOcr(file);
+  }
+
+  async function runOcr(file: File) {
     setStep('scanning');
 
     let compressed = file;
@@ -139,6 +171,23 @@ export default function ScanModal({ onClose, onSaved }: Props) {
       }
     }
 
+    // If the user kept the crop, store the compressed original as originalImageUrl
+    let originalImageUrl: string | null = null;
+    if (cropKeptRef.current?.originalFile) {
+      try {
+        const origFile = cropKeptRef.current.originalFile;
+        const origCompressed = await compressForStorage(origFile);
+        originalImageUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(origCompressed);
+        });
+      } catch (origErr) {
+        console.warn('[Save] originalImageUrl compression failed (non-fatal):', origErr);
+      }
+    }
+
     // ── Payment precedence resolution ──────────────────────────────────────
     // scanned.last4 comes from OCR; payload.paymentMethod is the OCR network.
     // We resolve to a named card label (or built-in) here before writing.
@@ -199,6 +248,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
         paymentMethodSource:  resolvedSource,
         imagePath:            null,
         imageUrl,
+        originalImageUrl,
         notes:                null,
         createdAt:            now,
         updatedAt:            now,
@@ -282,9 +332,10 @@ export default function ScanModal({ onClose, onSaved }: Props) {
       <div className="border-b border-sb-border safe-top">
         <div className="flex items-center justify-between px-4 py-3 max-w-2xl mx-auto w-full">
           <h2 className="text-lg font-semibold text-white">
-            {step === 'pick'     ? 'Scan' :
-             step === 'scanning' ? 'Scanning…' :
-             step === 'select'   ? 'Select Items' :
+            {step === 'pick'          ? 'Scan' :
+             step === 'scanning'      ? 'Scanning…' :
+             step === 'crop-preview'  ? 'Crop Preview' :
+             step === 'select'        ? 'Select Items' :
              'Saving…'}
           </h2>
           {step !== 'scanning' && step !== 'saving' && (
@@ -362,6 +413,48 @@ export default function ScanModal({ onClose, onSaved }: Props) {
               className="w-full py-3.5 rounded-2xl border border-sb-border text-white/60 text-sm font-medium hover:text-white hover:border-sb-muted transition active:scale-95"
             >
               Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'crop-preview' && cropPreview && (
+        <div className="flex-1 flex flex-col px-4 max-w-2xl mx-auto w-full">
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
+            <p className="text-white/50 text-xs">Auto-cropped</p>
+            <img
+              src={cropPreview.croppedDataUrl}
+              alt="Cropped receipt preview"
+              className="w-full max-w-sm rounded-xl object-contain max-h-[55vh]"
+            />
+          </div>
+          <div className="pb-10 pt-2 safe-bottom flex flex-col gap-3">
+            <button
+              onClick={async () => {
+                // Keep the crop — compress it to a File and proceed to OCR
+                cropKeptRef.current = { originalFile: cropPreview.originalFile };
+                const croppedFile = new File(
+                  [cropPreview.croppedBlob],
+                  cropPreview.originalFile.name,
+                  { type: 'image/jpeg' },
+                );
+                setCropPreview(null);
+                await runOcr(croppedFile);
+              }}
+              className="w-full py-3.5 rounded-2xl bg-sb-green text-black font-semibold text-sm hover:opacity-90 transition active:scale-95"
+            >
+              Keep crop
+            </button>
+            <button
+              onClick={async () => {
+                // Use original — no crop stored
+                const orig = cropPreview.originalFile;
+                setCropPreview(null);
+                await runOcr(orig);
+              }}
+              className="w-full py-3.5 rounded-2xl border border-sb-border text-white/60 text-sm font-medium hover:text-white hover:border-sb-muted transition active:scale-95"
+            >
+              Use original
             </button>
           </div>
         </div>

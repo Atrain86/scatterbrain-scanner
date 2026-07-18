@@ -34,6 +34,12 @@ class ScatterbrainDB extends Dexie {
     this.version(4).stores({
       receipts: '++id, uuid, receiptDate, category, storeName, clientName, paymentMethod, last4',
     });
+    // v5: schema evolution to accept the new originalImageUrl field on Receipt.
+    // No new indexes needed; Dexie requires a version bump to acknowledge the field.
+    // Existing rows have originalImageUrl undefined — treated as null by consumers.
+    this.version(5).stores({
+      receipts: '++id, uuid, receiptDate, category, storeName, clientName, paymentMethod, last4',
+    });
   }
 }
 

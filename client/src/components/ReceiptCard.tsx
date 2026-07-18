@@ -448,6 +448,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
       category: newCat,
       imagePath:           receipt.imagePath ?? null,
       imageUrl:            receipt.imageUrl ?? null,
+      originalImageUrl:    null,
       notes:               receipt.notes ?? null,
       paymentMethod:       receipt.paymentMethod ?? null,
       last4:               receipt.last4 ?? null,
