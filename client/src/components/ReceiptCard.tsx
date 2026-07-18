@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Trash2, Check, Pencil, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut, ChevronDown } from 'lucide-react';
+import { Trash2, Check, Pencil, Image as ImageIcon, X, Plus, ZoomIn, ZoomOut, ChevronDown, CreditCard } from 'lucide-react';
 import type { Receipt } from '../utils/types';
 import { getAllCategories, getCategoryColorDynamic } from '../utils/types';
 import { isTaxLine, computeReceiptTotals, fmt } from '../utils/taxCalc';
@@ -618,13 +618,16 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                     <div className="relative flex-shrink-0">
                       <button
                         onClick={e => { e.stopPropagation(); setShowPaymentPicker(p => !p); setStoreDefaultLabel(receipt.paymentMethod); }}
-                        className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
-                        style={receipt.paymentMethod
-                          ? { backgroundColor: 'rgba(255,255,255,0.08)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.3)' }
-                          : { backgroundColor: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.1)' }
-                        }
+                        className="flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
+                        style={{ backgroundColor: 'rgba(74,222,128,0.08)', color: '#ffffff', border: '1px solid rgba(74,222,128,0.35)' }}
                       >
-                        {receipt.paymentMethod ?? '+ pay'}<ChevronDown size={8} />
+                        <CreditCard size={13} strokeWidth={1.75} color="#ffffff" />
+                        {receipt.paymentMethod && (
+                          <span style={{ maxWidth: '10ch', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {receipt.paymentMethod}
+                          </span>
+                        )}
+                        <ChevronDown size={8} />
                       </button>
 
                       {showPaymentPicker && (

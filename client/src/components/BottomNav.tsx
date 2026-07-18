@@ -210,18 +210,18 @@ export default function BottomNav() {
                   borderRadius: 9,
                   lineHeight: 1,
                   whiteSpace: 'nowrap',
-                  color: paymentActive ? '#ffffff' : 'rgba(255,255,255,0.4)',
-                  border: paymentActive ? '1.3px solid #a855f7' : '1.3px solid rgba(255,255,255,0.13)',
-                  background: paymentActive ? 'rgba(168,85,247,0.14)' : 'transparent',
+                  color: '#ffffff',
+                  border: paymentActive ? '1.3px solid rgba(74,222,128,0.6)' : '1.3px solid rgba(74,222,128,0.35)',
+                  background: paymentActive ? 'rgba(74,222,128,0.1)' : 'transparent',
                 }}
               >
-                <CreditCard size={14} strokeWidth={1.75} />
+                <CreditCard size={17} strokeWidth={1.75} color="#ffffff" />
                 {paymentActive && (
                   <span style={{ maxWidth: '10ch', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
                     {paymentFilter}
                   </span>
                 )}
-                <svg width="9" height="9" viewBox="0 0 10 10" fill="none" style={{ opacity: 0.6, flexShrink: 0 }}>
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="none" style={{ opacity: 0.5, flexShrink: 0 }}>
                   <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </button>
