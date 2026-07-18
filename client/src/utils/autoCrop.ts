@@ -25,10 +25,14 @@ export interface AutoCropResult {
 }
 
 export async function autoCrop(file: File): Promise<AutoCropResult> {
-  // imageOrientation: 'from-image' tells the browser to respect EXIF rotation
-  // before we read pixel data — without this, iOS may hand us a rotated bitmap
-  // and "top" ends up being a side, causing asymmetric crops.
-  const imageBitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  // imageOrientation: 'from-image' tells the browser to respect EXIF rotation.
+  // Fall back to no-options call if the browser doesn't support the options overload.
+  let imageBitmap: ImageBitmap;
+  try {
+    imageBitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  } catch {
+    imageBitmap = await createImageBitmap(file);
+  }
   const { width, height } = imageBitmap;
 
   const canvas = document.createElement('canvas');
