@@ -1,23 +1,28 @@
 /**
  * autoCrop.ts — canvas-based edge detection for receipt images.
  *
+ * Strategy: a row/column is considered "background" if fewer than CONTENT_RATIO
+ * of its pixels differ from the sampled background colour by more than THRESHOLD.
+ * This tolerates natural variation in wood, fabric, and other busy backgrounds —
+ * a single noisy pixel no longer anchors the crop boundary.
+ *
  * Returns { croppedDataUrl, croppedBlob, degenerate }.
  * degenerate = true when the cropped area is < 50% of the original OR either
- * dimension is < 300 px. When degenerate the original image is returned as
- * croppedDataUrl/croppedBlob so the caller can use it as a fallback.
+ * dimension is < 300 px. When degenerate the original image is returned unchanged.
  */
+
+const THRESHOLD     = 30;   // per-channel delta to count a pixel as "not background"
+const CONTENT_RATIO = 0.15; // fraction of a row/col that must differ to be "content"
 
 export async function autoCrop(
   file: File,
-  threshold = 10,
+  threshold = THRESHOLD,
 ): Promise<{ croppedDataUrl: string; croppedBlob: Blob; degenerate: boolean }> {
-  // Load the file into an HTMLImageElement
   const imageBitmap = await createImageBitmap(file);
   const { width, height } = imageBitmap;
 
-  // Draw to an offscreen canvas so we can read pixel data
   const canvas = document.createElement('canvas');
-  canvas.width = width;
+  canvas.width  = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('autoCrop: could not get 2d context');
@@ -25,82 +30,86 @@ export async function autoCrop(
   ctx.drawImage(imageBitmap, 0, 0);
   imageBitmap.close();
 
-  const imageData = ctx.getImageData(0, 0, width, height);
-  const data = imageData.data; // Uint8ClampedArray, [r,g,b,a, r,g,b,a, ...]
+  const { data } = ctx.getImageData(0, 0, width, height);
 
-  // Helper: get r,g,b at pixel (x, y)
-  function getPixel(x: number, y: number): [number, number, number] {
+  // Sample background from a small average of the four corners to reduce noise
+  function cornerPixel(x: number, y: number): [number, number, number] {
     const idx = (y * width + x) * 4;
     return [data[idx], data[idx + 1], data[idx + 2]];
   }
+  const corners = [
+    cornerPixel(0, 0),
+    cornerPixel(width - 1, 0),
+    cornerPixel(0, height - 1),
+    cornerPixel(width - 1, height - 1),
+  ];
+  const bgR = Math.round(corners.reduce((s, c) => s + c[0], 0) / 4);
+  const bgG = Math.round(corners.reduce((s, c) => s + c[1], 0) / 4);
+  const bgB = Math.round(corners.reduce((s, c) => s + c[2], 0) / 4);
 
-  // Background color = top-left corner pixel
-  const [bgR, bgG, bgB] = getPixel(0, 0);
-
-  // Check whether a pixel differs from background by more than threshold in any channel
-  function differsFromBg(x: number, y: number): boolean {
-    const [r, g, b] = getPixel(x, y);
+  function pixelDiffersFromBg(x: number, y: number): boolean {
+    const idx = (y * width + x) * 4;
     return (
-      Math.abs(r - bgR) > threshold ||
-      Math.abs(g - bgG) > threshold ||
-      Math.abs(b - bgB) > threshold
+      Math.abs(data[idx]     - bgR) > threshold ||
+      Math.abs(data[idx + 1] - bgG) > threshold ||
+      Math.abs(data[idx + 2] - bgB) > threshold
     );
   }
 
-  // Scan from top edge inward
-  let top = 0;
-  outer_top: for (let y = 0; y < height; y++) {
+  // Returns true if a row has enough content pixels to be considered non-background
+  function rowHasContent(y: number): boolean {
+    let count = 0;
+    const needed = Math.ceil(width * CONTENT_RATIO);
     for (let x = 0; x < width; x++) {
-      if (differsFromBg(x, y)) { top = y; break outer_top; }
+      if (pixelDiffersFromBg(x, y)) {
+        count++;
+        if (count >= needed) return true;
+      }
     }
+    return false;
   }
 
-  // Scan from bottom edge inward
+  // Returns true if a column has enough content pixels
+  function colHasContent(x: number): boolean {
+    let count = 0;
+    const needed = Math.ceil(height * CONTENT_RATIO);
+    for (let y = 0; y < height; y++) {
+      if (pixelDiffersFromBg(x, y)) {
+        count++;
+        if (count >= needed) return true;
+      }
+    }
+    return false;
+  }
+
+  let top    = 0;
   let bottom = height - 1;
-  outer_bottom: for (let y = height - 1; y >= 0; y--) {
-    for (let x = 0; x < width; x++) {
-      if (differsFromBg(x, y)) { bottom = y; break outer_bottom; }
-    }
-  }
+  let left   = 0;
+  let right  = width - 1;
 
-  // Scan from left edge inward
-  let left = 0;
-  outer_left: for (let x = 0; x < width; x++) {
-    for (let y = 0; y < height; y++) {
-      if (differsFromBg(x, y)) { left = x; break outer_left; }
-    }
-  }
+  for (let y = 0; y < height; y++)         { if (rowHasContent(y)) { top    = y; break; } }
+  for (let y = height - 1; y >= 0; y--)    { if (rowHasContent(y)) { bottom = y; break; } }
+  for (let x = 0; x < width; x++)          { if (colHasContent(x)) { left   = x; break; } }
+  for (let x = width - 1; x >= 0; x--)     { if (colHasContent(x)) { right  = x; break; } }
 
-  // Scan from right edge inward
-  let right = width - 1;
-  outer_right: for (let x = width - 1; x >= 0; x--) {
-    for (let y = 0; y < height; y++) {
-      if (differsFromBg(x, y)) { right = x; break outer_right; }
-    }
-  }
-
-  // Add 4 px padding on each side, clamped to image bounds
-  const PAD = 4;
-  const cropX = Math.max(0, left - PAD);
-  const cropY = Math.max(0, top - PAD);
+  const PAD  = 8; // slightly more generous padding
+  const cropX = Math.max(0, left   - PAD);
+  const cropY = Math.max(0, top    - PAD);
   const cropW = Math.min(width,  right  + PAD + 1) - cropX;
   const cropH = Math.min(height, bottom + PAD + 1) - cropY;
 
-  // Degeneracy check
   const originalArea = width * height;
-  const croppedArea   = cropW * cropH;
-  const degenerate =
+  const croppedArea  = cropW * cropH;
+  const degenerate   =
     cropW < 300 ||
     cropH < 300 ||
     croppedArea < originalArea * 0.5;
 
   if (degenerate) {
-    // Return original file as both dataUrl and Blob
     const originalDataUrl = await fileToDataUrl(file);
     return { croppedDataUrl: originalDataUrl, croppedBlob: file, degenerate: true };
   }
 
-  // Draw the cropped region to a new canvas
   const cropCanvas = document.createElement('canvas');
   cropCanvas.width  = cropW;
   cropCanvas.height = cropH;
@@ -110,7 +119,7 @@ export async function autoCrop(
   cropCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
   const croppedDataUrl = cropCanvas.toDataURL('image/jpeg', 0.92);
-  const croppedBlob = await new Promise<Blob>((resolve, reject) => {
+  const croppedBlob    = await new Promise<Blob>((resolve, reject) => {
     cropCanvas.toBlob(
       blob => (blob ? resolve(blob) : reject(new Error('autoCrop: toBlob returned null'))),
       'image/jpeg',
@@ -120,8 +129,6 @@ export async function autoCrop(
 
   return { croppedDataUrl, croppedBlob, degenerate: false };
 }
-
-// ── helpers ───────────────────────────────────────────────────────────────────
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
