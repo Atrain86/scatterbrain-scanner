@@ -19,7 +19,7 @@ import {
   ClientDeleteSheet,
 } from '../components/RenameDeleteSheets';
 
-export const APP_VERSION = '0.25.2';
+export const APP_VERSION = '0.25.3';
 
 interface CustomCategory {
   name: string;
