@@ -489,7 +489,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
             </span>
           )}
         </div>
-        <p className="text-[11px] text-white/40 leading-snug mt-1 truncate">
+        <p className="text-[11px] text-white/40 leading-snug mt-1 truncate" style={{ paddingLeft: 16 }}>
           {receipt.clientName ? `${receipt.clientName}  ·  ${dateDisplay}` : dateDisplay}
         </p>
       </div>
@@ -517,16 +517,11 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
               <div className="flex items-center gap-1.5 mt-1">
                 {receipt.paymentMethod && (
                   <span
-                    aria-label={receipt.paymentMethod}
-                    className="rounded-full flex-shrink-0"
-                    style={{
-                      width: 11, height: 11,
-                      backgroundColor:
-                        receipt.paymentMethod === 'Cash'  ? '#6bc48a' :
-                        receipt.paymentMethod === 'Other' ? '#71717a' :
-                        '#a855f7', // named card — purple
-                    }}
-                  />
+                    className="text-[11px] flex-shrink-0"
+                    style={{ color: '#b0aabf', maxWidth: '12ch', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
+                    {receipt.paymentMethod}
+                  </span>
                 )}
                 {confirmDelete ? (
                   <button onClick={() => { onDelete(receipt.id); setConfirmDelete(false); }} onBlur={() => setConfirmDelete(false)}
