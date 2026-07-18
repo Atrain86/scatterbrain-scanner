@@ -10,13 +10,8 @@
  * < 300px. When degenerate the original file is returned unchanged.
  */
 
-// A pixel is "receipt" if its luminance exceeds this value (0-255).
-// 140 sits comfortably between dark wood (~40-100) and white paper (~200+).
-const LUMA_THRESHOLD = 140;
-
-// Fraction of a row/col that must be "receipt" pixels to count as content.
-// 5% of 3024px = ~151px — enough to catch a receipt edge reliably.
-const CONTENT_RATIO = 0.05;
+const LUMA_THRESHOLD = 140; // 0-255; white paper ~200+, dark backgrounds ~40-100
+const CONTENT_RATIO  = 0.05; // 5% of row/col pixels must be bright to count as content
 
 function luma(r: number, g: number, b: number): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
@@ -83,7 +78,6 @@ export async function autoCrop(
 
   if (degenerate) {
     const originalDataUrl = await fileToDataUrl(file);
-    alert(`degenerate — using original ${width}×${height}`);
     return { croppedDataUrl: originalDataUrl, croppedBlob: file, degenerate: true };
   }
 
@@ -96,9 +90,6 @@ export async function autoCrop(
   cropCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
   const croppedDataUrl = cropCanvas.toDataURL('image/jpeg', 0.92);
-
-  // Sample center of cropped canvas to verify it drew correctly
-  const cropCenterData = cropCtx.getImageData(Math.floor(cropW/2), Math.floor(cropH/2), 1, 1).data;
   const croppedBlob    = await new Promise<Blob>((resolve, reject) => {
     cropCanvas.toBlob(
       b => (b ? resolve(b) : reject(new Error('autoCrop: toBlob returned null'))),
@@ -106,14 +97,6 @@ export async function autoCrop(
       0.92,
     );
   });
-
-  alert(
-    `orig: ${width}×${height}\n` +
-    `edges T:${top} B:${bottom} L:${left} R:${right}\n` +
-    `cropCanvas: ${cropCanvas.width}×${cropCanvas.height}\n` +
-    `crop center px: ${[...cropCenterData]}\n` +
-    `dataUrl starts: ${croppedDataUrl.slice(0,40)}`
-  );
 
   return { croppedDataUrl, croppedBlob, degenerate: false };
 }
