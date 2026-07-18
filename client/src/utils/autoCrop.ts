@@ -12,7 +12,8 @@
  */
 
 const THRESHOLD     = 30;   // per-channel delta to count a pixel as "not background"
-const CONTENT_RATIO = 0.15; // fraction of a row/col that must differ to be "content"
+const CONTENT_RATIO = 0.03; // fraction of a row/col that must differ to be "content"
+                            // 3% = ~90px on a 3024px-wide row — receipt edge is narrow
 
 export async function autoCrop(
   file: File,
@@ -33,16 +34,6 @@ export async function autoCrop(
   const fullData = ctx.getImageData(0, 0, width, height);
   const { data } = fullData;
 
-  // Diagnostic: surface pixel values on-screen so phone user can read without dev tools
-  const cx = Math.floor(width / 2), cy = Math.floor(height / 2);
-  const ci = (cy * width + cx) * 4;
-  const centerPixel = [data[ci], data[ci+1], data[ci+2], data[ci+3]];
-  const topLeftPixel = [data[0], data[1], data[2], data[3]];
-  alert(
-    `canvas: ${width}×${height}\n` +
-    `top-left RGBA: ${topLeftPixel}\n` +
-    `center RGBA: ${centerPixel}`
-  );
 
   // Sample background from a small average of the four corners to reduce noise
   function cornerPixel(x: number, y: number): [number, number, number] {
@@ -160,4 +151,3 @@ function fileToDataUrl(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
-// cache bust Sat Jul 18 10:00:51 PDT 2026
