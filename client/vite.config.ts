@@ -24,7 +24,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        cacheId: 'sb-v4',
+        cacheId: 'sb-v5',
         skipWaiting: true,
         clientsClaim: true,
       },
