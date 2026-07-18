@@ -39,6 +39,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     croppedDataUrl: string;
     croppedBlob: Blob;
     originalFile: File;
+    debugInfo: string;
   } | null>(null);
   // Tracks whether the user kept the crop (for originalImageUrl storage)
   const cropKeptRef = useRef<{ originalFile: File } | null>(null);
@@ -81,10 +82,10 @@ export default function ScanModal({ onClose, onSaved }: Props) {
     // Attempt auto-crop before OCR (images only)
     if (file.type.startsWith('image/')) {
       try {
-        const { croppedDataUrl, croppedBlob, degenerate } = await autoCrop(file);
+        const { croppedDataUrl, croppedBlob, degenerate, debugInfo } = await autoCrop(file);
         if (!degenerate) {
           // Show preview — pause before OCR
-          setCropPreview({ croppedDataUrl, croppedBlob, originalFile: file });
+          setCropPreview({ croppedDataUrl, croppedBlob, originalFile: file, debugInfo });
           setStep('crop-preview');
           return;
         }
@@ -427,6 +428,9 @@ export default function ScanModal({ onClose, onSaved }: Props) {
               alt="Cropped receipt preview"
               className="w-full max-w-sm rounded-xl object-contain max-h-[55vh]"
             />
+            <p className="text-white/30 text-[10px] font-mono text-center px-2 leading-relaxed">
+              {cropPreview.debugInfo}
+            </p>
           </div>
           <div className="pb-10 pt-2 safe-bottom flex flex-col gap-3">
             <button
