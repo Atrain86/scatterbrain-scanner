@@ -10,8 +10,9 @@
  * < 300px. When degenerate the original file is returned unchanged.
  */
 
-const LUMA_THRESHOLD = 160; // 0-255; white paper ~200+, dark backgrounds ~40-100; raised to reject JPEG noise
-const CONTENT_RATIO  = 0.08; // 8% of row/col pixels must be bright to count as content
+const LUMA_THRESHOLD = 150; // 0-255; white paper ~200+, dark backgrounds ~40-100
+const CONTENT_RATIO  = 0.06; // 6% of row/col pixels must be bright to count as content
+const CONSECUTIVE    = 3;    // require N consecutive content rows/cols to confirm an edge
 
 function luma(r: number, g: number, b: number): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
@@ -62,10 +63,43 @@ export async function autoCrop(
   let left   = 0;
   let right  = width - 1;
 
-  for (let y = 0; y < height; y++)      { if (rowHasContent(y)) { top    = y; break; } }
-  for (let y = height - 1; y >= 0; y--) { if (rowHasContent(y)) { bottom = y; break; } }
-  for (let x = 0; x < width; x++)       { if (colHasContent(x)) { left   = x; break; } }
-  for (let x = width - 1; x >= 0; x--) { if (colHasContent(x)) { right  = x; break; } }
+  // Require CONSECUTIVE content rows/cols to avoid locking onto vignetting or JPEG noise at edges
+  outer: for (let y = 0; y < height; y++) {
+    if (rowHasContent(y)) {
+      let run = 1;
+      for (let y2 = y + 1; y2 < y + CONSECUTIVE && y2 < height; y2++) {
+        if (rowHasContent(y2)) run++; else break;
+      }
+      if (run >= CONSECUTIVE) { top = y; break outer; }
+    }
+  }
+  outer: for (let y = height - 1; y >= 0; y--) {
+    if (rowHasContent(y)) {
+      let run = 1;
+      for (let y2 = y - 1; y2 > y - CONSECUTIVE && y2 >= 0; y2--) {
+        if (rowHasContent(y2)) run++; else break;
+      }
+      if (run >= CONSECUTIVE) { bottom = y; break outer; }
+    }
+  }
+  outer: for (let x = 0; x < width; x++) {
+    if (colHasContent(x)) {
+      let run = 1;
+      for (let x2 = x + 1; x2 < x + CONSECUTIVE && x2 < width; x2++) {
+        if (colHasContent(x2)) run++; else break;
+      }
+      if (run >= CONSECUTIVE) { left = x; break outer; }
+    }
+  }
+  outer: for (let x = width - 1; x >= 0; x--) {
+    if (colHasContent(x)) {
+      let run = 1;
+      for (let x2 = x - 1; x2 > x - CONSECUTIVE && x2 >= 0; x2--) {
+        if (colHasContent(x2)) run++; else break;
+      }
+      if (run >= CONSECUTIVE) { right = x; break outer; }
+    }
+  }
 
   const PAD   = 12;
   const cropX = Math.max(0, left   - PAD);
