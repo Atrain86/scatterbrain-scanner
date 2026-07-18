@@ -8,6 +8,7 @@ import { useFilter } from '../contexts/FilterContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getAllCategories } from '../utils/types';
 import { getPaymentMethods } from '../lib/paymentStorage';
+import { getDb } from '../lib/db';
 
 const TABS_LEFT = [
   { to: '/receipts',  icon: Home,      label: 'Home',      activeColor: '#60a5fa' },
@@ -48,8 +49,9 @@ export default function BottomNav() {
   const { user } = useAuth();
   const categories = user ? getAllCategories(user.id) : [];
   const namedCards = user ? getPaymentMethods(user.id) : [];
-  // Options: All, ...named card labels, Cash, Other
-  const paymentOptions: string[] = ['All', ...namedCards.map(m => m.label), 'Cash', 'Other'];
+  const [extraPaymentOptions, setExtraPaymentOptions] = useState<string[]>([]);
+  // Options: All, named cards, any orphan tags found in receipts, Cash, Other
+  const paymentOptions: string[] = ['All', ...namedCards.map(m => m.label), ...extraPaymentOptions, 'Cash', 'Other'];
 
   const [showCatPicker,     setShowCatPicker]     = useState(false);
   const [showPaymentPicker, setShowPaymentPicker] = useState(false);
@@ -73,6 +75,23 @@ export default function BottomNav() {
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [showPaymentPicker]);
+
+  // When picker opens, collect any paymentMethod values on receipts that aren't
+  // already covered by named cards (e.g. old "Visa" tags before naming was added).
+  useEffect(() => {
+    if (!showPaymentPicker || !user) return;
+    const namedLabels = new Set(getPaymentMethods(user.id).map(m => m.label));
+    namedLabels.add('Cash');
+    namedLabels.add('Other');
+    getDb(user.id).receipts.toArray().then(rows => {
+      const seen = new Set<string>();
+      rows.forEach(r => {
+        const pm = (r as { paymentMethod?: string | null }).paymentMethod;
+        if (pm && !namedLabels.has(pm)) seen.add(pm);
+      });
+      setExtraPaymentOptions(Array.from(seen).sort());
+    }).catch(() => {});
+  }, [showPaymentPicker, user]);
 
   const funnelColor = categoryFilter
     ? (categories.find(c => c.name === categoryFilter)?.color ?? '#d9c15c')

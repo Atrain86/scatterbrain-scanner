@@ -10,6 +10,7 @@ import { addReceipt } from '../lib/db';
 import { pushReceiptNow } from '../lib/cloudSync';
 import { getPaymentMethods, getStoreDefaults, saveStoreDefaults, normalizeStoreName } from '../lib/paymentStorage';
 import CardNameSheet from './CardNameSheet';
+import BottomSheet from './BottomSheet';
 import {
   CategoryRenameSheet,
   ClientRenameSheet,
@@ -218,6 +219,8 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
   const [clients,          setClients]          = useState<string[]>(() => loadClients(userId));
   const [newClientInput,   setNewClientInput]   = useState('');
   const [newCatInput,      setNewCatInput]      = useState('');
+  const [showNewClientSheet, setShowNewClientSheet] = useState(false);
+  const [showNewCatSheet,    setShowNewCatSheet]    = useState(false);
 
   // Rename / delete sheet targets
   const [clientRenameTarget, setClientRenameTarget] = useState<string | null>(null);
@@ -784,14 +787,12 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                           </div>
                         ))}
                       </div>
-                      <div className="border-t border-sb-border px-2 py-1.5 flex gap-1" onClick={e => e.stopPropagation()}>
-                        <input value={newClientInput} onChange={e => setNewClientInput(e.target.value)}
-                          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewClient(); }}
-                          placeholder="+ new client"
-                          className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/70 focus:outline-none focus:border-sb-green py-0.5" />
-                        <button onClick={() => addNewClient()}
-                          className={`p-1 transition ${newClientInput.trim() ? 'text-sb-green' : 'text-white/20'}`}><Plus size={12} /></button>
-                      </div>
+                      <button
+                        onClick={e => { e.stopPropagation(); setShowClientPicker(false); setShowNewClientSheet(true); }}
+                        className="w-full border-t border-sb-border px-3 py-2.5 text-xs text-white/70 hover:text-white text-left flex items-center gap-1.5 transition"
+                      >
+                        <Plus size={11} />＋ New client
+                      </button>
                     </div>
                   )}
                 </div>
@@ -833,14 +834,12 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                           </div>
                         ))}
                       </div>
-                      <div className="border-t border-sb-border px-2 py-1.5 flex gap-1" onClick={e => e.stopPropagation()}>
-                        <input value={newCatInput} onChange={e => setNewCatInput(e.target.value)}
-                          onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') addNewCategory(); }}
-                          placeholder="+ new category"
-                          className="flex-1 bg-transparent border-b border-sb-border text-[11px] text-white placeholder-white/70 focus:outline-none focus:border-sb-green py-0.5" />
-                        <button onClick={() => addNewCategory()}
-                          className={`p-1 transition ${newCatInput.trim() ? 'text-sb-green' : 'text-white/20'}`}><Plus size={12} /></button>
-                      </div>
+                      <button
+                        onClick={e => { e.stopPropagation(); setShowCatPicker(false); setShowNewCatSheet(true); }}
+                        className="w-full border-t border-sb-border px-3 py-2.5 text-xs text-white/70 hover:text-white text-left flex items-center gap-1.5 transition"
+                      >
+                        <Plus size={11} />＋ New category
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1144,6 +1143,42 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
             window.dispatchEvent(new CustomEvent('receipts-updated'));
           }}
         />
+      )}
+
+      {showNewClientSheet && (
+        <BottomSheet
+          title="New client"
+          onClose={() => { setShowNewClientSheet(false); setNewClientInput(''); }}
+          onPrimary={() => { addNewClient(); setShowNewClientSheet(false); }}
+          primaryDisabled={!newClientInput.trim()}
+        >
+          <input
+            autoFocus
+            value={newClientInput}
+            onChange={e => setNewClientInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && newClientInput.trim()) { addNewClient(); setShowNewClientSheet(false); } }}
+            placeholder="Client name"
+            className="w-full bg-sb-card border border-sb-green rounded-xl px-4 py-3 text-white text-sm placeholder-white/30 focus:outline-none"
+          />
+        </BottomSheet>
+      )}
+
+      {showNewCatSheet && (
+        <BottomSheet
+          title="New category"
+          onClose={() => { setShowNewCatSheet(false); setNewCatInput(''); }}
+          onPrimary={() => { addNewCategory(); setShowNewCatSheet(false); }}
+          primaryDisabled={!newCatInput.trim()}
+        >
+          <input
+            autoFocus
+            value={newCatInput}
+            onChange={e => setNewCatInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && newCatInput.trim()) { addNewCategory(); setShowNewCatSheet(false); } }}
+            placeholder="Category name"
+            className="w-full bg-sb-card border border-sb-green rounded-xl px-4 py-3 text-white text-sm placeholder-white/30 focus:outline-none"
+          />
+        </BottomSheet>
       )}
     </>
   );
