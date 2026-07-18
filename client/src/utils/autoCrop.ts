@@ -81,15 +81,9 @@ export async function autoCrop(
   const ratio      = (cropW * cropH) / (width * height);
   const degenerate = cropW < 300 || cropH < 300 || ratio < 0.5;
 
-  alert(
-    `luma>${LUMA_THRESHOLD}, ratio>${CONTENT_RATIO}\n` +
-    `edges T:${top} B:${bottom} L:${left} R:${right}\n` +
-    `crop: ${cropW}×${cropH} (${(ratio*100).toFixed(0)}%)\n` +
-    `degenerate: ${degenerate}`
-  );
-
   if (degenerate) {
     const originalDataUrl = await fileToDataUrl(file);
+    alert(`degenerate — using original ${width}×${height}`);
     return { croppedDataUrl: originalDataUrl, croppedBlob: file, degenerate: true };
   }
 
@@ -102,6 +96,9 @@ export async function autoCrop(
   cropCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
   const croppedDataUrl = cropCanvas.toDataURL('image/jpeg', 0.92);
+
+  // Sample center of cropped canvas to verify it drew correctly
+  const cropCenterData = cropCtx.getImageData(Math.floor(cropW/2), Math.floor(cropH/2), 1, 1).data;
   const croppedBlob    = await new Promise<Blob>((resolve, reject) => {
     cropCanvas.toBlob(
       b => (b ? resolve(b) : reject(new Error('autoCrop: toBlob returned null'))),
@@ -109,6 +106,14 @@ export async function autoCrop(
       0.92,
     );
   });
+
+  alert(
+    `orig: ${width}×${height}\n` +
+    `edges T:${top} B:${bottom} L:${left} R:${right}\n` +
+    `cropCanvas: ${cropCanvas.width}×${cropCanvas.height}\n` +
+    `crop center px: ${[...cropCenterData]}\n` +
+    `dataUrl starts: ${croppedDataUrl.slice(0,40)}`
+  );
 
   return { croppedDataUrl, croppedBlob, degenerate: false };
 }
