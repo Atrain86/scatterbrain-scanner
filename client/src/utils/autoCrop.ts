@@ -92,7 +92,7 @@ export async function autoCrop(
   for (let x = 0; x < width; x++)          { if (colHasContent(x)) { left   = x; break; } }
   for (let x = width - 1; x >= 0; x--)     { if (colHasContent(x)) { right  = x; break; } }
 
-  const PAD  = 8; // slightly more generous padding
+  const PAD  = 8;
   const cropX = Math.max(0, left   - PAD);
   const cropY = Math.max(0, top    - PAD);
   const cropW = Math.min(width,  right  + PAD + 1) - cropX;
@@ -104,6 +104,16 @@ export async function autoCrop(
     cropW < 300 ||
     cropH < 300 ||
     croppedArea < originalArea * 0.5;
+
+  console.log('[autoCrop]', {
+    imageSize: `${width}×${height}`,
+    bg: `rgb(${bgR},${bgG},${bgB})`,
+    edges: { top, bottom, left, right },
+    crop: { cropX, cropY, cropW, cropH },
+    originalArea, croppedArea,
+    ratio: (croppedArea / originalArea).toFixed(2),
+    degenerate,
+  });
 
   if (degenerate) {
     const originalDataUrl = await fileToDataUrl(file);
