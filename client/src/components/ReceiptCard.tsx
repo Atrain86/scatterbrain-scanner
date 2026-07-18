@@ -620,7 +620,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                         onClick={e => { e.stopPropagation(); setShowPaymentPicker(p => !p); setStoreDefaultLabel(receipt.paymentMethod); }}
                         className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition hover:brightness-125"
                         style={receipt.paymentMethod
-                          ? { backgroundColor: 'rgba(168,85,247,0.18)', color: '#ffffff', border: '1px solid rgba(168,85,247,0.45)' }
+                          ? { backgroundColor: 'rgba(255,255,255,0.08)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.3)' }
                           : { backgroundColor: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.1)' }
                         }
                       >
@@ -789,9 +789,9 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                       </div>
                       <button
                         onClick={e => { e.stopPropagation(); setShowClientPicker(false); setShowNewClientSheet(true); }}
-                        className="w-full border-t border-sb-border px-3 py-2.5 text-xs text-white/70 hover:text-white text-left flex items-center gap-1.5 transition"
+                        className="w-full border-t border-sb-border px-3 py-2.5 text-xs text-sb-green hover:brightness-110 text-left transition"
                       >
-                        <Plus size={11} />＋ New client
+                        ＋ New client
                       </button>
                     </div>
                   )}
@@ -836,9 +836,9 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                       </div>
                       <button
                         onClick={e => { e.stopPropagation(); setShowCatPicker(false); setShowNewCatSheet(true); }}
-                        className="w-full border-t border-sb-border px-3 py-2.5 text-xs text-white/70 hover:text-white text-left flex items-center gap-1.5 transition"
+                        className="w-full border-t border-sb-border px-3 py-2.5 text-xs text-sb-green hover:brightness-110 text-left transition"
                       >
-                        <Plus size={11} />＋ New category
+                        ＋ New category
                       </button>
                     </div>
                   )}

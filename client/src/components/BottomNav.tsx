@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, BarChart2, FileSpreadsheet, Settings, Camera, Funnel } from 'lucide-react';
+import { Home, BarChart2, FileSpreadsheet, Settings, Camera, Funnel, CreditCard } from 'lucide-react';
 import ScanModal from './ScanModal';
 import { useQueryClient } from '@tanstack/react-query';
 import SyncHealthDot from './SyncHealthDot';
@@ -202,11 +202,11 @@ export default function BottomNav() {
             <div className="relative flex-shrink-0" ref={paymentPickerRef}>
               <button
                 onClick={() => setShowPaymentPicker(p => !p)}
-                className="flex items-center gap-1 transition active:scale-95"
+                className="flex items-center gap-1.5 transition active:scale-95"
                 style={{
                   fontSize: 11,
                   fontWeight: 600,
-                  padding: '6px 10px',
+                  padding: '5px 10px',
                   borderRadius: 9,
                   lineHeight: 1,
                   whiteSpace: 'nowrap',
@@ -215,12 +215,13 @@ export default function BottomNav() {
                   background: paymentActive ? 'rgba(168,85,247,0.14)' : 'transparent',
                 }}
               >
-                {paymentActive ? (
-                  <span style={{ maxWidth: '12ch', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
+                <CreditCard size={14} strokeWidth={1.75} />
+                {paymentActive && (
+                  <span style={{ maxWidth: '10ch', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
                     {paymentFilter}
                   </span>
-                ) : 'Payment ∨'}
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ marginLeft: 2, opacity: 0.7, flexShrink: 0 }}>
+                )}
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="none" style={{ opacity: 0.6, flexShrink: 0 }}>
                   <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </button>
