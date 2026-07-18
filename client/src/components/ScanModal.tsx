@@ -73,6 +73,7 @@ export default function ScanModal({ onClose, onSaved }: Props) {
   }, [step]);
 
   async function handleFile(file: File) {
+    alert('handleFile reached — type: ' + file.type + ' size: ' + file.size);
     setError('');
     setCropPreview(null);
     cropKeptRef.current = null;
