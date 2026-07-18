@@ -103,10 +103,18 @@ export async function autoCrop(
 
   const originalArea = width * height;
   const croppedArea  = cropW * cropH;
+  const ratio = croppedArea / originalArea;
   const degenerate   =
     cropW < 300 ||
     cropH < 300 ||
-    croppedArea < originalArea * 0.5;
+    ratio < 0.5;
+
+  alert(
+    `bg: rgb(${bgR},${bgG},${bgB})\n` +
+    `edges T:${top} B:${bottom} L:${left} R:${right}\n` +
+    `crop: ${cropW}×${cropH} (${(ratio*100).toFixed(0)}% of orig)\n` +
+    `degenerate: ${degenerate}`
+  );
 
   console.log('[autoCrop]', {
     imageSize: `${width}×${height}`,
