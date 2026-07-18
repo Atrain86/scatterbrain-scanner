@@ -10,8 +10,8 @@
  * < 300px. When degenerate the original file is returned unchanged.
  */
 
-const LUMA_THRESHOLD = 150; // 0-255; white paper ~200+, dark backgrounds ~40-100
-const CONTENT_RATIO  = 0.06; // 6% of row/col pixels must be bright to count as content
+const LUMA_THRESHOLD = 140; // 0-255; white paper ~200+, dark backgrounds ~40-100
+const CONTENT_RATIO  = 0.05; // 5% of row/col pixels must be bright to count as content
 
 function luma(r: number, g: number, b: number): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
@@ -25,14 +25,7 @@ export interface AutoCropResult {
 }
 
 export async function autoCrop(file: File): Promise<AutoCropResult> {
-  // imageOrientation: 'from-image' tells the browser to respect EXIF rotation.
-  // Fall back to no-options call if the browser doesn't support the options overload.
-  let imageBitmap: ImageBitmap;
-  try {
-    imageBitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  } catch {
-    imageBitmap = await createImageBitmap(file);
-  }
+  const imageBitmap = await createImageBitmap(file);
   const { width, height } = imageBitmap;
 
   const canvas = document.createElement('canvas');
@@ -88,7 +81,7 @@ export async function autoCrop(file: File): Promise<AutoCropResult> {
   const ratio      = (cropW * cropH) / (width * height);
   const degenerate = cropW < 300 || cropH < 300 || ratio < 0.5;
 
-  const debugInfo = `orig:${width}×${height} T:${top} B:${bottom} L:${left} R:${right} crop:${cropW}×${cropH} (${Math.round(ratio*100)}%)`;
+  const debugInfo = `orig:${width}×${height} T:${top} B:${bottom} L:${left} R:${right} crop:${cropW}×${cropH} (${Math.round(ratio * 100)}%)`;
 
   if (degenerate) {
     const originalDataUrl = await fileToDataUrl(file);
