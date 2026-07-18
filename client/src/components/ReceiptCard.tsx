@@ -804,7 +804,7 @@ export default function ReceiptCard({ receipt, onDelete, onUpdateCategory, onUpd
                     {receipt.category || '+ cat'}<ChevronDown size={8} />
                   </button>
                   {showCatPicker && (
-                    <div className="absolute top-full left-0 mt-1 w-48 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl" onClick={e => e.stopPropagation()}>
+                    <div className="absolute top-full left-0 mt-1 w-56 bg-sb-card2 border border-sb-border rounded-xl overflow-hidden z-40 shadow-2xl" onClick={e => e.stopPropagation()}>
                       <div className="max-h-48 overflow-y-auto">
                         {getAllCategories(userId).map(cat => (
                           <div key={cat.name} className={`flex items-center transition ${cat.name === receipt.category ? 'bg-white/5' : ''}`}>
