@@ -10,8 +10,8 @@
  * < 300px. When degenerate the original file is returned unchanged.
  */
 
-const LUMA_THRESHOLD = 140; // 0-255; white paper ~200+, dark backgrounds ~40-100
-const CONTENT_RATIO  = 0.05; // 5% of row/col pixels must be bright to count as content
+const LUMA_THRESHOLD = 160; // 0-255; white paper ~200+, dark backgrounds ~40-100; raised to reject JPEG noise
+const CONTENT_RATIO  = 0.08; // 8% of row/col pixels must be bright to count as content
 
 function luma(r: number, g: number, b: number): number {
   return 0.299 * r + 0.587 * g + 0.114 * b;
